@@ -8,7 +8,7 @@ export const registerSessionRoutes = (
 ) => {
   app.get("/notebooks/:id/sessions", async (request, reply) => {
     const params = z.object({ id: z.string() }).parse(request.params);
-    const data = sessions.listSessions(params.id);
+    const data = await sessions.listSessions(params.id);
     if (data.length === 0) {
       reply.code(204);
       return null;
@@ -19,14 +19,14 @@ export const registerSessionRoutes = (
 
   app.post("/notebooks/:id/sessions", async (request, reply) => {
     const params = z.object({ id: z.string() }).parse(request.params);
-    const session = sessions.createSession(params.id);
+    const session = await sessions.createSession(params.id);
     reply.code(201);
     return { data: session };
   });
 
   app.delete("/sessions/:id", async (request, reply) => {
     const params = z.object({ id: z.string() }).parse(request.params);
-    const session = sessions.closeSession(params.id);
+    const session = await sessions.closeSession(params.id);
     if (!session) {
       reply.code(404);
       return { error: "Session not found" };

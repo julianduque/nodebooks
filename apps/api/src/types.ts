@@ -8,14 +8,14 @@ export interface NotebookSession {
 }
 
 export interface SessionManager {
-  createSession(notebookId: string): NotebookSession;
-  closeSession(sessionId: string): NotebookSession | undefined;
-  listSessions(notebookId?: string): NotebookSession[];
+  createSession(notebookId: string): Promise<NotebookSession>;
+  closeSession(sessionId: string): Promise<NotebookSession | undefined>;
+  listSessions(notebookId?: string): Promise<NotebookSession[]>;
 }
 
 export interface NotebookStore {
-  all(): Notebook[];
-  get(id: string): Notebook | undefined;
-  save(notebook: Notebook): Notebook;
-  remove(id: string): Notebook | undefined;
+  all(): Promise<Notebook[]>;
+  get(id: string): Promise<Notebook | undefined>;
+  save(notebook: Notebook): Promise<Notebook>;
+  remove(id: string): Promise<Notebook | undefined>;
 }

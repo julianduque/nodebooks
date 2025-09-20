@@ -29,13 +29,13 @@ export const registerNotebookRoutes = (
 ) => {
   app.get("/notebooks", async () => {
     return {
-      data: store.all(),
+      data: await store.all(),
     };
   });
 
   app.get("/notebooks/:id", async (request, reply) => {
     const params = z.object({ id: z.string() }).parse(request.params);
-    const notebook = store.get(params.id);
+    const notebook = await store.get(params.id);
     if (!notebook) {
       reply.code(404);
       return { error: "Notebook not found" };
@@ -76,7 +76,7 @@ export const registerNotebookRoutes = (
       }
     }
 
-    const notebook = store.save(
+    const notebook = await store.save(
       NotebookSchema.parse({
         ...base,
         env: body.env ?? base.env,
@@ -90,7 +90,7 @@ export const registerNotebookRoutes = (
 
   app.put("/notebooks/:id", async (request, reply) => {
     const params = z.object({ id: z.string() }).parse(request.params);
-    const notebook = store.get(params.id);
+    const notebook = await store.get(params.id);
     if (!notebook) {
       reply.code(404);
       return { error: "Notebook not found" };
@@ -98,7 +98,7 @@ export const registerNotebookRoutes = (
 
     const body = NotebookMutationSchema.parse(request.body ?? {});
 
-    const updated = store.save({
+    const updated = await store.save({
       ...notebook,
       ...body,
       env: body.env ?? notebook.env,
@@ -110,7 +110,7 @@ export const registerNotebookRoutes = (
 
   app.delete("/notebooks/:id", async (request, reply) => {
     const params = z.object({ id: z.string() }).parse(request.params);
-    const deleted = store.remove(params.id);
+    const deleted = await store.remove(params.id);
     if (!deleted) {
       reply.code(404);
       return { error: "Notebook not found" };

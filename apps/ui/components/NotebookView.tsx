@@ -7,7 +7,6 @@ import DOMPurify from "dompurify";
 import { marked } from "marked";
 import {
   createCodeCell,
-  createEmptyNotebook,
   createMarkdownCell,
   type KernelExecuteRequest,
   type KernelServerMessage,
@@ -30,24 +29,48 @@ interface NotebookSessionSummary {
   status: "open" | "closed";
 }
 
-const DEFAULT_NOTEBOOK = createEmptyNotebook({
-  name: "Getting Started",
-  cells: [
-    createMarkdownCell({
-      source:
-        "# Welcome to NodeBooks\nRun the code cell below to connect with the kernel. You can add Markdown or code cells using the menu next to each block.",
-    }),
-    createCodeCell({
-      source: "const answer = 21 * 2;\nconsole.log('The answer is', answer);\nanswer;",
-      language: "ts",
-    }),
-  ],
+type NotebookSummary = Pick<Notebook, "id" | "name" | "createdAt" | "updatedAt">;
+
+const summarizeNotebook = (notebook: Notebook): NotebookSummary => ({
+  id: notebook.id,
+  name: notebook.name,
+  createdAt: notebook.createdAt,
+  updatedAt: notebook.updatedAt,
 });
+
+const sortSummaries = (items: NotebookSummary[]) =>
+  [...items].sort((a, b) => {
+    if (a.updatedAt === b.updatedAt) {
+      if (a.createdAt === b.createdAt) {
+        return a.name.localeCompare(b.name);
+      }
+      return a.createdAt > b.createdAt ? -1 : 1;
+    }
+    return a.updatedAt > b.updatedAt ? -1 : 1;
+  });
+
+const upsertNotebookSummary = (
+  notebook: Notebook,
+  items: NotebookSummary[],
+): NotebookSummary[] => {
+  const summary = summarizeNotebook(notebook);
+  const remaining = items.filter((item) => item.id !== summary.id);
+  return sortSummaries([summary, ...remaining]);
+};
+
+const formatTimestamp = (value: string) => {
+  try {
+    return new Date(value).toLocaleString();
+  } catch {
+    return value;
+  }
+};
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
 
 const NotebookView = () => {
   const [notebook, setNotebook] = useState<Notebook | null>(null);
+  const [notebookList, setNotebookList] = useState<NotebookSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [session, setSession] = useState<NotebookSessionSummary | null>(null);
@@ -58,6 +81,36 @@ const NotebookView = () => {
   const socketRef = useRef<WebSocket | null>(null);
   const saveTimerRef = useRef<NodeJS.Timeout | null>(null);
   const sessionRef = useRef<NotebookSessionSummary | null>(null);
+
+  const clearPendingSave = useCallback(() => {
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+  }, []);
+
+  const closeActiveSession = useCallback((reason: string) => {
+    clearPendingSave();
+    const activeSession = sessionRef.current;
+    if (activeSession) {
+      void fetch(`${API_BASE_URL}/sessions/${activeSession.id}`, {
+        method: "DELETE",
+      }).catch(() => undefined);
+    }
+    sessionRef.current = null;
+    setSession(null);
+
+    const socket = socketRef.current;
+    if (socket) {
+      try {
+        socket.close(1000, reason);
+      } catch {
+        // noop
+      }
+      socketRef.current = null;
+    }
+    setSocketReady(false);
+  }, [clearPendingSave]);
 
   const updateNotebook = useCallback(
     (
@@ -73,10 +126,13 @@ const NotebookView = () => {
         if (options.persist !== false && next !== prev) {
           setDirty(true);
         }
+        if (next !== prev && options.touch !== false) {
+          setNotebookList((items) => upsertNotebookSummary(next, items));
+        }
         return next;
       });
     },
-    [],
+    [setNotebookList],
   );
 
   const updateNotebookCell = useCallback(
@@ -200,6 +256,7 @@ const NotebookView = () => {
 
   useEffect(() => {
     const controller = new AbortController();
+
     const load = async () => {
       setLoading(true);
       try {
@@ -210,7 +267,14 @@ const NotebookView = () => {
           throw new Error(`Failed to load notebooks (status ${response.status})`);
         }
         const payload = await response.json();
-        let initial: Notebook | undefined = payload?.data?.[0];
+        const notebooks: Notebook[] = Array.isArray(payload?.data) ? payload.data : [];
+
+        if (!controller.signal.aborted) {
+          setNotebookList(sortSummaries(notebooks.map(summarizeNotebook)));
+        }
+
+        let initial: Notebook | undefined = notebooks[0];
+
         if (!initial) {
           const created = await fetch(`${API_BASE_URL}/notebooks`, {
             method: "POST",
@@ -223,7 +287,11 @@ const NotebookView = () => {
           }
           const createdPayload = await created.json();
           initial = createdPayload.data;
+          if (!controller.signal.aborted && initial) {
+            setNotebookList([summarizeNotebook(initial)]);
+          }
         }
+
         if (!controller.signal.aborted && initial) {
           setNotebook(initial);
           setDirty(false);
@@ -232,7 +300,8 @@ const NotebookView = () => {
       } catch (err) {
         if (!controller.signal.aborted) {
           setError(err instanceof Error ? err.message : "Unable to load notebooks from the API");
-          setNotebook(DEFAULT_NOTEBOOK);
+          setNotebook(null);
+          setNotebookList([]);
           setDirty(false);
         }
       } finally {
@@ -325,24 +394,16 @@ const NotebookView = () => {
 
   useEffect(() => {
     return () => {
-      const activeSession = sessionRef.current;
-      if (activeSession) {
-        void fetch(`${API_BASE_URL}/sessions/${activeSession.id}`, { method: "DELETE" }).catch(() => undefined);
-      }
-      if (socketRef.current) {
-        socketRef.current.close(1000, "component unmounted");
-      }
+      closeActiveSession("component unmounted");
     };
-  }, []);
+  }, [closeActiveSession]);
 
   useEffect(() => {
     if (!notebook || !dirty) {
       return;
     }
 
-    if (saveTimerRef.current) {
-      clearTimeout(saveTimerRef.current);
-    }
+    clearPendingSave();
 
     const timer = setTimeout(async () => {
       try {
@@ -358,6 +419,12 @@ const NotebookView = () => {
         if (!response.ok) {
           throw new Error(`Failed to save notebook (status ${response.status})`);
         }
+        const payload = await response.json();
+        const saved: Notebook | undefined = payload?.data;
+        if (saved) {
+          setNotebook(saved);
+          setNotebookList((items) => upsertNotebookSummary(saved, items));
+        }
         setDirty(false);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to save notebook");
@@ -367,8 +434,71 @@ const NotebookView = () => {
     saveTimerRef.current = timer;
     return () => {
       clearTimeout(timer);
+      if (saveTimerRef.current === timer) {
+        saveTimerRef.current = null;
+      }
     };
-  }, [notebook, dirty]);
+  }, [notebook, dirty, clearPendingSave]);
+
+  const handleSelectNotebook = useCallback(
+    async (id: string) => {
+      if (notebook?.id === id) {
+        return;
+      }
+
+      closeActiveSession("switch notebook");
+      setLoading(true);
+      setNotebook(null);
+
+      try {
+        const response = await fetch(`${API_BASE_URL}/notebooks/${id}`);
+        if (!response.ok) {
+          throw new Error(`Failed to load notebook (status ${response.status})`);
+        }
+        const payload = await response.json();
+        const next: Notebook | undefined = payload?.data;
+        if (next) {
+          setNotebook(next);
+          setNotebookList((items) => upsertNotebookSummary(next, items));
+          setDirty(false);
+          setError(null);
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Unable to load the selected notebook");
+      } finally {
+        setLoading(false);
+      }
+    },
+    [notebook?.id, closeActiveSession],
+  );
+
+  const handleCreateNotebook = useCallback(async () => {
+    closeActiveSession("create notebook");
+    setLoading(true);
+    setNotebook(null);
+    try {
+      const response = await fetch(`${API_BASE_URL}/notebooks`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ template: "starter" }),
+      });
+      if (!response.ok) {
+        throw new Error(`Failed to create notebook (status ${response.status})`);
+      }
+      const payload = await response.json();
+      const created: Notebook | undefined = payload?.data;
+      if (created) {
+        setNotebook(created);
+        setNotebookList((items) => upsertNotebookSummary(created, items));
+        setDirty(false);
+        setError(null);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to create a new notebook");
+    } finally {
+      setLoading(false);
+    }
+  }, [closeActiveSession]);
 
   const handleCellChange = useCallback(
     (id: string, updater: (cell: NotebookCell) => NotebookCell) => {
@@ -488,77 +618,144 @@ const NotebookView = () => {
     if (!notebook) {
       return "";
     }
-    try {
-      return new Date(notebook.updatedAt).toLocaleString();
-    } catch {
-      return notebook.updatedAt;
-    }
+    return formatTimestamp(notebook.updatedAt);
   }, [notebook]);
-
-  if (loading || !notebook) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-50">
-        <div className="rounded-xl border border-slate-200 bg-white px-8 py-6 shadow-sm">
-          <p className="text-slate-600">Loading notebook…</p>
+  const mainContent = useMemo(() => {
+    if (loading) {
+      return (
+        <div className="flex flex-1 items-center justify-center">
+          <div className="rounded-xl border border-slate-200 bg-white px-8 py-6 text-slate-600 shadow-sm">
+            Loading notebook…
+          </div>
         </div>
+      );
+    }
+
+    if (!notebook) {
+      return (
+        <div className="flex flex-1 items-center justify-center">
+          <div className="rounded-xl border border-slate-200 bg-white px-8 py-6 text-center shadow-sm">
+            <p className="font-medium text-slate-700">Select a notebook to begin.</p>
+            {error && <p className="mt-2 text-sm text-rose-600">{error}</p>}
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
+        {error && (
+          <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 shadow-sm">
+            {error}
+          </div>
+        )}
+        <header className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h1 className="text-2xl font-semibold text-slate-900">{notebook.name}</h1>
+              <p className="text-sm text-slate-500">Last updated {notebookHeader}</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 text-sm">
+              <span className="rounded-full bg-brand-100 px-3 py-1 font-medium text-brand-700">
+                Runtime: {notebook.env.runtime.toUpperCase()} {notebook.env.version}
+              </span>
+              <span
+                className={clsx(
+                  "rounded-full px-3 py-1 font-medium",
+                  socketReady ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700",
+                )}
+              >
+                Kernel {socketReady ? "connected" : "connecting"}
+              </span>
+              <button
+                type="button"
+                className="rounded-full border border-slate-200 px-3 py-1 text-slate-600 transition hover:border-brand-400 hover:text-brand-700"
+                onClick={handleRename}
+              >
+                Rename
+              </button>
+            </div>
+          </div>
+        </header>
+
+        <section className="flex flex-1 flex-col gap-4 pb-10">
+          {notebook.cells.map((cell, index) => (
+            <CellCard
+              key={cell.id}
+              cell={cell}
+              isRunning={runningCellId === cell.id}
+              canRun={socketReady}
+              onChange={(updater) => handleCellChange(cell.id, updater)}
+              onDelete={() => handleDeleteCell(cell.id)}
+              onRun={() => handleRunCell(cell.id)}
+              onMove={(direction) => handleMoveCell(cell.id, direction)}
+              onAddBelow={(type) => handleAddCell(type, index + 1)}
+            />
+          ))}
+          <div className="flex justify-center py-6">
+            <AddCellMenu onAdd={(type) => handleAddCell(type)} />
+          </div>
+        </section>
       </div>
     );
-  }
+  }, [loading, notebook, error, notebookHeader, socketReady, handleRename, runningCellId, handleCellChange, handleDeleteCell, handleRunCell, handleMoveCell, handleAddCell]);
 
   return (
-    <div className="mx-auto flex min-h-screen max-w-5xl flex-col gap-6 px-4 py-10">
-      {error && (
-        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 shadow-sm">
-          {error}
+    <div className="flex min-h-screen bg-slate-50">
+      <aside className="flex w-72 shrink-0 flex-col border-r border-slate-200 bg-white/80 px-3 py-4 shadow-sm">
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <span className="text-sm font-semibold uppercase tracking-wide text-slate-500">Notebooks</span>
+          <button
+            type="button"
+            className="rounded-full bg-brand-500 px-3 py-1 text-xs font-semibold text-white shadow hover:bg-brand-600 disabled:cursor-not-allowed disabled:bg-brand-300"
+            onClick={handleCreateNotebook}
+            disabled={loading}
+          >
+            New
+          </button>
         </div>
-      )}
-      <header className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-          <div>
-            <h1 className="text-2xl font-semibold text-slate-900">{notebook.name}</h1>
-            <p className="text-sm text-slate-500">Last updated {notebookHeader}</p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2 text-sm">
-            <span className="rounded-full bg-brand-100 px-3 py-1 font-medium text-brand-700">
-              Runtime: {notebook.env.runtime.toUpperCase()} {notebook.env.version}
-            </span>
-            <span
-              className={clsx(
-                "rounded-full px-3 py-1 font-medium",
-                socketReady ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700",
-              )}
-            >
-              Kernel {socketReady ? "connected" : "connecting"}
-            </span>
-            <button
-              type="button"
-              className="rounded-full border border-slate-200 px-3 py-1 text-slate-600 transition hover:border-brand-400 hover:text-brand-700"
-              onClick={handleRename}
-            >
-              Rename
-            </button>
-          </div>
+        <div className="flex-1 overflow-y-auto pr-1">
+          {notebookList.length === 0 ? (
+            <div className="mt-10 space-y-2 text-center text-sm text-slate-500">
+              <p>No notebooks yet.</p>
+              <button
+                type="button"
+                className="rounded-full border border-brand-400 px-3 py-1 text-brand-600 transition hover:bg-brand-50 disabled:cursor-not-allowed disabled:opacity-60"
+                onClick={handleCreateNotebook}
+                disabled={loading}
+              >
+                Create one
+              </button>
+            </div>
+          ) : (
+            <ul className="space-y-2">
+              {notebookList.map((item) => {
+                const isActive = notebook?.id === item.id;
+                return (
+                  <li key={item.id}>
+                    <button
+                      type="button"
+                      onClick={() => handleSelectNotebook(item.id)}
+                      className={clsx(
+                        "w-full rounded-xl border px-3 py-2 text-left transition",
+                        isActive
+                          ? "border-slate-900 bg-slate-900 text-white shadow"
+                          : "border-transparent bg-white text-slate-700 shadow-sm hover:border-slate-200 hover:bg-slate-100",
+                      )}
+                    >
+                      <span className="block truncate text-sm font-semibold">{item.name}</span>
+                      <span className={clsx("mt-1 block text-xs", isActive ? "text-slate-200" : "text-slate-500")}> 
+                        Updated {formatTimestamp(item.updatedAt)}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </div>
-      </header>
-
-      <main className="flex flex-1 flex-col gap-4">
-        {notebook.cells.map((cell, index) => (
-          <CellCard
-            key={cell.id}
-            cell={cell}
-            isRunning={runningCellId === cell.id}
-            canRun={socketReady}
-            onChange={(updater) => handleCellChange(cell.id, updater)}
-            onDelete={() => handleDeleteCell(cell.id)}
-            onRun={() => handleRunCell(cell.id)}
-            onMove={(direction) => handleMoveCell(cell.id, direction)}
-            onAddBelow={(type) => handleAddCell(type, index + 1)}
-          />
-        ))}
-        <div className="flex justify-center py-6">
-          <AddCellMenu onAdd={(type) => handleAddCell(type)} />
-        </div>
-      </main>
+      </aside>
+      <main className="flex flex-1 flex-col overflow-y-auto px-6 py-10">{mainContent}</main>
     </div>
   );
 };
