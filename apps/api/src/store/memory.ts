@@ -22,15 +22,15 @@ export class InMemoryNotebookStore implements NotebookStore {
     }
   }
 
-  all(): Notebook[] {
+  async all(): Promise<Notebook[]> {
     return Array.from(this.notebooks.values());
   }
 
-  get(id: string): Notebook | undefined {
+  async get(id: string): Promise<Notebook | undefined> {
     return this.notebooks.get(id);
   }
 
-  save(notebook: Notebook): Notebook {
+  async save(notebook: Notebook): Promise<Notebook> {
     const parsed = NotebookSchema.parse({
       ...notebook,
       updatedAt: new Date().toISOString(),
@@ -39,7 +39,7 @@ export class InMemoryNotebookStore implements NotebookStore {
     return parsed;
   }
 
-  remove(id: string): Notebook | undefined {
+  async remove(id: string): Promise<Notebook | undefined> {
     const notebook = this.notebooks.get(id);
     this.notebooks.delete(id);
     return notebook;
@@ -51,8 +51,8 @@ export class InMemorySessionManager implements SessionManager {
 
   constructor(private readonly store: NotebookStore) {}
 
-  createSession(notebookId: string): NotebookSession {
-    if (!this.store.get(notebookId)) {
+  async createSession(notebookId: string): Promise<NotebookSession> {
+    if (!(await this.store.get(notebookId))) {
       throw new Error(`Notebook ${notebookId} not found`);
     }
 
@@ -67,7 +67,7 @@ export class InMemorySessionManager implements SessionManager {
     return session;
   }
 
-  closeSession(sessionId: string): NotebookSession | undefined {
+  async closeSession(sessionId: string): Promise<NotebookSession | undefined> {
     const session = this.sessions.get(sessionId);
     if (!session) {
       return undefined;
@@ -78,7 +78,7 @@ export class InMemorySessionManager implements SessionManager {
     return next;
   }
 
-  listSessions(notebookId?: string): NotebookSession[] {
+  async listSessions(notebookId?: string): Promise<NotebookSession[]> {
     const sessions = Array.from(this.sessions.values());
     if (!notebookId) {
       return sessions;

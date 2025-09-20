@@ -29,7 +29,9 @@ pnpm dev
 - API: http://localhost:4000 (Fastify, REST, WebSocket kernel)
 - UI: http://localhost:3000 (Next.js 15)
 
-The UI now fetches notebooks from the API, persists edits automatically, and opens a WebSocket session per notebook. Executing a code cell streams console output and final results from the Node-based runtime.
+The UI now fetches notebooks from the API, shows a sidebar of available notebooks, persists edits automatically, and opens a WebSocket session per notebook. Executing a code cell streams console output and final results from the Node-based runtime.
+
+The API stores notebook documents in a SQLite database located at `./data/nodebooks.sqlite` by default. Set the `NODEBOOKS_SQLITE_PATH` environment variable to point to a different file if needed.
 
 ### Running tests & quality checks
 
@@ -58,7 +60,7 @@ docker run --rm -it -p 3000:3000 -p 4000:4000 nodebooks-dev
 ### Next steps
 
 - Harden the runtime sandbox (resource limits, module allow lists)
-- Persist notebooks in Postgres instead of in-memory storage
+- Introduce Postgres persistence for shared/cloud deployments
 - Implement interrupt/restart flows and package installation hooks
 - Expand the UI with richer output renderers and collaboration primitives
 

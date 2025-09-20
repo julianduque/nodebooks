@@ -18,18 +18,19 @@ export const registerKernelRoutes = (
   store: NotebookStore,
 ) => {
   app.get("/ws/sessions/:id", { websocket: true }, (connection, request) => {
-    handleConnection(connection, request.params, sessions, store);
+    void handleConnection(connection, request.params, sessions, store);
   });
 };
 
-const handleConnection = (
+const handleConnection = async (
   connection: WebSocket,
   params: unknown,
   sessions: SessionManager,
   store: NotebookStore,
 ) => {
   const { id } = z.object({ id: z.string() }).parse(params);
-  const session = sessions.listSessions().find((item) => item.id === id);
+  const allSessions = await sessions.listSessions();
+  const session = allSessions.find((item) => item.id === id);
   if (!session) {
     sendMessage(connection, {
       type: "error",
@@ -42,7 +43,7 @@ const handleConnection = (
     return;
   }
 
-  const notebook = store.get(session.notebookId);
+  const notebook = await store.get(session.notebookId);
   if (!notebook) {
     sendMessage(connection, {
       type: "error",
@@ -76,18 +77,30 @@ const handleConnection = (
       return;
     }
 
-    await handleKernelMessage({
-      connection,
-      message: parsed.data,
-      runtime,
-      session,
-      store,
-    });
+    try {
+      await handleKernelMessage({
+        connection,
+        message: parsed.data,
+        runtime,
+        session,
+        store,
+      });
+    } catch (error) {
+      const cellId = parsed.data.type === "execute_request" ? parsed.data.cellId : "";
+      sendMessage(connection, {
+        type: "error",
+        cellId,
+        ename: "KernelError",
+        evalue:
+          error instanceof Error ? error.message : "An unexpected error occurred while handling the kernel message",
+        traceback: [],
+      });
+    }
   });
 
   connection.on("close", () => {
     runtimes.delete(session.id);
-    sessions.closeSession(session.id);
+    void sessions.closeSession(session.id);
   });
 };
 
@@ -159,7 +172,7 @@ const handleExecuteRequest = async ({
   session,
   store,
 }: ExecuteArgs) => {
-  const notebook = store.get(session.notebookId);
+  const notebook = await store.get(session.notebookId);
   if (!notebook) {
     sendMessage(connection, {
       type: "error",
@@ -215,7 +228,7 @@ const handleExecuteRequest = async ({
 
   sendMessage(connection, { type: "status", state: "idle" });
 
-  store.save({
+  await store.save({
     ...notebook,
     cells: notebook.cells.map((item) =>
       item.id === cell.id
