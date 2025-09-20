@@ -19,7 +19,11 @@ export interface CreateServerOptions {
 export const createServer = async ({ logger = true }: CreateServerOptions = {}) => {
   const app = Fastify({ logger });
 
-  await app.register(cors, { origin: true });
+  await app.register(cors, {
+    origin: true,
+    methods: ["OPTIONS", "GET", "POST", "PUT", "PATCH", "DELETE"],
+    allowedHeaders: ["Content-Type", "Accept", "Authorization"],
+  });
   await app.register(websocket);
 
   const store = new SqliteNotebookStore({

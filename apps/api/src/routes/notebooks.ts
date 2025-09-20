@@ -47,7 +47,7 @@ export const registerNotebookRoutes = (
   app.post("/notebooks", async (request, reply) => {
     const body = NotebookCreateSchema.parse(request.body ?? {});
 
-    const base = createEmptyNotebook({ name: body.name });
+    const base = createEmptyNotebook(body.name ? { name: body.name } : undefined);
 
     let cells = body.cells ?? [];
     if (cells.length === 0) {

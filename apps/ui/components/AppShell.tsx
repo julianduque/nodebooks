@@ -1,0 +1,150 @@
+"use client";
+
+import { useState } from "react";
+import type { ReactNode } from "react";
+import { cn } from "../lib/utils";
+import { Button } from "./ui/button";
+import { Separator } from "./ui/separator";
+import { ScrollArea } from "./ui/scroll-area";
+import {
+  LayoutDashboard,
+  NotebookPen,
+  LayoutTemplate,
+  Settings,
+  Plus,
+  PanelLeft,
+} from "lucide-react";
+
+type NavId = "home" | "notebooks" | "templates" | "settings";
+
+interface NavItem {
+  id: NavId;
+  label: string;
+  icon: ReactNode;
+}
+
+const navItems: NavItem[] = [
+  { id: "home", label: "Dashboard", icon: <LayoutDashboard className="h-4 w-4" /> },
+  { id: "notebooks", label: "Notebooks", icon: <NotebookPen className="h-4 w-4" /> },
+  { id: "templates", label: "Templates", icon: <LayoutTemplate className="h-4 w-4" /> },
+  { id: "settings", label: "Settings", icon: <Settings className="h-4 w-4" /> },
+];
+
+interface AppShellProps {
+  active: NavId | string;
+  onNavigate: (id: NavId) => void;
+  onNewNotebook: () => void;
+  children: ReactNode;
+}
+
+const AppShell = ({ active, onNavigate, onNewNotebook, children }: AppShellProps) => {
+  const [collapsed, setCollapsed] = useState(false);
+
+  return (
+    <div className="flex min-h-screen w-full bg-background text-foreground">
+      <aside
+        className={cn(
+          "flex h-screen shrink-0 border-r border-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-linear flex-col",
+          collapsed ? "w-12" : "w-64",
+        )}
+      >
+        <div className="flex h-16 items-center gap-3 px-3">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-7"
+            onClick={() => setCollapsed((prev) => !prev)}
+            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          >
+            <PanelLeft className="h-4 w-4" />
+            <span className="sr-only">Toggle Sidebar</span>
+          </Button>
+          {!collapsed && (
+            <div className="flex items-center gap-2">
+              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground text-sm font-bold">NB</div>
+              <div className="leading-tight">
+                <p className="text-sm font-semibold tracking-tight">NodeBooks</p>
+                <p className="text-[10px] text-muted-foreground">Workspace</p>
+              </div>
+            </div>
+          )}
+        </div>
+        <Separator className="mx-2 mb-2" />
+        <ScrollArea className="flex-1 px-2">
+          {!collapsed && (
+            <div className="px-2 pb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">General</div>
+          )}
+          <nav className="flex flex-col gap-1">
+            {navItems.map((item) => {
+              const isActive = active === item.id;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  className={cn(
+                    "flex h-9 w-full items-center rounded-md px-2 text-sm transition-colors",
+                    collapsed ? "justify-center" : "justify-start gap-2",
+                    isActive
+                      ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                      : "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                  )}
+                  onClick={() => onNavigate(item.id)}
+                  aria-current={isActive ? "page" : undefined}
+                  aria-label={item.label}
+                >
+                  <span className="shrink-0 text-foreground/80">{item.icon}</span>
+                  {!collapsed && <span className="truncate">{item.label}</span>}
+                </button>
+              );
+            })}
+          </nav>
+        </ScrollArea>
+        <div className={cn("px-2 pb-4", collapsed && "px-1")}> 
+          <Button
+            className={cn(
+              "w-full gap-2",
+              collapsed ? "justify-center h-9" : "justify-center h-9",
+            )}
+            variant="outline"
+            type="button"
+            onClick={onNewNotebook}
+          >
+            <Plus className="h-4 w-4" />
+            {!collapsed && <span className="text-sm">New Notebook</span>}
+          </Button>
+        </div>
+      </aside>
+      <main className="flex flex-1 flex-col">
+        <header className="sticky top-0 z-40 h-16 bg-background">
+          <div className="relative flex h-full items-center gap-3 px-4 sm:gap-4">
+            <Button
+              variant="outline"
+              size="icon"
+              className="size-7 md:hidden"
+              onClick={() => setCollapsed((prev) => !prev)}
+              aria-label="Toggle Sidebar"
+            >
+              <PanelLeft className="h-4 w-4" />
+            </Button>
+            <Separator orientation="vertical" className="h-6" />
+            <span className="text-sm font-medium text-muted-foreground">Dashboard</span>
+            <div className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
+              <span>Status</span>
+              <span className="flex items-center gap-1 rounded-full border border-border px-2 py-1">
+                <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                Live
+              </span>
+            </div>
+          </div>
+        </header>
+        <div className="flex-1 overflow-y-auto bg-muted/20">
+          <div className="mx-auto w-full max-w-7xl p-6 sm:p-8">
+            {children}
+          </div>
+        </div>
+      </main>
+    </div>
+  );
+};
+
+export default AppShell;
