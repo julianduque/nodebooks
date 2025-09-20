@@ -15,7 +15,7 @@ interface RootLayoutProps {
 
 const RootLayout = ({ children }: RootLayoutProps) => {
   return (
-    <html lang="en" className="bg-slate-50">
+    <html lang="en" suppressHydrationWarning>
       <body className={inter.className}>{children}</body>
     </html>
   );

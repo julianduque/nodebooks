@@ -5,6 +5,12 @@ import dynamic from "next/dynamic";
 import clsx from "clsx";
 import DOMPurify from "dompurify";
 import { marked } from "marked";
+import AppShell from "./AppShell";
+import { Button } from "./ui/button";
+import { Badge } from "./ui/badge";
+import { Card, CardContent } from "./ui/card";
+import { ArrowDown, ArrowUp, Check, Loader2, Pencil, Play, PlayCircle, Plus, Save, Share2, ChevronRight, Trash2, Edit3, NotebookPen } from "lucide-react";
+import type { OnMount } from "@monaco-editor/react";
 import {
   createCodeCell,
   createMarkdownCell,
@@ -30,6 +36,54 @@ interface NotebookSessionSummary {
 }
 
 type NotebookSummary = Pick<Notebook, "id" | "name" | "createdAt" | "updatedAt">;
+
+type NotebookTemplateId = "starter" | "typescript" | "blank";
+
+interface TemplateCard {
+  id: string;
+  title: string;
+  description: string;
+  templateId: NotebookTemplateId;
+  accent: string;
+}
+
+interface OutlineItem {
+  id: string;
+  cellId: string;
+  title: string;
+  level: number;
+}
+
+const TEMPLATE_CARDS: TemplateCard[] = [
+  {
+    id: "api-testing",
+    title: "API Testing",
+    description: "Preconfigured requests and helpers for REST endpoints.",
+    templateId: "starter",
+    accent: "bg-emerald-100 text-emerald-700",
+  },
+  {
+    id: "data-viz",
+    title: "Data Visualization",
+    description: "Plot data with TypeScript and popular charting libs.",
+    templateId: "typescript",
+    accent: "bg-sky-100 text-sky-700",
+  },
+  {
+    id: "llm-agents",
+    title: "LLM Agents",
+    description: "Start orchestrating AI prompts and tool invocations.",
+    templateId: "typescript",
+    accent: "bg-purple-100 text-purple-700",
+  },
+  {
+    id: "web-scraping",
+    title: "Web Scraping",
+    description: "Kick off scraping flows with Puppeteer snippets.",
+    templateId: "blank",
+    accent: "bg-amber-100 text-amber-700",
+  },
+];
 
 const summarizeNotebook = (notebook: Notebook): NotebookSummary => ({
   id: notebook.id,
@@ -77,10 +131,45 @@ const NotebookView = () => {
   const [runningCellId, setRunningCellId] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
   const [socketReady, setSocketReady] = useState(false);
+  const [activeSection, setActiveSection] = useState<"home" | "notebooks" | "templates" | "settings" | "editor">("home");
+  const [shareStatus, setShareStatus] = useState<"idle" | "copied" | "error">("idle");
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [renameDraft, setRenameDraft] = useState("");
 
   const socketRef = useRef<WebSocket | null>(null);
   const saveTimerRef = useRef<NodeJS.Timeout | null>(null);
   const sessionRef = useRef<NotebookSessionSummary | null>(null);
+  const renameInputRef = useRef<HTMLInputElement | null>(null);
+
+  const notebookId = notebook?.id;
+  const sessionId = session?.id;
+
+  useEffect(() => {
+    if (shareStatus === "idle") {
+      return;
+    }
+    const timeout = setTimeout(() => {
+      setShareStatus("idle");
+    }, 2000);
+    return () => {
+      clearTimeout(timeout);
+    };
+  }, [shareStatus]);
+
+  useEffect(() => {
+    if (notebook) {
+      setRenameDraft(notebook.name);
+    } else {
+      setRenameDraft("");
+    }
+    setIsRenaming(false);
+  }, [notebook]);
+
+  useEffect(() => {
+    if (isRenaming) {
+      renameInputRef.current?.focus();
+    }
+  }, [isRenaming]);
 
   const clearPendingSave = useCallback(() => {
     if (saveTimerRef.current) {
@@ -253,6 +342,36 @@ const NotebookView = () => {
     [updateNotebookCell],
   );
 
+  const saveNotebookNow = useCallback(async () => {
+    if (!notebook) {
+      return;
+    }
+    try {
+      const response = await fetch(`${API_BASE_URL}/notebooks/${notebook.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: notebook.name,
+          env: notebook.env,
+          cells: notebook.cells,
+        }),
+      });
+      if (!response.ok) {
+        throw new Error(`Failed to save notebook (status ${response.status})`);
+      }
+      const payload = await response.json();
+      const saved: Notebook | undefined = payload?.data;
+      if (saved) {
+        setNotebook(saved);
+        setNotebookList((items) => upsertNotebookSummary(saved, items));
+        setDirty(false);
+        setError(null);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save notebook");
+    }
+  }, [notebook, setNotebookList]);
+
 
   useEffect(() => {
     const controller = new AbortController();
@@ -319,16 +438,15 @@ const NotebookView = () => {
   }, []);
 
   useEffect(() => {
-    if (!notebook) {
+    if (!notebookId) {
       return;
     }
 
     let cancelled = false;
     const openSession = async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/notebooks/${notebook.id}/sessions`, {
+        const response = await fetch(`${API_BASE_URL}/notebooks/${notebookId}/sessions`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
         });
         if (!response.ok) {
           throw new Error(`Failed to open session (status ${response.status})`);
@@ -351,15 +469,15 @@ const NotebookView = () => {
     return () => {
       cancelled = true;
     };
-  }, [notebook?.id]);
+  }, [notebookId]);
 
   useEffect(() => {
-    if (!session) {
+    if (!sessionId) {
       return;
     }
 
     const protocol = API_BASE_URL.startsWith("https") ? "wss" : "ws";
-    const wsUrl = `${API_BASE_URL.replace(/^https?/, protocol)}/ws/sessions/${session.id}`;
+    const wsUrl = `${API_BASE_URL.replace(/^https?/, protocol)}/ws/sessions/${sessionId}`;
     const socket = new WebSocket(wsUrl);
 
     socketRef.current = socket;
@@ -390,7 +508,7 @@ const NotebookView = () => {
     return () => {
       socket.close(1000, "session change");
     };
-  }, [session?.id, handleServerMessage]);
+  }, [sessionId, handleServerMessage]);
 
   useEffect(() => {
     return () => {
@@ -405,30 +523,8 @@ const NotebookView = () => {
 
     clearPendingSave();
 
-    const timer = setTimeout(async () => {
-      try {
-        const response = await fetch(`${API_BASE_URL}/notebooks/${notebook.id}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            name: notebook.name,
-            env: notebook.env,
-            cells: notebook.cells,
-          }),
-        });
-        if (!response.ok) {
-          throw new Error(`Failed to save notebook (status ${response.status})`);
-        }
-        const payload = await response.json();
-        const saved: Notebook | undefined = payload?.data;
-        if (saved) {
-          setNotebook(saved);
-          setNotebookList((items) => upsertNotebookSummary(saved, items));
-        }
-        setDirty(false);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to save notebook");
-      }
+    const timer = setTimeout(() => {
+      void saveNotebookNow();
     }, 600);
 
     saveTimerRef.current = timer;
@@ -438,7 +534,7 @@ const NotebookView = () => {
         saveTimerRef.current = null;
       }
     };
-  }, [notebook, dirty, clearPendingSave]);
+  }, [notebook, dirty, clearPendingSave, saveNotebookNow]);
 
   const handleSelectNotebook = useCallback(
     async (id: string) => {
@@ -449,6 +545,8 @@ const NotebookView = () => {
       closeActiveSession("switch notebook");
       setLoading(true);
       setNotebook(null);
+      setActiveSection("editor");
+      setShareStatus("idle");
 
       try {
         const response = await fetch(`${API_BASE_URL}/notebooks/${id}`);
@@ -462,6 +560,8 @@ const NotebookView = () => {
           setNotebookList((items) => upsertNotebookSummary(next, items));
           setDirty(false);
           setError(null);
+          setActiveSection("editor");
+          setShareStatus("idle");
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : "Unable to load the selected notebook");
@@ -472,7 +572,7 @@ const NotebookView = () => {
     [notebook?.id, closeActiveSession],
   );
 
-  const handleCreateNotebook = useCallback(async () => {
+  const handleCreateNotebook = useCallback(async (template: NotebookTemplateId = "starter") => {
     closeActiveSession("create notebook");
     setLoading(true);
     setNotebook(null);
@@ -480,7 +580,7 @@ const NotebookView = () => {
       const response = await fetch(`${API_BASE_URL}/notebooks`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ template: "starter" }),
+        body: JSON.stringify({ template }),
       });
       if (!response.ok) {
         throw new Error(`Failed to create notebook (status ${response.status})`);
@@ -492,6 +592,8 @@ const NotebookView = () => {
         setNotebookList((items) => upsertNotebookSummary(created, items));
         setDirty(false);
         setError(null);
+        setActiveSection("editor");
+        setShareStatus("idle");
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to create a new notebook");
@@ -560,6 +662,9 @@ const NotebookView = () => {
       if (!notebook) {
         return;
       }
+      if (runningCellId === id) {
+        return;
+      }
       const cell = notebook.cells.find((item) => item.id === id);
       if (!cell || cell.type !== "code") {
         return;
@@ -600,18 +705,115 @@ const NotebookView = () => {
 
       socket.send(JSON.stringify(payload));
     },
-    [notebook, updateNotebookCell],
+    [notebook, updateNotebookCell, runningCellId],
   );
 
-  const handleRename = useCallback(() => {
+  const handleRenameStart = useCallback(() => {
     if (!notebook) {
       return;
     }
-    const nextName = window.prompt("Notebook name", notebook.name);
-    if (nextName && nextName.trim() && nextName.trim() !== notebook.name) {
-      updateNotebook((current) => ({ ...current, name: nextName.trim() }));
+    setRenameDraft(notebook.name);
+    setIsRenaming(true);
+  }, [notebook]);
+
+  const handleRenameCommit = useCallback(() => {
+    if (!notebook) {
+      setIsRenaming(false);
+      return;
     }
-  }, [notebook, updateNotebook]);
+    const trimmed = renameDraft.trim();
+    if (trimmed && trimmed !== notebook.name) {
+      updateNotebook((current) => ({ ...current, name: trimmed }));
+    }
+    setIsRenaming(false);
+  }, [renameDraft, notebook, updateNotebook]);
+
+  const handleRenameCancel = useCallback(() => {
+    setIsRenaming(false);
+    setRenameDraft(notebook?.name ?? "");
+  }, [notebook?.name]);
+
+  const handleRenameKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLInputElement>) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        handleRenameCommit();
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        handleRenameCancel();
+      }
+    },
+    [handleRenameCommit, handleRenameCancel],
+  );
+
+  const handleRunAll = useCallback(() => {
+    if (!notebook) {
+      return;
+    }
+    notebook.cells.forEach((cell) => {
+      if (cell.type === "code") {
+        handleRunCell(cell.id);
+      }
+    });
+  }, [notebook, handleRunCell]);
+
+  const handleSaveNow = useCallback(() => {
+    void saveNotebookNow();
+  }, [saveNotebookNow]);
+
+  const handleShare = useCallback(() => {
+    if (!notebook || typeof window === "undefined") {
+      return;
+    }
+    try {
+      const shareUrl = `${window.location.origin}/notebooks/${notebook.id}`;
+      if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+        void navigator.clipboard.writeText(shareUrl);
+      }
+      setShareStatus("copied");
+    } catch {
+      setShareStatus("error");
+    }
+  }, [notebook]);
+
+  const handleNavigate = useCallback((target: "home" | "notebooks" | "templates" | "settings") => {
+    setActiveSection(target);
+  }, []);
+
+  const handleOutlineJump = useCallback((cellId: string) => {
+    setActiveSection("editor");
+    if (typeof document === "undefined") {
+      return;
+    }
+    const element = document.getElementById(`cell-${cellId}`);
+    element?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
+
+  const outlineItems = useMemo<OutlineItem[]>(() => {
+    if (!notebook) {
+      return [];
+    }
+    const items: OutlineItem[] = [];
+    notebook.cells.forEach((cell) => {
+      if (cell.type !== "markdown" || !cell.source) {
+        return;
+      }
+      const lines = cell.source.split("\n");
+      lines.forEach((line, index) => {
+        const match = /^(#{1,4})\s+(.*)/.exec(line.trim());
+        if (match) {
+          items.push({
+            id: `${cell.id}-${index}`,
+            cellId: cell.id,
+            title: match[2].trim(),
+            level: match[1].length,
+          });
+        }
+      });
+    });
+    return items;
+  }, [notebook]);
 
 
   const notebookHeader = useMemo(() => {
@@ -620,143 +822,356 @@ const NotebookView = () => {
     }
     return formatTimestamp(notebook.updatedAt);
   }, [notebook]);
-  const mainContent = useMemo(() => {
+  const handleTemplateLaunch = useCallback(
+    (templateId: NotebookTemplateId) => {
+      void handleCreateNotebook(templateId);
+    },
+    [handleCreateNotebook],
+  );
+
+  const handleQuickCreate = useCallback(() => {
+    if (loading) {
+      return;
+    }
+    void handleCreateNotebook();
+  }, [loading, handleCreateNotebook]);
+
+  const editorView = useMemo(() => {
     if (loading) {
       return (
-        <div className="flex flex-1 items-center justify-center">
-          <div className="rounded-xl border border-slate-200 bg-white px-8 py-6 text-slate-600 shadow-sm">
-            Loading notebook…
-          </div>
+        <div className="flex flex-1 items-center justify-center p-10">
+          <Card className="w-full max-w-md text-center">
+            <CardContent className="py-10 text-slate-600">Loading notebook…</CardContent>
+          </Card>
         </div>
       );
     }
 
     if (!notebook) {
       return (
-        <div className="flex flex-1 items-center justify-center">
-          <div className="rounded-xl border border-slate-200 bg-white px-8 py-6 text-center shadow-sm">
-            <p className="font-medium text-slate-700">Select a notebook to begin.</p>
-            {error && <p className="mt-2 text-sm text-rose-600">{error}</p>}
-          </div>
+        <div className="flex flex-1 items-center justify-center p-10">
+          <Card className="w-full max-w-md text-center">
+            <CardContent className="space-y-3 py-10">
+              <p className="text-lg font-semibold text-slate-700">Select a notebook to begin.</p>
+              {error && <p className="text-sm text-rose-600">{error}</p>}
+            </CardContent>
+          </Card>
         </div>
       );
     }
 
     return (
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
-        {error && (
-          <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 shadow-sm">
-            {error}
-          </div>
-        )}
-        <header className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-            <div>
-              <h1 className="text-2xl font-semibold text-slate-900">{notebook.name}</h1>
-              <p className="text-sm text-slate-500">Last updated {notebookHeader}</p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2 text-sm">
-              <span className="rounded-full bg-brand-100 px-3 py-1 font-medium text-brand-700">
-                Runtime: {notebook.env.runtime.toUpperCase()} {notebook.env.version}
-              </span>
-              <span
-                className={clsx(
-                  "rounded-full px-3 py-1 font-medium",
-                  socketReady ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700",
-                )}
+      <div className="flex min-h-full flex-1 flex-col">
+        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 bg-white px-8 py-4 shadow-sm">
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">Notebook</div>
+            <div className="mt-2 flex items-center gap-3">
+              {isRenaming ? (
+                <input
+                  ref={renameInputRef}
+                  value={renameDraft}
+                  onChange={(event) => setRenameDraft(event.target.value)}
+                  onBlur={handleRenameCommit}
+                  onKeyDown={handleRenameKeyDown}
+                  className="min-w-[240px] rounded-lg border border-slate-300 bg-white px-3 py-1 text-3xl font-semibold text-slate-900 focus:border-brand-500 focus:outline-none"
+                  aria-label="Notebook name"
+                />
+              ) : (
+                <button
+                  type="button"
+                  className="text-left text-3xl font-semibold text-slate-900 hover:text-brand-600"
+                  onClick={handleRenameStart}
+                >
+                  {notebook.name}
+                </button>
+              )}
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={isRenaming ? handleRenameCommit : handleRenameStart}
+                aria-label="Rename notebook"
               >
-                Kernel {socketReady ? "connected" : "connecting"}
+              <Pencil className="h-4 w-4" />
+              </Button>
+            </div>
+            <div className="mt-2 flex flex-wrap items-center gap-4 text-sm text-slate-500">
+              <span>Last updated {notebookHeader}</span>
+              <span className="flex items-center gap-2">
+                <span className={clsx("h-2 w-2 rounded-full", socketReady ? "bg-emerald-500" : "bg-amber-500")} />
+                {socketReady ? "Kernel connected" : "Kernel connecting"}
               </span>
-              <button
-                type="button"
-                className="rounded-full border border-slate-200 px-3 py-1 text-slate-600 transition hover:border-brand-400 hover:text-brand-700"
-                onClick={handleRename}
-              >
-                Rename
-              </button>
+              <span className="flex items-center gap-2">
+                <span className={clsx("h-2 w-2 rounded-full", dirty ? "bg-amber-500" : "bg-emerald-500")} />
+                {dirty ? "Unsaved changes" : "Saved"}
+              </span>
             </div>
           </div>
-        </header>
-
-        <section className="flex flex-1 flex-col gap-4 pb-10">
-          {notebook.cells.map((cell, index) => (
-            <CellCard
-              key={cell.id}
-              cell={cell}
-              isRunning={runningCellId === cell.id}
-              canRun={socketReady}
-              onChange={(updater) => handleCellChange(cell.id, updater)}
-              onDelete={() => handleDeleteCell(cell.id)}
-              onRun={() => handleRunCell(cell.id)}
-              onMove={(direction) => handleMoveCell(cell.id, direction)}
-              onAddBelow={(type) => handleAddCell(type, index + 1)}
-            />
-          ))}
-          <div className="flex justify-center py-6">
-            <AddCellMenu onAdd={(type) => handleAddCell(type)} />
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant="secondary" className="uppercase tracking-[0.2em]">
+              {notebook.env.runtime.toUpperCase()} {notebook.env.version}
+            </Badge>
+            <Button
+              variant="secondary"
+              size="icon"
+              onClick={handleRunAll}
+              disabled={!socketReady}
+              aria-label="Run all cells"
+            >
+              <PlayCircle className="h-4 w-4" />
+            </Button>
+            <Button
+              variant={dirty ? "secondary" : "ghost"}
+              size="icon"
+              onClick={handleSaveNow}
+              disabled={!dirty}
+              aria-label="Save notebook"
+            >
+              {dirty ? <Save className="h-4 w-4" /> : <Check className="h-4 w-4 text-emerald-500" />}
+            </Button>
+            <Button
+              variant={shareStatus === "error" ? "destructive" : "ghost"}
+              size="icon"
+              onClick={handleShare}
+              aria-label={shareStatus === "copied" ? "Notebook link copied" : "Share notebook"}
+            >
+              {shareStatus === "copied" ? (
+                <Check className="h-4 w-4 text-emerald-500" />
+              ) : (
+                <Share2 className="h-4 w-4" />
+              )}
+            </Button>
           </div>
-        </section>
+        </div>
+        <div className="flex flex-1 overflow-hidden">
+          <div className="flex-1 overflow-y-auto bg-muted/20 px-0 py-0">
+            {error && (
+              <Card className="mb-6 border-rose-200 bg-rose-50">
+                <CardContent className="text-sm text-rose-700">{error}</CardContent>
+              </Card>
+            )}
+            <div className="space-y-6">
+              {notebook.cells.map((cell, index) => (
+                <CellCard
+                  key={cell.id}
+                  cell={cell}
+                  isRunning={runningCellId === cell.id}
+                  canRun={socketReady}
+                  onChange={(updater) => handleCellChange(cell.id, updater)}
+                  onDelete={() => handleDeleteCell(cell.id)}
+                  onRun={() => handleRunCell(cell.id)}
+                  onMove={(direction) => handleMoveCell(cell.id, direction)}
+                  onAddBelow={(type) => handleAddCell(type, index + 1)}
+                />
+              ))}
+            </div>
+            <div className="mt-10 flex justify-center py-4 opacity-0 transition hover:opacity-100 focus-within:opacity-100">
+              <AddCellMenu
+                onAdd={(type) => handleAddCell(type)}
+                className="pointer-events-auto rounded-full border-slate-300/80 bg-white/95 px-4 py-1 text-xs"
+              />
+            </div>
+          </div>
+          <aside className="hidden w-72 shrink-0 border-l border-slate-200 bg-white px-5 py-6 lg:block">
+            <OutlinePanel items={outlineItems} onSelect={handleOutlineJump} activeCellId={runningCellId ?? undefined} />
+          </aside>
+        </div>
       </div>
     );
-  }, [loading, notebook, error, notebookHeader, socketReady, handleRename, runningCellId, handleCellChange, handleDeleteCell, handleRunCell, handleMoveCell, handleAddCell]);
+  }, [
+    loading,
+    notebook,
+    socketReady,
+    dirty,
+    notebookHeader,
+    handleRenameStart,
+    handleRenameCommit,
+    handleRenameKeyDown,
+    isRenaming,
+    renameDraft,
+    handleRunAll,
+    handleSaveNow,
+    handleShare,
+    shareStatus,
+    error,
+    outlineItems,
+    runningCellId,
+    handleCellChange,
+    handleDeleteCell,
+    handleRunCell,
+    handleMoveCell,
+    handleAddCell,
+    handleOutlineJump,
+  ]);
 
-  return (
-    <div className="flex min-h-screen bg-slate-50">
-      <aside className="flex w-72 shrink-0 flex-col border-r border-slate-200 bg-white/80 px-3 py-4 shadow-sm">
-        <div className="mb-3 flex items-center justify-between gap-2">
-          <span className="text-sm font-semibold uppercase tracking-wide text-slate-500">Notebooks</span>
-          <button
-            type="button"
-            className="rounded-full bg-brand-500 px-3 py-1 text-xs font-semibold text-white shadow hover:bg-brand-600 disabled:cursor-not-allowed disabled:bg-brand-300"
-            onClick={handleCreateNotebook}
-            disabled={loading}
-          >
-            New
-          </button>
+  const homeView = useMemo(() => {
+    if (loading) {
+      return (
+        <div className="flex flex-1 flex-col">
+          <Card className="w-full max-w-md">
+            <CardContent className="py-10 text-center text-slate-600">Loading notebooks…</CardContent>
+          </Card>
         </div>
-        <div className="flex-1 overflow-y-auto pr-1">
+      );
+    }
+
+    if (notebookList.length === 0) {
+      return (
+        <div className="flex flex-1 flex-col">
+          <h1 className="text-3xl font-semibold text-slate-900">Welcome to NodeBooks</h1>
+          <p className="mt-2 text-slate-500">Create your first notebook to get started.</p>
+          <Card className="mt-8 max-w-xl">
+            <CardContent className="flex items-center justify-between gap-4">
+              <div>
+                <p className="text-sm text-slate-500">Spin up a new notebook with example cells.</p>
+              </div>
+              <Button className="gap-2" onClick={handleQuickCreate}>
+                <Plus className="h-4 w-4" />
+                Create notebook
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      );
+    }
+
+    const recent = notebookList.slice(0, 6);
+    return (
+      <div className="flex flex-1 flex-col">
+        <h1 className="text-3xl font-semibold text-slate-900">Home</h1>
+        <p className="mt-2 text-slate-500">Pick up your recent notebooks or start something new.</p>
+        <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {recent.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => handleSelectNotebook(item.id)}
+              className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:-translate-y-1 hover:border-brand-200 hover:shadow-lg"
+            >
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-brand-50 text-brand-600">
+                  <NotebookPen className="h-5 w-5" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="truncate text-lg font-semibold text-slate-900">{item.name}</h3>
+                  <p className="text-sm text-slate-500">Last opened {formatTimestamp(item.updatedAt)}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 text-sm text-brand-600">
+                <span>Open notebook</span>
+                <ChevronRight className="h-4 w-4" />
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }, [loading, notebookList, handleQuickCreate, handleSelectNotebook]);
+
+  const notebooksView = useMemo(() => {
+    return (
+      <div className="flex flex-1 flex-col">
+        <h1 className="text-3xl font-semibold text-slate-900">Notebooks</h1>
+        <p className="mt-2 text-slate-500">Manage all notebooks in your workspace.</p>
+        <div className="mt-8 space-y-3">
           {notebookList.length === 0 ? (
-            <div className="mt-10 space-y-2 text-center text-sm text-slate-500">
-              <p>No notebooks yet.</p>
-              <button
-                type="button"
-                className="rounded-full border border-brand-400 px-3 py-1 text-brand-600 transition hover:bg-brand-50 disabled:cursor-not-allowed disabled:opacity-60"
-                onClick={handleCreateNotebook}
-                disabled={loading}
-              >
-                Create one
-              </button>
-            </div>
+            <Card className="max-w-xl">
+              <CardContent className="flex items-center justify-between gap-4">
+                <p className="text-sm text-slate-500">No notebooks yet.</p>
+                <Button size="sm" className="gap-2" onClick={handleQuickCreate}>
+                  <Plus className="h-4 w-4" />
+                  New notebook
+                </Button>
+              </CardContent>
+            </Card>
           ) : (
-            <ul className="space-y-2">
-              {notebookList.map((item) => {
-                const isActive = notebook?.id === item.id;
-                return (
-                  <li key={item.id}>
-                    <button
-                      type="button"
-                      onClick={() => handleSelectNotebook(item.id)}
-                      className={clsx(
-                        "w-full rounded-xl border px-3 py-2 text-left transition",
-                        isActive
-                          ? "border-slate-900 bg-slate-900 text-white shadow"
-                          : "border-transparent bg-white text-slate-700 shadow-sm hover:border-slate-200 hover:bg-slate-100",
-                      )}
-                    >
-                      <span className="block truncate text-sm font-semibold">{item.name}</span>
-                      <span className={clsx("mt-1 block text-xs", isActive ? "text-slate-200" : "text-slate-500")}> 
-                        Updated {formatTimestamp(item.updatedAt)}
-                      </span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
+            notebookList.map((item) => (
+              <Card key={item.id} className="flex flex-col gap-4 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
+                  <h3 className="truncate text-lg font-semibold text-slate-900">{item.name}</h3>
+                  <p className="text-sm text-slate-500">Updated {formatTimestamp(item.updatedAt)}</p>
+                </div>
+                <Button variant="default" size="sm" className="gap-2" onClick={() => handleSelectNotebook(item.id)} aria-label={`Open ${item.name}`}>
+                  <Play className="h-4 w-4" />
+                  Open
+                </Button>
+              </Card>
+            ))
           )}
         </div>
-      </aside>
-      <main className="flex flex-1 flex-col overflow-y-auto px-6 py-10">{mainContent}</main>
-    </div>
+      </div>
+    );
+  }, [notebookList, handleQuickCreate, handleSelectNotebook]);
+
+  const templatesView = useMemo(() => {
+    return (
+      <div className="flex flex-1 flex-col">
+        <h1 className="text-3xl font-semibold text-slate-900">Template Gallery</h1>
+        <p className="mt-2 text-slate-500">Jump into curated setups for common workflows.</p>
+        <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {TEMPLATE_CARDS.map((template) => (
+            <Card key={template.id} className="border-slate-200 bg-white/90 shadow-sm">
+              <CardContent className="space-y-4 px-6 py-5">
+                <Badge className={clsx("w-fit", template.accent)}>Template</Badge>
+                <div className="space-y-2">
+                  <h3 className="text-lg font-semibold text-slate-900">{template.title}</h3>
+                  <p className="text-sm text-slate-500">{template.description}</p>
+                </div>
+                <Button size="sm" className="gap-2" onClick={() => handleTemplateLaunch(template.templateId)}>
+                  <Plus className="h-4 w-4" />
+                  Use template
+                </Button>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </div>
+    );
+  }, [handleTemplateLaunch]);
+
+  const settingsView = useMemo(() => {
+    return (
+      <div className="flex flex-1 flex-col">
+        <h1 className="text-3xl font-semibold text-slate-900">Settings</h1>
+        <p className="mt-2 text-slate-500">Workspace preferences and appearance.</p>
+        <Card className="mt-8 max-w-xl">
+          <CardContent className="space-y-4 px-6 py-5">
+            <div>
+              <h3 className="text-sm font-semibold text-slate-900">Theme</h3>
+              <p className="text-sm text-slate-500">Dark mode is enabled by default. Light mode toggle coming soon.</p>
+            </div>
+            <Button variant="outline" size="sm" disabled>
+              Toggle theme (soon)
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }, []);
+
+  let content: React.ReactNode;
+  switch (activeSection) {
+    case "home":
+      content = homeView;
+      break;
+    case "notebooks":
+      content = notebooksView;
+      break;
+    case "templates":
+      content = templatesView;
+      break;
+    case "settings":
+      content = settingsView;
+      break;
+    default:
+      content = editorView;
+  }
+
+  const activeNav = activeSection === "editor" ? "notebooks" : activeSection;
+
+  return (
+    <AppShell active={activeNav} onNavigate={handleNavigate} onNewNotebook={handleQuickCreate}>
+      {content}
+    </AppShell>
   );
 };
 
@@ -781,58 +1196,53 @@ const CellCard = ({
   isRunning,
   canRun,
 }: CellCardProps) => {
+  const isCode = cell.type === "code";
+
   return (
-    <section className="group relative rounded-2xl border border-slate-200 bg-white shadow-sm transition hover:border-brand-300">
-      <div className="absolute -left-4 top-4 hidden flex-col gap-2 rounded-full bg-white p-2 text-xs shadow-md group-hover:flex">
-        <button
-          type="button"
-          className="rounded-full border border-slate-200 px-2 py-1 text-slate-600 transition hover:border-brand-400 hover:text-brand-700"
-          onClick={() => onAddBelow("markdown")}
-        >
-          + Markdown
-        </button>
-        <button
-          type="button"
-          className="rounded-full border border-slate-200 px-2 py-1 text-slate-600 transition hover:border-brand-400 hover:text-brand-700"
-          onClick={() => onAddBelow("code")}
-        >
-          + Code
-        </button>
-      </div>
-      <header className="flex items-center justify-between border-b border-slate-100 px-4 py-2 text-xs uppercase tracking-wide text-slate-400">
-        <span>{cell.type === "code" ? "Code" : "Markdown"} cell</span>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            className="rounded-full border border-transparent px-2 py-1 text-slate-500 transition hover:border-slate-200 hover:text-brand-700"
-            onClick={() => onMove("up")}
+    <article id={`cell-${cell.id}`} className="group/cell relative">
+      <div className="absolute right-0 top-0 flex flex-col gap-2 rounded-2xl bg-white/95 p-2 text-slate-600 shadow-lg opacity-0 pointer-events-none transition group-hover/cell:opacity-100 group-hover/cell:pointer-events-auto group-focus-within/cell:opacity-100 group-focus-within/cell:pointer-events-auto">
+        {isCode && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="text-brand-600 hover:text-brand-700"
+            onClick={onRun}
+            disabled={isRunning || !canRun}
+            aria-label="Run cell"
           >
-            ↑
-          </button>
-          <button
-            type="button"
-            className="rounded-full border border-transparent px-2 py-1 text-slate-500 transition hover:border-slate-200 hover:text-brand-700"
-            onClick={() => onMove("down")}
-          >
-            ↓
-          </button>
-          <button
-            type="button"
-            className="rounded-full border border-transparent px-2 py-1 text-slate-500 transition hover:border-rose-200 hover:text-rose-600"
-            onClick={onDelete}
-          >
-            Delete
-          </button>
-        </div>
-      </header>
-      <div className="p-4">
-        {cell.type === "markdown" ? (
-          <MarkdownCellView cell={cell} onChange={onChange} />
-        ) : (
-          <CodeCellView cell={cell} onChange={onChange} onRun={onRun} isRunning={isRunning} canRun={canRun} />
+            {isRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+          </Button>
         )}
+        <Button variant="ghost" size="icon" onClick={() => onMove("up")} aria-label="Move cell up">
+          <ArrowUp className="h-4 w-4" />
+        </Button>
+        <Button variant="ghost" size="icon" onClick={() => onMove("down")} aria-label="Move cell down">
+          <ArrowDown className="h-4 w-4" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="text-rose-600 hover:text-rose-600"
+          onClick={onDelete}
+          aria-label="Delete cell"
+        >
+          <Trash2 className="h-4 w-4" />
+        </Button>
       </div>
-    </section>
+
+      {isCode ? (
+        <CodeCellView cell={cell} onChange={onChange} onRun={onRun} isRunning={isRunning} />
+      ) : (
+        <MarkdownCellView cell={cell} onChange={onChange} />
+      )}
+
+      <div className="flex justify-center pt-4 opacity-0 transition pointer-events-none group-hover/cell:opacity-100 group-hover/cell:pointer-events-auto group-focus-within/cell:opacity-100 group-focus-within/cell:pointer-events-auto">
+        <AddCellMenu
+          onAdd={onAddBelow}
+          className="rounded-full border-slate-300/80 bg-white/95 px-4 py-1 text-xs"
+        />
+      </div>
+    </article>
   );
 };
 
@@ -842,49 +1252,75 @@ interface MarkdownCellViewProps {
 }
 
 const MarkdownCellView = ({ cell, onChange }: MarkdownCellViewProps) => {
-  const [mode, setMode] = useState<"edit" | "preview">("edit");
   const html = useMemo(() => {
     const parsed = marked.parse(cell.source ?? "", { async: false });
     const rendered = typeof parsed === "string" ? parsed : "";
     return DOMPurify.sanitize(rendered);
   }, [cell.source]);
 
+  type MarkdownUIMeta = { ui?: { edit?: boolean } };
+  const isEditing = Boolean((cell.metadata as MarkdownUIMeta).ui?.edit);
+
+  const setEdit = useCallback((edit: boolean) => {
+    onChange((current) => {
+      if (current.type !== "markdown") return current;
+      const next: NotebookCell = {
+        ...current,
+        metadata: {
+          ...current.metadata,
+          ui: { ...(((current.metadata as MarkdownUIMeta).ui ?? {})), edit },
+        },
+      };
+      return next;
+    });
+  }, [onChange]);
+
+  const handleMount = useCallback<OnMount>((editor, monaco) => {
+    editor.addCommand(monaco.KeyMod.Shift | monaco.KeyCode.Enter, () => {
+      editor.trigger("keyboard", "editor.action.formatDocument", undefined);
+      setEdit(false);
+    });
+  }, [setEdit]);
+
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex items-center gap-2 text-sm">
-        <button
-          type="button"
-          className={clsx(
-            "rounded-full px-3 py-1",
-            mode === "edit" ? "bg-brand-500 text-white shadow" : "bg-slate-100 text-slate-600 hover:bg-slate-200",
-          )}
-          onClick={() => setMode("edit")}
-        >
-          Edit
-        </button>
-        <button
-          type="button"
-          className={clsx(
-            "rounded-full px-3 py-1",
-            mode === "preview" ? "bg-brand-500 text-white shadow" : "bg-slate-100 text-slate-600 hover:bg-slate-200",
-          )}
-          onClick={() => setMode("preview")}
-        >
-          Preview
-        </button>
-      </div>
-      {mode === "edit" ? (
-        <textarea
-          className="min-h-[160px] w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 font-mono text-sm text-slate-800 shadow-inner focus:border-brand-400 focus:outline-none"
-          value={cell.source}
-          onChange={(event) => onChange(() => ({ ...cell, source: event.target.value }))}
-          placeholder="Write Markdown..."
-        />
+      {isEditing ? (
+        <div className="relative overflow-hidden rounded-xl border border-slate-200 bg-white shadow-inner">
+          <div className="absolute right-2 top-2 z-10">
+            <Button size="sm" variant="outline" className="h-7 gap-1 px-2 text-xs" onClick={() => setEdit(false)}>
+              <Check className="h-3.5 w-3.5" /> Done
+            </Button>
+          </div>
+          <MonacoEditor
+            height="220px"
+            language="markdown"
+            defaultLanguage="markdown"
+            theme="vs"
+            value={cell.source}
+            onMount={handleMount}
+            onChange={(value) => onChange(() => ({ ...cell, source: value ?? "" }))}
+            options={{
+              minimap: { enabled: false },
+              fontSize: 14,
+              lineNumbers: "off",
+              scrollBeyondLastLine: false,
+              automaticLayout: true,
+              padding: { top: 12, bottom: 12 },
+            }}
+          />
+        </div>
       ) : (
-        <div
-          className="prose prose-slate max-w-none rounded-xl border border-slate-100 bg-white px-4 py-3 shadow-inner"
-          dangerouslySetInnerHTML={{ __html: html }}
-        />
+        <div className="relative">
+          <div className="absolute right-2 top-2 z-10">
+            <Button size="sm" variant="outline" className="h-7 gap-1 px-2 text-xs" onClick={() => setEdit(true)}>
+              <Edit3 className="h-3.5 w-3.5" /> Edit
+            </Button>
+          </div>
+          <div
+            className="markdown-preview space-y-3 rounded-xl border border-slate-200 bg-white p-5 text-sm leading-7 text-slate-700 shadow-inner"
+            dangerouslySetInnerHTML={{ __html: html }}
+          />
+        </div>
       )}
     </div>
   );
@@ -895,20 +1331,35 @@ interface CodeCellViewProps {
   onChange: (updater: (cell: NotebookCell) => NotebookCell) => void;
   onRun: () => void;
   isRunning: boolean;
-  canRun: boolean;
 }
 
-const CodeCellView = ({ cell, onChange, onRun, isRunning, canRun }: CodeCellViewProps) => {
+const CodeCellView = ({ cell, onChange, onRun, isRunning }: CodeCellViewProps) => {
+  const runShortcutRef = useRef(onRun);
+
+  useEffect(() => {
+    runShortcutRef.current = onRun;
+  }, [onRun]);
+
+  const handleEditorMount = useCallback<OnMount>((editor, monaco) => {
+    editor.addCommand(monaco.KeyMod.Shift | monaco.KeyCode.Enter, () => {
+      runShortcutRef.current();
+    });
+  }, []);
+
   return (
-    <div className="flex flex-col gap-4">
-      <div className="overflow-hidden rounded-xl border border-slate-800">
+    <div className="relative rounded-2xl bg-slate-950 text-slate-100 shadow-lg ring-1 ring-slate-900/60">
+      <div className="absolute right-3 top-3 z-10">
+        <Badge variant="secondary" className="px-2 py-0.5 text-[10px] tracking-wide">{cell.language.toUpperCase()}</Badge>
+      </div>
+      <div className="overflow-hidden rounded-2xl">
         <MonacoEditor
-          height="220px"
+          height="260px"
           defaultLanguage={cell.language === "ts" ? "typescript" : "javascript"}
           language={cell.language === "ts" ? "typescript" : "javascript"}
           theme="vs-dark"
           value={cell.source}
           onChange={(value) => onChange(() => ({ ...cell, source: value ?? "" }))}
+          onMount={handleEditorMount}
           options={{
             minimap: { enabled: false },
             fontSize: 14,
@@ -916,30 +1367,22 @@ const CodeCellView = ({ cell, onChange, onRun, isRunning, canRun }: CodeCellView
             scrollBeyondLastLine: false,
             automaticLayout: true,
             readOnly: isRunning,
-            padding: { top: 12, bottom: 12 },
+            padding: { top: 18, bottom: 18 },
           }}
         />
       </div>
-      <div className="flex flex-wrap items-center gap-3">
-        <button
-          type="button"
-          className="rounded-full bg-brand-500 px-4 py-2 text-sm font-medium text-white shadow transition hover:bg-brand-600 disabled:cursor-not-allowed disabled:bg-brand-300"
-          onClick={onRun}
-          disabled={isRunning || !canRun}
-        >
-          {isRunning ? "Running…" : "Run cell"}
-        </button>
-        <span className="rounded-full border border-slate-200 px-3 py-1 text-xs uppercase tracking-wide text-slate-500">
-          Language: {cell.language.toUpperCase()}
-        </span>
-      </div>
       {cell.outputs.length > 0 && (
-        <div className="space-y-2 rounded-xl border border-slate-100 bg-slate-900/90 p-4 text-sm text-emerald-100 shadow-inner">
+        <div className="space-y-2 border-t border-slate-800 bg-slate-900/60 p-4 text-sm text-emerald-100">
           {cell.outputs.map((output, index) => (
             <OutputView key={index} output={output} />
           ))}
         </div>
       )}
+      <div className="flex items-center justify-end border-t border-slate-800 px-4 py-2 text-xs uppercase tracking-[0.2em] text-slate-400">
+        {isRunning ? (
+          <span className="flex items-center gap-2 text-amber-400"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Running…</span>
+        ) : null}
+      </div>
     </div>
   );
 };
@@ -973,28 +1416,68 @@ const OutputView = ({ output }: { output: NotebookOutput }) => {
   );
 };
 
+interface OutlinePanelProps {
+  items: OutlineItem[];
+  onSelect: (cellId: string) => void;
+  activeCellId?: string;
+}
+
+const OutlinePanel = ({ items, onSelect, activeCellId }: OutlinePanelProps) => {
+  return (
+    <div className="flex h-full flex-col gap-4">
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">Outline</p>
+        <p className="text-xs text-slate-500">Headings from Markdown cells</p>
+      </div>
+      {items.length === 0 ? (
+        <p className="text-xs text-slate-500">Add headings to your Markdown cells to build an outline.</p>
+      ) : (
+        <ul className="space-y-1">
+          {items.map((item) => (
+            <li key={item.id}>
+              <Button
+                variant="ghost"
+                size="sm"
+                className={clsx(
+                  "w-full justify-start text-sm",
+                  activeCellId === item.cellId ? "bg-slate-100 text-slate-900" : "text-slate-500 hover:text-slate-900",
+                )}
+                style={{ paddingLeft: 12 + (item.level - 1) * 12 }}
+                onClick={() => onSelect(item.cellId)}
+              >
+                {item.title}
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+};
+
 const AddCellMenu = ({
   onAdd,
+  className,
 }: {
   onAdd: (type: NotebookCell["type"]) => void;
+  className?: string;
 }) => {
   return (
-    <div className="flex items-center gap-3 rounded-full border border-dashed border-slate-300 bg-white px-4 py-2 text-sm text-slate-500 shadow-sm">
-      <span>Add a new cell</span>
-      <button
-        type="button"
-        className="rounded-full border border-slate-200 px-3 py-1 text-slate-600 transition hover:border-brand-400 hover:text-brand-700"
-        onClick={() => onAdd("markdown")}
-      >
+    <div
+      className={clsx(
+        "flex items-center gap-3 rounded-lg border border-dashed border-slate-300 bg-white px-5 py-2 text-sm text-slate-600 shadow-sm",
+        className,
+      )}
+    >
+      <span className="font-medium">Add cell</span>
+      <Button variant="outline" size="sm" className="gap-2" onClick={() => onAdd("markdown")}>
+        <Plus className="h-4 w-4" />
         Markdown
-      </button>
-      <button
-        type="button"
-        className="rounded-full border border-slate-200 px-3 py-1 text-slate-600 transition hover:border-brand-400 hover:text-brand-700"
-        onClick={() => onAdd("code")}
-      >
+      </Button>
+      <Button variant="outline" size="sm" className="gap-2" onClick={() => onAdd("code")}>
+        <Plus className="h-4 w-4" />
         Code
-      </button>
+      </Button>
     </div>
   );
 };
