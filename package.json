@@ -1,0 +1,22 @@
+{
+  "name": "nodebooks",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "pnpm -r build",
+    "dev": "pnpm -r --parallel dev",
+    "lint": "pnpm -r lint",
+    "test": "pnpm -r test"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.36.0",
+    "eslint": "^9.36.0",
+    "typescript-eslint": "^8.44.0",
+    "@next/eslint-plugin-next": "^15.5.3"
+  },
+  "type": "module"
+}
