@@ -15,11 +15,10 @@ const AddCellMenu = ({
   return (
     <div
       className={clsx(
-        "flex items-center gap-3 rounded-lg border border-dashed border-slate-300 bg-white px-5 py-2 text-sm text-slate-600 shadow-sm",
+        "flex items-center gap-1 px-1 py-1 text-sm text-slate-600 shadow-sm",
         className
       )}
     >
-      <span className="font-medium">Add cell</span>
       <Button
         variant="outline"
         size="sm"

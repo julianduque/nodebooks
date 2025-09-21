@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import type { OnMount } from "@monaco-editor/react";
 import DOMPurify from "dompurify";
 import { marked } from "marked";
@@ -18,6 +18,9 @@ const MarkdownCellView = ({
   onChange,
   editorKey,
 }: MarkdownCellViewProps) => {
+  // Start at roughly one visual line + padding (updated on mount)
+  const [editorHeight, setEditorHeight] = useState<number>(48);
+  const heightRef = useRef(0);
   const html = useMemo(() => {
     const parsed = marked.parse(cell.source ?? "", { async: false });
     const rendered = typeof parsed === "string" ? parsed : "";
@@ -55,6 +58,54 @@ const MarkdownCellView = ({
           setEdit(false);
         },
       });
+
+      // Auto-resize from 1 line to fit content
+      const computeHeight = () => {
+        const lineHeight = editor.getOption(
+          monaco.editor.EditorOption.lineHeight
+        ) as number;
+        const padding = editor.getOption(monaco.editor.EditorOption.padding) as
+          | { top: number; bottom: number }
+          | undefined;
+        const minHeight =
+          lineHeight + (padding?.top ?? 0) + (padding?.bottom ?? 0);
+        const contentHeight = Math.ceil(editor.getContentHeight());
+        const newHeight = Math.max(minHeight, contentHeight);
+        return newHeight;
+      };
+
+      const applyHeight = (h: number) => {
+        if (h === heightRef.current) return;
+        heightRef.current = h;
+        setEditorHeight(h);
+        try {
+          const dom = editor.getDomNode?.();
+          const width =
+            dom?.parentElement?.clientWidth ?? dom?.clientWidth ?? 0;
+          if (width > 0) {
+            editor.layout({ width, height: h });
+          }
+        } catch {
+          // noop
+        }
+      };
+
+      // Initial size and listeners
+      applyHeight(computeHeight());
+      const d1 = editor.onDidContentSizeChange(() => {
+        applyHeight(computeHeight());
+      });
+      const d2 = editor.onDidChangeConfiguration(() => {
+        applyHeight(computeHeight());
+      });
+      const onResize = () => applyHeight(computeHeight());
+      window.addEventListener("resize", onResize);
+
+      return () => {
+        d1.dispose();
+        d2.dispose();
+        window.removeEventListener("resize", onResize);
+      };
     },
     [setEdit]
   );
@@ -66,7 +117,7 @@ const MarkdownCellView = ({
           <MonacoEditor
             key={editorKey}
             path={`${cell.id}.md`}
-            height="220px"
+            height={editorHeight || 0}
             language="markdown"
             defaultLanguage="markdown"
             theme="vs-dark"
@@ -80,8 +131,16 @@ const MarkdownCellView = ({
               fontSize: 14,
               lineNumbers: "off",
               scrollBeyondLastLine: false,
+              wordWrap: "on",
               automaticLayout: true,
               padding: { top: 12, bottom: 12 },
+              scrollbar: {
+                vertical: "hidden",
+                horizontal: "auto",
+                handleMouseWheel: false,
+                alwaysConsumeMouseWheel: false,
+              },
+              overviewRulerLanes: 0,
             }}
           />
           <div
