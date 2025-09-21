@@ -1,0 +1,221 @@
+"use client";
+
+import clsx from "clsx";
+import { Button } from "../ui/button";
+import {
+  ArrowDown,
+  ArrowUp,
+  Check,
+  Eraser,
+  Loader2,
+  Pencil,
+  Play,
+  Trash2,
+  Plus,
+} from "lucide-react";
+import type { NotebookCell } from "@nodebooks/notebook-schema";
+import CodeCellView from "./CodeCellView";
+import MarkdownCellView from "./MarkdownCellView";
+
+interface CellCardProps {
+  cell: NotebookCell;
+  onChange: (updater: (cell: NotebookCell) => NotebookCell) => void;
+  onRun: () => void;
+  onDelete: () => void;
+  onAddBelow: (type: NotebookCell["type"]) => void;
+  onMove: (direction: "up" | "down") => void;
+  isRunning: boolean;
+  canRun: boolean;
+  canMoveUp: boolean;
+  canMoveDown: boolean;
+  editorKey: string;
+  active: boolean;
+  onActivate: () => void;
+}
+
+const AddCellMenu = ({
+  onAdd,
+  className,
+}: {
+  onAdd: (type: NotebookCell["type"]) => void;
+  className?: string;
+}) => {
+  return (
+    <div
+      className={clsx(
+        "flex items-center gap-3 rounded-lg border border-dashed border-slate-300 bg-white px-5 py-2 text-sm text-slate-600 shadow-sm",
+        className
+      )}
+    >
+      <span className="font-medium">Add cell</span>
+      <Button
+        variant="outline"
+        size="sm"
+        className="gap-2"
+        onClick={() => onAdd("markdown")}
+      >
+        <Plus className="h-4 w-4" />
+        Markdown
+      </Button>
+      <Button
+        variant="outline"
+        size="sm"
+        className="gap-2"
+        onClick={() => onAdd("code")}
+      >
+        <Plus className="h-4 w-4" />
+        Code
+      </Button>
+    </div>
+  );
+};
+
+const CellCard = ({
+  cell,
+  onChange,
+  onRun,
+  onDelete,
+  onAddBelow,
+  onMove,
+  isRunning,
+  canRun,
+  canMoveUp,
+  canMoveDown,
+  editorKey,
+  onActivate,
+}: CellCardProps) => {
+  const isCode = cell.type === "code";
+  type MarkdownUIMeta = { ui?: { edit?: boolean } };
+  const mdEditing =
+    cell.type === "markdown" &&
+    ((cell.metadata as MarkdownUIMeta).ui?.edit ?? true);
+
+  return (
+    <article
+      id={`cell-${cell.id}`}
+      className={clsx(
+        "group/cell relative z-0 rounded-xl transition hover:z-40 focus-within:z-50",
+        "border-l-2 border-transparent hover:border-emerald-300/80"
+      )}
+      onMouseDown={onActivate}
+      onFocus={onActivate}
+      tabIndex={-1}
+    >
+      <div className="absolute right-0 top-0 z-50 flex flex-col gap-2 rounded-2xl bg-white/95 p-2 text-slate-600 shadow-lg opacity-0 pointer-events-none transition group-hover/cell:opacity-100 group-hover/cell:pointer-events-auto group-focus-within/cell:opacity-100 group-focus-within/cell:pointer-events-auto">
+        {isCode ? (
+          <>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="text-brand-600 hover:text-brand-700"
+              onClick={onRun}
+              disabled={isRunning || !canRun}
+              aria-label="Run cell"
+            >
+              {isRunning ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Play className="h-4 w-4" />
+              )}
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() =>
+                onChange((current) =>
+                  current.type === "code"
+                    ? { ...current, outputs: [], execution: undefined }
+                    : current
+                )
+              }
+              aria-label="Clear outputs"
+            >
+              <Eraser className="h-4 w-4" />
+            </Button>
+          </>
+        ) : (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() =>
+              onChange((current) => {
+                if (current.type !== "markdown") return current;
+                type U = { ui?: { edit?: boolean } };
+                const ui = (current.metadata as U).ui ?? {};
+                const next = {
+                  ...current,
+                  metadata: {
+                    ...current.metadata,
+                    ui: { ...ui, edit: !ui.edit },
+                  },
+                } as NotebookCell;
+                return next;
+              })
+            }
+            aria-label="Toggle edit markdown"
+          >
+            {mdEditing ? (
+              <Check className="h-4 w-4" />
+            ) : (
+              <Pencil className="h-4 w-4" />
+            )}
+          </Button>
+        )}
+        {canMoveUp && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => onMove("up")}
+            aria-label="Move cell up"
+          >
+            <ArrowUp className="h-4 w-4" />
+          </Button>
+        )}
+        {canMoveDown && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => onMove("down")}
+            aria-label="Move cell down"
+          >
+            <ArrowDown className="h-4 w-4" />
+          </Button>
+        )}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="text-rose-600 hover:text-rose-600"
+          onClick={onDelete}
+          aria-label="Delete cell"
+        >
+          <Trash2 className="h-4 w-4" />
+        </Button>
+      </div>
+
+      {isCode ? (
+        <CodeCellView
+          editorKey={editorKey}
+          cell={cell}
+          onChange={onChange}
+          onRun={onRun}
+          isRunning={isRunning}
+        />
+      ) : (
+        <MarkdownCellView
+          editorKey={editorKey}
+          cell={cell}
+          onChange={onChange}
+        />
+      )}
+
+      <div className="flex justify-center pt-4 opacity-0 transition pointer-events-none group-hover/cell:opacity-100 group-hover/cell:pointer-events-auto group-focus-within/cell:opacity-100 group-focus-within/cell:pointer-events-auto">
+        <AddCellMenu
+          onAdd={onAddBelow}
+          className="rounded-full border-slate-300/80 bg-white/95 px-4 py-1 text-xs"
+        />
+      </div>
+    </article>
+  );
+};
+
+export default CellCard;

@@ -1,23 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import dynamic from "next/dynamic";
 import clsx from "clsx";
-import DOMPurify from "dompurify";
-import { marked } from "marked";
 import AppShell from "./AppShell";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
 import { Card, CardContent } from "./ui/card";
 import {
-  ArrowDown,
-  ArrowUp,
   Check,
   Loader2,
   Pencil,
-  Play,
   PlayCircle,
-  Plus,
   Save,
   Share2,
   Trash2,
@@ -27,7 +20,6 @@ import {
   XCircle,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import type { OnMount } from "@monaco-editor/react";
 import {
   createCodeCell,
   createMarkdownCell,
@@ -37,47 +29,25 @@ import {
   type NotebookCell,
   type NotebookOutput,
 } from "@nodebooks/notebook-schema";
-
-const MonacoEditor = dynamic(
-  async () => {
-    const mod = await import("@monaco-editor/react");
-    return mod.default;
-  },
-  {
-    ssr: false,
-  }
-);
-
-interface NotebookSessionSummary {
-  id: string;
-  notebookId: string;
-  createdAt: string;
-  status: "open" | "closed";
-}
-
-type NotebookTemplateId = "starter" | "typescript" | "blank";
-
-interface OutlineItem {
-  id: string;
-  cellId: string;
-  title: string;
-  level: number;
-}
-
-const formatTimestamp = (value: string) => {
-  try {
-    return new Date(value).toLocaleString();
-  } catch {
-    return value;
-  }
-};
+import type {
+  NotebookSessionSummary,
+  NotebookTemplateId,
+  OutlineItem,
+  NotebookViewProps,
+} from "./notebook/types";
+import {
+  formatTimestamp,
+  parseMultipleDependencies,
+  buildOutlineItems,
+} from "./notebook/utils";
+import CellCard from "./notebook/CellCard";
+import AddCellMenu from "./notebook/AddCellMenu";
+import OutlinePanel from "./notebook/OutlinePanel";
+import SetupPanel from "./notebook/SetupPanel";
+import OutputView from "./notebook/OutputView";
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
-
-interface NotebookViewProps {
-  initialNotebookId?: string;
-}
 
 const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
   const router = useRouter();
@@ -156,7 +126,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     if (notebook) {
       setSidebarView("setup");
     }
-  }, [notebook?.id]);
+  }, [notebook]);
 
   useEffect(() => {
     if (isRenaming) {
@@ -748,7 +718,12 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
           setDepOpen(false); // collapse after success
         }
       } catch (err) {
-        if ((err as any)?.name === "AbortError") {
+        const isAbort =
+          typeof err === "object" &&
+          err !== null &&
+          "name" in err &&
+          (err as Record<string, unknown>).name === "AbortError";
+        if (isAbort) {
           setDepError(null);
           setDepOutputs([]);
         } else {
@@ -866,51 +841,6 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     }
   }, [notebook]);
 
-  const handleAddDependency = useCallback(
-    async (name: string, version: string) => {
-      if (!notebook) return;
-      const trimmedName = name.trim();
-      const trimmedVersion = (version || "latest").trim() || "latest";
-      if (!trimmedName) return;
-
-      try {
-        const res = await fetch(
-          `${API_BASE_URL}/notebooks/${notebook.id}/dependencies`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              name: trimmedName,
-              version: trimmedVersion,
-            }),
-          }
-        );
-        if (!res.ok) {
-          const payload = await res.json().catch(() => ({}));
-          const message = payload?.error || `Failed to add ${trimmedName}`;
-          throw new Error(message);
-        }
-        const payload = await res.json();
-        const nextEnv = payload?.data?.env;
-        if (nextEnv) {
-          updateNotebook((current) => ({ ...current, env: nextEnv }), {
-            persist: false,
-          });
-          setDirty(false);
-        }
-      } catch (err) {
-        setError(
-          err instanceof Error
-            ? err.message
-            : `Failed to add dependency ${trimmedName}`
-        );
-      }
-    },
-    [notebook, updateNotebook]
-  );
-
-  // Inline editing of dependencies removed — add/remove only.
-
   const handleRemoveDependency = useCallback(
     async (name: string) => {
       if (!notebook) return;
@@ -955,30 +885,10 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     element?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, []);
 
-  const outlineItems = useMemo<OutlineItem[]>(() => {
-    if (!notebook) {
-      return [];
-    }
-    const items: OutlineItem[] = [];
-    notebook.cells.forEach((cell) => {
-      if (cell.type !== "markdown" || !cell.source) {
-        return;
-      }
-      const lines = cell.source.split("\n");
-      lines.forEach((line, index) => {
-        const match = /^(#{1,4})\s+(.*)/.exec(line.trim());
-        if (match) {
-          items.push({
-            id: `${cell.id}-${index}`,
-            cellId: cell.id,
-            title: match[2].trim(),
-            level: match[1].length,
-          });
-        }
-      });
-    });
-    return items;
-  }, [notebook]);
+  const outlineItems = useMemo<OutlineItem[]>(
+    () => buildOutlineItems(notebook),
+    [notebook]
+  );
 
   const notebookHeader = useMemo(() => {
     if (!notebook) {
@@ -1370,7 +1280,6 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     handleOutlineJump,
     activeCellId,
     sidebarView,
-    handleAddDependency,
     handleRemoveDependency,
     // Inline dependency form state
     depOpen,
@@ -1380,8 +1289,8 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     depOutputs,
     handleClearDepOutputs,
     handleAbortInstall,
+    handleInstallDependencyInline,
     depParsed,
-    depReqId,
   ]);
 
   return (
@@ -1391,621 +1300,6 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     >
       {editorView}
     </AppShell>
-  );
-};
-
-interface CellCardProps {
-  cell: NotebookCell;
-  onChange: (updater: (cell: NotebookCell) => NotebookCell) => void;
-  onRun: () => void;
-  onDelete: () => void;
-  onAddBelow: (type: NotebookCell["type"]) => void;
-  onMove: (direction: "up" | "down") => void;
-  isRunning: boolean;
-  canRun: boolean;
-  canMoveUp: boolean;
-  canMoveDown: boolean;
-  editorKey: string;
-  active: boolean;
-  onActivate: () => void;
-}
-
-const CellCard = ({
-  cell,
-  onChange,
-  onRun,
-  onDelete,
-  onAddBelow,
-  onMove,
-  isRunning,
-  canRun,
-  canMoveUp,
-  canMoveDown,
-  editorKey,
-  onActivate,
-}: CellCardProps) => {
-  const isCode = cell.type === "code";
-  type MarkdownUIMeta = { ui?: { edit?: boolean } };
-  const mdEditing =
-    cell.type === "markdown" &&
-    ((cell.metadata as MarkdownUIMeta).ui?.edit ?? true);
-
-  return (
-    <article
-      id={`cell-${cell.id}`}
-      className={clsx(
-        // layering for toolbar and overlap
-        "group/cell relative z-0 rounded-xl transition hover:z-40 focus-within:z-50",
-        // subtle green indicator only on hover
-        "border-l-2 border-transparent hover:border-emerald-300/80"
-      )}
-      onMouseDown={onActivate}
-      onFocus={onActivate}
-      tabIndex={-1}
-    >
-      <div className="absolute right-0 top-0 z-50 flex flex-col gap-2 rounded-2xl bg-white/95 p-2 text-slate-600 shadow-lg opacity-0 pointer-events-none transition group-hover/cell:opacity-100 group-hover/cell:pointer-events-auto group-focus-within/cell:opacity-100 group-focus-within/cell:pointer-events-auto">
-        {isCode ? (
-          <>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="text-brand-600 hover:text-brand-700"
-              onClick={onRun}
-              disabled={isRunning || !canRun}
-              aria-label="Run cell"
-            >
-              {isRunning ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Play className="h-4 w-4" />
-              )}
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() =>
-                onChange((current) =>
-                  current.type === "code"
-                    ? { ...current, outputs: [], execution: undefined }
-                    : current
-                )
-              }
-              aria-label="Clear outputs"
-            >
-              <Eraser className="h-4 w-4" />
-            </Button>
-          </>
-        ) : (
-          // Markdown-specific edit/done placed in the shared toolbar
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() =>
-              onChange((current) => {
-                if (current.type !== "markdown") return current;
-                type U = { ui?: { edit?: boolean } };
-                const ui = (current.metadata as U).ui ?? {};
-                const next = {
-                  ...current,
-                  metadata: {
-                    ...current.metadata,
-                    ui: { ...ui, edit: !ui.edit },
-                  },
-                } as NotebookCell;
-                return next;
-              })
-            }
-            aria-label="Toggle edit markdown"
-          >
-            {mdEditing ? (
-              <Check className="h-4 w-4" />
-            ) : (
-              <Pencil className="h-4 w-4" />
-            )}
-          </Button>
-        )}
-        {canMoveUp && (
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => onMove("up")}
-            aria-label="Move cell up"
-          >
-            <ArrowUp className="h-4 w-4" />
-          </Button>
-        )}
-        {canMoveDown && (
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => onMove("down")}
-            aria-label="Move cell down"
-          >
-            <ArrowDown className="h-4 w-4" />
-          </Button>
-        )}
-        <Button
-          variant="ghost"
-          size="icon"
-          className="text-rose-600 hover:text-rose-600"
-          onClick={onDelete}
-          aria-label="Delete cell"
-        >
-          <Trash2 className="h-4 w-4" />
-        </Button>
-      </div>
-
-      {isCode ? (
-        <CodeCellView
-          editorKey={editorKey}
-          cell={cell}
-          onChange={onChange}
-          onRun={onRun}
-          isRunning={isRunning}
-        />
-      ) : (
-        <MarkdownCellView
-          editorKey={editorKey}
-          cell={cell}
-          onChange={onChange}
-        />
-      )}
-
-      <div className="flex justify-center pt-4 opacity-0 transition pointer-events-none group-hover/cell:opacity-100 group-hover/cell:pointer-events-auto group-focus-within/cell:opacity-100 group-focus-within/cell:pointer-events-auto">
-        <AddCellMenu
-          onAdd={onAddBelow}
-          className="rounded-full border-slate-300/80 bg-white/95 px-4 py-1 text-xs"
-        />
-      </div>
-    </article>
-  );
-};
-
-interface MarkdownCellViewProps {
-  cell: Extract<NotebookCell, { type: "markdown" }>;
-  onChange: (updater: (cell: NotebookCell) => NotebookCell) => void;
-  editorKey: string;
-}
-
-const MarkdownCellView = ({
-  cell,
-  onChange,
-  editorKey,
-}: MarkdownCellViewProps) => {
-  const html = useMemo(() => {
-    const parsed = marked.parse(cell.source ?? "", { async: false });
-    const rendered = typeof parsed === "string" ? parsed : "";
-    return DOMPurify.sanitize(rendered);
-  }, [cell.source]);
-
-  type MarkdownUIMeta = { ui?: { edit?: boolean } };
-  const isEditing = (cell.metadata as MarkdownUIMeta).ui?.edit ?? true;
-
-  const setEdit = useCallback(
-    (edit: boolean) => {
-      onChange((current) => {
-        if (current.type !== "markdown") return current;
-        const next: NotebookCell = {
-          ...current,
-          metadata: {
-            ...current.metadata,
-            ui: { ...((current.metadata as MarkdownUIMeta).ui ?? {}), edit },
-          },
-        };
-        return next;
-      });
-    },
-    [onChange]
-  );
-
-  const handleMount = useCallback<OnMount>(
-    (editor, monaco) => {
-      editor.addAction({
-        id: "nodebooks.md.done",
-        label: "Done Editing",
-        keybindings: [monaco.KeyMod.Shift | monaco.KeyCode.Enter],
-        run: () => {
-          editor.trigger("keyboard", "editor.action.formatDocument", undefined);
-          setEdit(false);
-        },
-      });
-    },
-    [setEdit]
-  );
-
-  return (
-    <div className="flex flex-col gap-3">
-      {isEditing ? (
-        <div className="relative overflow-hidden rounded-xl border border-slate-200 bg-transparent">
-          <MonacoEditor
-            key={editorKey}
-            path={`${cell.id}.md`}
-            height="220px"
-            language="markdown"
-            defaultLanguage="markdown"
-            theme="vs-dark"
-            value={cell.source}
-            onMount={handleMount}
-            onChange={(value) =>
-              onChange(() => ({ ...cell, source: value ?? "" }))
-            }
-            options={{
-              minimap: { enabled: false },
-              fontSize: 14,
-              lineNumbers: "off",
-              scrollBeyondLastLine: false,
-              automaticLayout: true,
-              padding: { top: 12, bottom: 12 },
-            }}
-          />
-          <div
-            className="markdown-preview space-y-3 border-t border-slate-200 p-5 text-sm leading-7 text-slate-700"
-            dangerouslySetInnerHTML={{ __html: html }}
-          />
-        </div>
-      ) : (
-        <div className="relative">
-          <div
-            className="markdown-preview space-y-3 rounded-xl border border-transparent p-5 text-sm leading-7 text-slate-700 transition group-hover/cell:border-slate-200"
-            dangerouslySetInnerHTML={{ __html: html }}
-          />
-        </div>
-      )}
-    </div>
-  );
-};
-
-interface CodeCellViewProps {
-  cell: Extract<NotebookCell, { type: "code" }>;
-  onChange: (updater: (cell: NotebookCell) => NotebookCell) => void;
-  onRun: () => void;
-  isRunning: boolean;
-  editorKey: string;
-}
-
-const CodeCellView = ({
-  cell,
-  onChange,
-  onRun,
-  isRunning,
-  editorKey,
-}: CodeCellViewProps) => {
-  const runShortcutRef = useRef(onRun);
-
-  useEffect(() => {
-    runShortcutRef.current = onRun;
-  }, [onRun]);
-
-  const handleEditorMount = useCallback<OnMount>((editor, monaco) => {
-    const run = () => runShortcutRef.current();
-    // Register as an action to override default editor behavior
-    editor.addAction({
-      id: "nodebooks.run-cell",
-      label: "Run Cell",
-      keybindings: [
-        monaco.KeyMod.Shift | monaco.KeyCode.Enter,
-        monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter,
-      ],
-      run,
-    });
-    editor.onDidFocusEditorWidget?.((): void => {
-      const el = editor.getDomNode?.();
-      if (el) {
-        const article = el.closest(
-          "article[id^='cell-']"
-        ) as HTMLElement | null;
-        if (article?.id?.startsWith("cell-")) {
-          try {
-            article.dispatchEvent(new Event("focus", { bubbles: true }));
-          } catch {
-            /* noop */
-          }
-        }
-      }
-    });
-  }, []);
-
-  const hideEditor = Boolean(
-    (cell.metadata as { display?: { hideEditor?: boolean } })?.display
-      ?.hideEditor
-  );
-  const title =
-    (cell.metadata as { display?: { title?: string } })?.display?.title ??
-    undefined;
-
-  return (
-    <div className="relative rounded-2xl bg-slate-950 text-slate-100 shadow-lg ring-1 ring-slate-900/60">
-      <div className="absolute right-3 top-3 z-10 flex items-center gap-2">
-        {title ? (
-          <Badge variant="outline" className="px-2 py-0.5 text-[10px]">
-            {title}
-          </Badge>
-        ) : null}
-        <Badge
-          variant="secondary"
-          className="px-2 py-0.5 text-[10px] tracking-wide"
-        >
-          {cell.language.toUpperCase()}
-        </Badge>
-      </div>
-
-      {!hideEditor ? (
-        <div className="overflow-hidden rounded-2xl">
-          <MonacoEditor
-            key={editorKey}
-            path={`${cell.id}.${cell.language === "ts" ? "ts" : "js"}`}
-            height="260px"
-            defaultLanguage={
-              cell.language === "ts" ? "typescript" : "javascript"
-            }
-            language={cell.language === "ts" ? "typescript" : "javascript"}
-            theme="vs-dark"
-            value={cell.source}
-            onChange={(value) =>
-              onChange(() => ({ ...cell, source: value ?? "" }))
-            }
-            onMount={handleEditorMount}
-            options={{
-              minimap: { enabled: false },
-              fontSize: 14,
-              lineNumbers: "on",
-              scrollBeyondLastLine: false,
-              automaticLayout: true,
-              readOnly: isRunning,
-              padding: { top: 18, bottom: 18 },
-            }}
-          />
-        </div>
-      ) : null}
-
-      {(hideEditor || cell.outputs.length > 0) && (
-        <div className="space-y-2 border-t border-slate-800 bg-slate-900/60 p-4 text-sm text-emerald-100">
-          {cell.outputs.length > 0 ? (
-            cell.outputs.map((output, index) => (
-              <OutputView key={index} output={output} />
-            ))
-          ) : (
-            <div className="flex items-center gap-2 text-emerald-200/80">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" /> Preparing
-              environment…
-            </div>
-          )}
-        </div>
-      )}
-
-      <div className="flex items-center justify-end border-t border-slate-800 px-4 py-2 text-xs uppercase tracking-[0.2em] text-slate-400">
-        {isRunning ? (
-          <span className="flex items-center gap-2 text-amber-400">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" /> Running…
-          </span>
-        ) : null}
-      </div>
-    </div>
-  );
-};
-
-const OutputView = ({ output }: { output: NotebookOutput }) => {
-  if (output.type === "stream") {
-    return (
-      <pre className="whitespace-pre-wrap font-mono text-emerald-100">
-        <span className="text-emerald-300">[{output.name}]</span> {output.text}
-      </pre>
-    );
-  }
-
-  if (output.type === "error") {
-    return (
-      <div className="rounded-lg border border-rose-400 bg-rose-100/80 p-3 font-mono text-sm text-rose-700">
-        <strong>{output.ename}:</strong> {output.evalue}
-        {output.traceback.length > 0 && (
-          <pre className="mt-2 whitespace-pre-wrap text-xs">
-            {output.traceback.join("\n")}
-          </pre>
-        )}
-      </div>
-    );
-  }
-
-  return (
-    <div className="rounded-lg border border-slate-700 bg-slate-800/90 p-3">
-      <pre className="whitespace-pre-wrap text-xs text-slate-100">
-        {JSON.stringify(output.data, null, 2)}
-      </pre>
-    </div>
-  );
-};
-
-interface SetupPanelProps {
-  env: Notebook["env"];
-  onRemoveDependency: (name: string) => Promise<void> | void;
-}
-
-const SetupPanel = ({ env, onRemoveDependency }: SetupPanelProps) => {
-  const dependencies = useMemo(
-    () =>
-      Object.entries(env.packages ?? {})
-        .filter(([name]) => name.trim().length > 0)
-        .sort((a, b) => a[0].localeCompare(b[0])),
-    [env.packages]
-  );
-
-  return (
-    <div className="flex h-full flex-col gap-5">
-      <div className="space-y-2">
-        <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">
-          Environment
-        </p>
-        <p className="text-sm font-semibold text-slate-700">
-          {env.runtime.toUpperCase()} {env.version}
-        </p>
-        <p className="text-xs text-slate-500">
-          Dependencies are installed in an isolated workspace for this notebook.
-        </p>
-      </div>
-      <div className="flex-1 overflow-y-auto pr-1">
-        {dependencies.length === 0 ? (
-          <p className="text-xs text-slate-500">
-            No npm dependencies configured yet.
-          </p>
-        ) : (
-          <ul className="space-y-2">
-            {dependencies.map(([name, version]) => (
-              <DependencyRow
-                key={name}
-                name={name}
-                version={version}
-                onRemove={() => onRemoveDependency(name)}
-              />
-            ))}
-          </ul>
-        )}
-      </div>
-    </div>
-  );
-};
-
-interface DependencyRowProps {
-  name: string;
-  version: string;
-  onRemove: () => void;
-}
-
-const DependencyRow = ({ name, version, onRemove }: DependencyRowProps) => {
-  return (
-    <li className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2">
-      <div className="flex-1 truncate text-sm text-slate-700">{name}</div>
-      <Badge variant="secondary" className="font-mono text-[11px]">
-        {version || "latest"}
-      </Badge>
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon"
-        className="text-rose-600 hover:text-rose-700"
-        onClick={onRemove}
-        aria-label={`Remove ${name}`}
-      >
-        <Trash2 className="h-4 w-4" />
-      </Button>
-    </li>
-  );
-};
-
-const parseDependencySpecifier = (raw: string) => {
-  const value = raw.trim();
-  if (!value) {
-    return null;
-  }
-  if (value.startsWith("@")) {
-    const slashIndex = value.indexOf("/");
-    if (slashIndex === -1) {
-      return { name: value, version: "latest" };
-    }
-    const atIndex = value.indexOf("@", slashIndex + 1);
-    if (atIndex === -1) {
-      return { name: value, version: "latest" };
-    }
-    const name = value.slice(0, atIndex).trim();
-    const version = value.slice(atIndex + 1).trim() || "latest";
-    return name ? { name, version } : null;
-  }
-  const lastAt = value.lastIndexOf("@");
-  if (lastAt > 0) {
-    const name = value.slice(0, lastAt).trim();
-    const version = value.slice(lastAt + 1).trim() || "latest";
-    return name ? { name, version } : null;
-  }
-  return { name: value, version: "latest" };
-};
-
-const parseMultipleDependencies = (raw: string) => {
-  const items = String(raw)
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .map((token) => parseDependencySpecifier(token))
-    .filter((x): x is { name: string; version: string } => Boolean(x));
-  return items;
-};
-
-interface OutlinePanelProps {
-  items: OutlineItem[];
-  onSelect: (cellId: string) => void;
-  activeCellId?: string;
-}
-
-const OutlinePanel = ({ items, onSelect, activeCellId }: OutlinePanelProps) => {
-  return (
-    <div className="flex h-full flex-col gap-4">
-      <div>
-        <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">
-          Outline
-        </p>
-      </div>
-      {items.length === 0 ? (
-        <p className="text-xs text-slate-500">
-          Add headings to your Markdown cells to build an outline.
-        </p>
-      ) : (
-        <ul className="space-y-1">
-          {items.map((item) => (
-            <li key={item.id}>
-              <Button
-                variant="ghost"
-                size="sm"
-                className={clsx(
-                  "w-full justify-start text-sm",
-                  activeCellId === item.cellId
-                    ? "bg-slate-100 text-slate-900"
-                    : "text-slate-500 hover:text-slate-900"
-                )}
-                style={{ paddingLeft: 12 + (item.level - 1) * 12 }}
-                onClick={() => onSelect(item.cellId)}
-              >
-                {item.title}
-              </Button>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-};
-
-const AddCellMenu = ({
-  onAdd,
-  className,
-}: {
-  onAdd: (type: NotebookCell["type"]) => void;
-  className?: string;
-}) => {
-  return (
-    <div
-      className={clsx(
-        "flex items-center gap-3 rounded-lg border border-dashed border-slate-300 bg-white px-5 py-2 text-sm text-slate-600 shadow-sm",
-        className
-      )}
-    >
-      <span className="font-medium">Add cell</span>
-      <Button
-        variant="outline"
-        size="sm"
-        className="gap-2"
-        onClick={() => onAdd("markdown")}
-      >
-        <Plus className="h-4 w-4" />
-        Markdown
-      </Button>
-      <Button
-        variant="outline"
-        size="sm"
-        className="gap-2"
-        onClick={() => onAdd("code")}
-      >
-        <Plus className="h-4 w-4" />
-        Code
-      </Button>
-    </div>
   );
 };
 

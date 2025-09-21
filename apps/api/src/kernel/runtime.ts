@@ -49,18 +49,18 @@ interface ExecuteResult {
 // `class C ...` to `globalThis.C = class C ...`.
 // This allows re-running a cell without "already declared" errors and makes
 // definitions visible to following cells via the shared context.
-const rewriteTopLevelDeclarations = (source: string, lang: "js" | "ts") => {
+const rewriteTopLevelDeclarations = (source: string, _lang: "js" | "ts") => {
   const lines = source.split(/\r?\n/);
   let depth = 0;
   let inBlockComment = false;
   let inString: false | '"' | "'" | "`" = false;
-  let result: string[] = [];
+  const result: string[] = [];
 
   const replaceVar = (line: string) => {
     // handle export prefix
     const exportRe = /^\s*export\s+/;
     const exportPrefix = exportRe.test(line) ? line.match(exportRe)![0] : "";
-    let rest = exportPrefix ? line.slice(exportPrefix.length) : line;
+    const rest = exportPrefix ? line.slice(exportPrefix.length) : line;
     // const/let/var with optional type annotation
     const varRe =
       /^(\s*)(const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::[^=;]+)?\s*=\s*/;
@@ -75,7 +75,7 @@ const rewriteTopLevelDeclarations = (source: string, lang: "js" | "ts") => {
   const replaceFunction = (line: string) => {
     const exportRe = /^\s*export\s+/;
     const exportPrefix = exportRe.test(line) ? line.match(exportRe)![0] : "";
-    let rest = exportPrefix ? line.slice(exportPrefix.length) : line;
+    const rest = exportPrefix ? line.slice(exportPrefix.length) : line;
     const fnRe = /^(\s*)function\s+([A-Za-z_$][\w$]*)\s*\(/;
     const m = rest.match(fnRe);
     if (!m) return null;
@@ -90,7 +90,7 @@ const rewriteTopLevelDeclarations = (source: string, lang: "js" | "ts") => {
   const replaceClass = (line: string) => {
     const exportRe = /^\s*export\s+/;
     const exportPrefix = exportRe.test(line) ? line.match(exportRe)![0] : "";
-    let rest = exportPrefix ? line.slice(exportPrefix.length) : line;
+    const rest = exportPrefix ? line.slice(exportPrefix.length) : line;
     const clsRe = /^(\s*)class\s+([A-Za-z_$][\w$]*)\b/;
     const m = rest.match(clsRe);
     if (!m) return null;
@@ -103,7 +103,7 @@ const rewriteTopLevelDeclarations = (source: string, lang: "js" | "ts") => {
   };
 
   for (let i = 0; i < lines.length; i++) {
-    let line = lines[i];
+    const line = lines[i];
     let j = 0;
     while (j < line.length) {
       const ch = line[j];
@@ -576,7 +576,7 @@ const pathExists = async (filePath: string) => {
 
 const createPlaceholderRequire = (): NodeJS.Require => {
   const base = createRequire(import.meta.url);
-  const placeholder = ((specifier: string) => {
+  const placeholder = ((_specifier: string) => {
     throw new Error("Notebook runtime is not initialized yet");
   }) as unknown as NodeJS.Require;
 
