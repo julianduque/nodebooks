@@ -200,7 +200,10 @@ class RuntimeConsole {
       return;
     }
 
-    const text = `${formatWithOptions({ compact: false, breakLength: 80 }, ...args)}\n`;
+    const text = `${formatWithOptions(
+      { compact: false, breakLength: 80, colors: true },
+      ...args
+    )}\n`;
     this.emitter(name, text);
   }
 }
@@ -321,6 +324,14 @@ export class NotebookRuntime {
       onStream?.(stream);
     });
 
+    // Encourage third‑party libs to emit ANSI colors even without a real TTY
+    const prevForceColor = process.env.FORCE_COLOR;
+    const prevNoColor = process.env.NO_COLOR;
+    const prevTerm = process.env.TERM;
+    if (prevForceColor === undefined) process.env.FORCE_COLOR = "3";
+    if (prevNoColor !== undefined) delete process.env.NO_COLOR;
+    if (!prevTerm) process.env.TERM = "xterm-256color";
+
     try {
       await this.ensureEnvironment(notebookId, env);
 
@@ -384,6 +395,13 @@ export class NotebookRuntime {
         },
       } satisfies ExecuteResult;
     } finally {
+      // Restore environment mutations
+      if (prevForceColor === undefined) delete process.env.FORCE_COLOR;
+      else process.env.FORCE_COLOR = prevForceColor;
+      if (prevNoColor !== undefined) process.env.NO_COLOR = prevNoColor;
+      else delete process.env.NO_COLOR;
+      if (!prevTerm) delete process.env.TERM;
+      else process.env.TERM = prevTerm;
       this.console.setEmitter(null);
     }
   }
@@ -465,15 +483,17 @@ export class NotebookRuntime {
         await this.installDeps(sandboxDir, packages);
         this.console.proxy.log("[env] Install complete");
       } catch (error) {
-        const message =
-          error && typeof error === "object" && "stderr" in error
-            ? String(
-                (error as { stderr?: unknown }).stderr ||
-                  (error as Error).message
-              )
-            : error instanceof Error
-              ? error.message
-              : "Unknown installation error";
+        let message: string;
+        if (error && typeof error === "object" && "stderr" in error) {
+          const errObj = error as { stderr?: unknown; message?: unknown };
+          message = String(
+            errObj.stderr ?? errObj.message ?? "Unknown installation error"
+          );
+        } else if (error instanceof Error) {
+          message = error.message;
+        } else {
+          message = "Unknown installation error";
+        }
         this.console.proxy.error(`[env] Install failed: ${message}`);
         throw new Error(
           `Failed to install notebook dependencies: ${message}`.trim()
@@ -631,6 +651,20 @@ const createSandboxRequire = (
 };
 
 const createProcessProxy = (getCwd: () => string): NodeJS.Process => {
+  const ttyLike = <T extends NodeJS.WriteStream>(stream: T): T => {
+    // Present a TTY-like stream to libraries that check isTTY
+    return new Proxy(stream, {
+      get(sTarget, sProp, sReceiver) {
+        if (sProp === "isTTY") {
+          return true;
+        }
+        const sVal = Reflect.get(sTarget, sProp, sReceiver);
+        if (typeof sVal === "function") return sVal.bind(sTarget);
+        return sVal;
+      },
+    });
+  };
+
   return new Proxy(process, {
     get(target, prop, receiver) {
       if (prop === "cwd") {
@@ -650,6 +684,16 @@ const createProcessProxy = (getCwd: () => string): NodeJS.Process => {
         return () => {
           throw new Error("process.kill is disabled in NodeBooks runtime");
         };
+      }
+      if (prop === "stdout") {
+        return ttyLike(target.stdout as NodeJS.WriteStream);
+      }
+      if (prop === "stderr") {
+        return ttyLike(target.stderr as NodeJS.WriteStream);
+      }
+      if (prop === "env") {
+        // Force color support for common color libraries
+        return { ...target.env, FORCE_COLOR: target.env.FORCE_COLOR ?? "1" };
       }
 
       const value = Reflect.get(target, prop, receiver);
