@@ -228,6 +228,8 @@ const handleExecuteRequest = async ({
   const result = await runtime.execute({
     cell: runnableCell,
     code: message.code,
+    notebookId: notebook.id,
+    env: notebook.env,
     timeoutMs: message.timeoutMs,
     onStream: (stream) => {
       sendMessage(connection, { ...stream, cellId: cell.id });

@@ -87,6 +87,9 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
   const [dirty, setDirty] = useState(false);
   const [socketReady, setSocketReady] = useState(false);
   const [activeCellId, setActiveCellId] = useState<string | null>(null);
+  const [sidebarView, setSidebarView] = useState<"setup" | "outline">(
+    "setup"
+  );
   // Navigation handled by App Router; NotebookView focuses on editor only
   const [shareStatus, setShareStatus] = useState<"idle" | "copied" | "error">(
     "idle"
@@ -122,6 +125,12 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     }
     setIsRenaming(false);
   }, [notebook]);
+
+  useEffect(() => {
+    if (notebook) {
+      setSidebarView("setup");
+    }
+  }, [notebook?.id]);
 
   useEffect(() => {
     if (isRenaming) {
@@ -762,6 +771,69 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     }
   }, [notebook]);
 
+  const handleAddDependency = useCallback(
+    (name: string, version: string) => {
+      updateNotebook((current) => {
+        const trimmedName = name.trim();
+        if (!trimmedName) {
+          return current;
+        }
+        const trimmedVersion = version.trim() || "latest";
+        const currentVersion = current.env.packages[trimmedName];
+        if (currentVersion === trimmedVersion) {
+          return current;
+        }
+        const packages = { ...current.env.packages, [trimmedName]: trimmedVersion };
+        return { ...current, env: { ...current.env, packages } };
+      });
+    },
+    [updateNotebook]
+  );
+
+  const handleUpdateDependency = useCallback(
+    (previousName: string, nextName: string, version: string) => {
+      updateNotebook((current) => {
+        const trimmedNext = nextName.trim();
+        const trimmedVersion = version.trim() || "latest";
+        const packages = { ...current.env.packages };
+
+        if (!(previousName in packages) && !trimmedNext) {
+          return current;
+        }
+
+        const currentVersion = packages[previousName];
+        if (
+          previousName === trimmedNext &&
+          currentVersion === trimmedVersion
+        ) {
+          return current;
+        }
+
+        delete packages[previousName];
+        if (trimmedNext) {
+          packages[trimmedNext] = trimmedVersion;
+        }
+
+        return { ...current, env: { ...current.env, packages } };
+      });
+    },
+    [updateNotebook]
+  );
+
+  const handleRemoveDependency = useCallback(
+    (name: string) => {
+      updateNotebook((current) => {
+        if (!(name in current.env.packages)) {
+          return current;
+        }
+        const packages = { ...current.env.packages };
+        delete packages[name];
+        return { ...current, env: { ...current.env, packages } };
+      });
+    },
+    [updateNotebook]
+  );
+
   const handleOutlineJump = useCallback((cellId: string) => {
     if (typeof document === "undefined") {
       return;
@@ -985,12 +1057,53 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
               />
             </div>
           </div>
-          <aside className="hidden w-72 shrink-0 border-l border-slate-200 bg-white px-5 py-6 lg:block">
-            <OutlinePanel
-              items={outlineItems}
-              onSelect={handleOutlineJump}
-              activeCellId={runningCellId ?? undefined}
-            />
+          <aside className="hidden w-80 shrink-0 border-l border-slate-200 bg-white px-5 py-6 lg:block">
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className={clsx(
+                  "rounded-full px-3 text-xs font-semibold",
+                  sidebarView === "setup"
+                    ? "bg-slate-900 text-white hover:bg-slate-800"
+                    : "text-slate-500 hover:text-slate-900"
+                )}
+                onClick={() => setSidebarView("setup")}
+              >
+                Setup
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className={clsx(
+                  "rounded-full px-3 text-xs font-semibold",
+                  sidebarView === "outline"
+                    ? "bg-slate-900 text-white hover:bg-slate-800"
+                    : "text-slate-500 hover:text-slate-900"
+                )}
+                onClick={() => setSidebarView("outline")}
+              >
+                Outline
+              </Button>
+            </div>
+            <div className="mt-6 h-full overflow-hidden">
+              {sidebarView === "setup" ? (
+                <SetupPanel
+                  env={notebook.env}
+                  onAddDependency={handleAddDependency}
+                  onUpdateDependency={handleUpdateDependency}
+                  onRemoveDependency={handleRemoveDependency}
+                />
+              ) : (
+                <OutlinePanel
+                  items={outlineItems}
+                  onSelect={handleOutlineJump}
+                  activeCellId={runningCellId ?? undefined}
+                />
+              )}
+            </div>
           </aside>
         </div>
       </div>
@@ -1022,6 +1135,10 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     handleAddCell,
     handleOutlineJump,
     activeCellId,
+    sidebarView,
+    handleAddDependency,
+    handleUpdateDependency,
+    handleRemoveDependency,
   ]);
 
   return (
@@ -1426,6 +1543,233 @@ const OutputView = ({ output }: { output: NotebookOutput }) => {
       </pre>
     </div>
   );
+};
+
+interface SetupPanelProps {
+  env: Notebook["env"];
+  onAddDependency: (name: string, version: string) => void;
+  onUpdateDependency: (
+    previousName: string,
+    nextName: string,
+    version: string
+  ) => void;
+  onRemoveDependency: (name: string) => void;
+}
+
+const SetupPanel = ({
+  env,
+  onAddDependency,
+  onUpdateDependency,
+  onRemoveDependency,
+}: SetupPanelProps) => {
+  const dependencies = useMemo(
+    () =>
+      Object.entries(env.packages ?? {})
+        .filter(([name]) => name.trim().length > 0)
+        .sort((a, b) => a[0].localeCompare(b[0])),
+    [env.packages]
+  );
+  const [draft, setDraft] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = useCallback(
+    (event: React.FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      const parsed = parseDependencySpecifier(draft);
+      if (!parsed) {
+        setError("Enter a dependency like react or react@18.2.0");
+        return;
+      }
+      onAddDependency(parsed.name, parsed.version);
+      setDraft("");
+      setError(null);
+    },
+    [draft, onAddDependency]
+  );
+
+  useEffect(() => {
+    if (!draft) {
+      setError(null);
+    }
+  }, [draft]);
+
+  return (
+    <div className="flex h-full flex-col gap-5">
+      <div className="space-y-2">
+        <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">
+          Environment
+        </p>
+        <p className="text-sm font-semibold text-slate-700">
+          {env.runtime.toUpperCase()} {env.version}
+        </p>
+        <p className="text-xs text-slate-500">
+          Dependencies are installed in an isolated workspace for this
+          notebook.
+        </p>
+      </div>
+      <div className="flex-1 overflow-y-auto pr-1">
+        {dependencies.length === 0 ? (
+          <p className="text-xs text-slate-500">
+            No npm dependencies configured yet.
+          </p>
+        ) : (
+          <ul className="space-y-2">
+            {dependencies.map(([name, version]) => (
+              <DependencyRow
+                key={name}
+                name={name}
+                version={version}
+                onCommit={(nextName, nextVersion) =>
+                  onUpdateDependency(name, nextName, nextVersion)
+                }
+                onRemove={() => onRemoveDependency(name)}
+              />
+            ))}
+          </ul>
+        )}
+      </div>
+      <form
+        onSubmit={handleSubmit}
+        className="space-y-2 border-t border-slate-200 pt-4"
+      >
+        <label
+          htmlFor="new-dependency"
+          className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500"
+        >
+          Add dependency
+        </label>
+        <div className="flex items-center gap-2">
+          <input
+            id="new-dependency"
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            placeholder="package or package@version"
+            className="flex-1 rounded-md border border-slate-300 px-2 py-1 text-sm text-slate-700 focus:border-brand-500 focus:outline-none"
+          />
+          <Button type="submit" size="sm" className="px-3">
+            Add
+          </Button>
+        </div>
+        {error ? (
+          <p className="text-[11px] text-rose-500">{error}</p>
+        ) : (
+          <p className="text-[11px] text-slate-400">
+            Use <span className="font-medium">name@version</span>. Version
+            defaults to latest.
+          </p>
+        )}
+      </form>
+    </div>
+  );
+};
+
+interface DependencyRowProps {
+  name: string;
+  version: string;
+  onCommit: (name: string, version: string) => void;
+  onRemove: () => void;
+}
+
+const DependencyRow = ({
+  name,
+  version,
+  onCommit,
+  onRemove,
+}: DependencyRowProps) => {
+  const [draftName, setDraftName] = useState(name);
+  const [draftVersion, setDraftVersion] = useState(version);
+
+  useEffect(() => {
+    setDraftName(name);
+  }, [name]);
+
+  useEffect(() => {
+    setDraftVersion(version);
+  }, [version]);
+
+  const commit = useCallback(() => {
+    const trimmedName = draftName.trim();
+    const trimmedVersion = draftVersion.trim();
+    const normalizedVersion = trimmedVersion || "latest";
+    const currentNormalized = (version || "").trim() || "latest";
+    if (trimmedName === name && normalizedVersion === currentNormalized) {
+      return;
+    }
+    onCommit(trimmedName, normalizedVersion);
+  }, [draftName, draftVersion, name, onCommit, version]);
+
+  const handleKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLInputElement>) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        commit();
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setDraftName(name);
+        setDraftVersion(version);
+      }
+    },
+    [commit, name, version]
+  );
+
+  return (
+    <li className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2">
+      <input
+        value={draftName}
+        onChange={(event) => setDraftName(event.target.value)}
+        onBlur={commit}
+        onKeyDown={handleKeyDown}
+        placeholder="package"
+        className="flex-1 rounded-md border border-slate-300 px-2 py-1 text-sm text-slate-700 focus:border-brand-500 focus:outline-none"
+      />
+      <input
+        value={draftVersion}
+        onChange={(event) => setDraftVersion(event.target.value)}
+        onBlur={commit}
+        onKeyDown={handleKeyDown}
+        placeholder="latest"
+        className="w-28 rounded-md border border-slate-300 px-2 py-1 text-sm text-slate-700 focus:border-brand-500 focus:outline-none"
+      />
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="text-rose-600 hover:text-rose-700"
+        onClick={onRemove}
+        aria-label={`Remove ${name}`}
+      >
+        <Trash2 className="h-4 w-4" />
+      </Button>
+    </li>
+  );
+};
+
+const parseDependencySpecifier = (raw: string) => {
+  const value = raw.trim();
+  if (!value) {
+    return null;
+  }
+  if (value.startsWith("@")) {
+    const slashIndex = value.indexOf("/");
+    if (slashIndex === -1) {
+      return { name: value, version: "latest" };
+    }
+    const atIndex = value.indexOf("@", slashIndex + 1);
+    if (atIndex === -1) {
+      return { name: value, version: "latest" };
+    }
+    const name = value.slice(0, atIndex).trim();
+    const version = value.slice(atIndex + 1).trim() || "latest";
+    return name ? { name, version } : null;
+  }
+  const lastAt = value.lastIndexOf("@");
+  if (lastAt > 0) {
+    const name = value.slice(0, lastAt).trim();
+    const version = value.slice(lastAt + 1).trim() || "latest";
+    return name ? { name, version } : null;
+  }
+  return { name: value, version: "latest" };
 };
 
 interface OutlinePanelProps {
