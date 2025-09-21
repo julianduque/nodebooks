@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { OnMount } from "@monaco-editor/react";
 import MonacoEditor from "./MonacoEditorClient";
 import type { NotebookCell } from "@nodebooks/notebook-schema";
@@ -24,6 +24,9 @@ const CodeCellView = ({
   editorKey,
 }: CodeCellViewProps) => {
   const runShortcutRef = useRef(onRun);
+  // Start at roughly one visual line + padding (updated on mount)
+  const [editorHeight, setEditorHeight] = useState<number>(60);
+  const heightRef = useRef(0);
 
   useEffect(() => {
     runShortcutRef.current = onRun;
@@ -40,6 +43,8 @@ const CodeCellView = ({
       ],
       run,
     });
+
+    // Focus bubbling to the cell container for toolbar visibility
     editor.onDidFocusEditorWidget?.((): void => {
       const el = editor.getDomNode?.();
       if (el) {
@@ -55,6 +60,59 @@ const CodeCellView = ({
         }
       }
     });
+
+    // Auto-resize: start at 1 line and grow to fit content
+    const computeHeight = () => {
+      const lineHeight = editor.getOption(
+        monaco.editor.EditorOption.lineHeight
+      ) as number;
+      const padding = editor.getOption(monaco.editor.EditorOption.padding) as
+        | { top: number; bottom: number }
+        | undefined;
+      const minHeight =
+        lineHeight + (padding?.top ?? 0) + (padding?.bottom ?? 0);
+      const contentHeight = Math.ceil(editor.getContentHeight());
+      const newHeight = Math.max(minHeight, contentHeight);
+      return newHeight;
+    };
+
+    const applyHeight = (h: number) => {
+      if (h === heightRef.current) return;
+      heightRef.current = h;
+      setEditorHeight(h);
+      try {
+        const dom = editor.getDomNode?.();
+        const width = dom?.parentElement?.clientWidth ?? dom?.clientWidth ?? 0;
+        if (width > 0) {
+          editor.layout({ width, height: h });
+        }
+      } catch {
+        // noop
+      }
+    };
+
+    // Initial sizing
+    applyHeight(computeHeight());
+
+    // Listen to content size changes
+    const d1 = editor.onDidContentSizeChange(() => {
+      applyHeight(computeHeight());
+    });
+
+    // Also adjust on configuration change (e.g., font size)
+    const d2 = editor.onDidChangeConfiguration(() => {
+      applyHeight(computeHeight());
+    });
+
+    // And on window resize, since width affects wrapping
+    const onResize = () => applyHeight(computeHeight());
+    window.addEventListener("resize", onResize);
+
+    return () => {
+      d1.dispose();
+      d2.dispose();
+      window.removeEventListener("resize", onResize);
+    };
   }, []);
 
   const hideEditor = Boolean(
@@ -86,7 +144,7 @@ const CodeCellView = ({
           <MonacoEditor
             key={editorKey}
             path={`${cell.id}.${cell.language === "ts" ? "ts" : "js"}`}
-            height="260px"
+            height={editorHeight || 0}
             defaultLanguage={
               cell.language === "ts" ? "typescript" : "javascript"
             }
@@ -102,9 +160,17 @@ const CodeCellView = ({
               fontSize: 14,
               lineNumbers: "on",
               scrollBeyondLastLine: false,
+              wordWrap: "on",
               automaticLayout: true,
               readOnly: isRunning,
               padding: { top: 18, bottom: 18 },
+              scrollbar: {
+                vertical: "hidden",
+                horizontal: "auto",
+                handleMouseWheel: false,
+                alwaysConsumeMouseWheel: false,
+              },
+              overviewRulerLanes: 0,
             }}
           />
         </div>

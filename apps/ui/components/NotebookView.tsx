@@ -1176,7 +1176,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
               )}
             </div>
 
-            <div className="space-y-6">
+            <div className="space-y-4">
               {notebook.cells.map((cell, index) => (
                 <CellCard
                   key={cell.id}
@@ -1196,10 +1196,10 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
                 />
               ))}
             </div>
-            <div className="mt-10 flex justify-center py-4 opacity-0 transition hover:opacity-100 focus-within:opacity-100">
+            <div className="mt-2 mb-2 flex justify-center py-3 opacity-0 transition hover:opacity-100 focus-within:opacity-100">
               <AddCellMenu
                 onAdd={(type) => handleAddCell(type)}
-                className="pointer-events-auto rounded-full border-slate-300/80 bg-white/95 px-4 py-1 text-xs"
+                className="pointer-events-auto text-[11px]"
               />
             </div>
           </div>

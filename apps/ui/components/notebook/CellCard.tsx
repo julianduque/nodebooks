@@ -43,15 +43,14 @@ const AddCellMenu = ({
   return (
     <div
       className={clsx(
-        "flex items-center gap-3 rounded-lg border border-dashed border-slate-300 bg-white px-5 py-2 text-sm text-slate-600 shadow-sm",
+        "flex items-center gap-1 text-xs text-slate-600 shadow-sm",
         className
       )}
     >
-      <span className="font-medium">Add cell</span>
       <Button
         variant="outline"
         size="sm"
-        className="gap-2"
+        className="h-7 px-2 text-xs gap-1"
         onClick={() => onAdd("markdown")}
       >
         <Plus className="h-4 w-4" />
@@ -60,7 +59,7 @@ const AddCellMenu = ({
       <Button
         variant="outline"
         size="sm"
-        className="gap-2"
+        className="h-7 px-2 text-xs gap-1"
         onClick={() => onAdd("code")}
       >
         <Plus className="h-4 w-4" />
@@ -208,11 +207,8 @@ const CellCard = ({
         />
       )}
 
-      <div className="flex justify-center pt-4 opacity-0 transition pointer-events-none group-hover/cell:opacity-100 group-hover/cell:pointer-events-auto group-focus-within/cell:opacity-100 group-focus-within/cell:pointer-events-auto">
-        <AddCellMenu
-          onAdd={onAddBelow}
-          className="rounded-full border-slate-300/80 bg-white/95 px-4 py-1 text-xs"
-        />
+      <div className="flex justify-center pt-2 opacity-0 transition pointer-events-none group-hover/cell:opacity-100 group-hover/cell:pointer-events-auto group-focus-within/cell:opacity-100 group-focus-within/cell:pointer-events-auto">
+        <AddCellMenu onAdd={onAddBelow} className="px-1 py-1text-[11px]" />
       </div>
     </article>
   );

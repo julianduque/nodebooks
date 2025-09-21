@@ -13,25 +13,51 @@ const OutputView = ({ output }: { output: NotebookOutput }) => {
         fg: "#f1f5f9", // slate-100
         bg: "#0f172a", // slate-900
         escapeXML: true,
-        newline: true,
+        // Keep newlines as raw \n; <pre> will render them.
+        newline: false,
         stream: true,
       }),
     []
   );
-  const html = useMemo(() => {
-    if (output.type !== "stream") return "";
+  const { html, blank } = useMemo(() => {
+    if (output.type !== "stream") return { html: "", blank: false };
+    let text =
+      typeof output.text === "string" ? output.text : String(output.text ?? "");
+
+    // Helper to strip ANSI for blank detection
+    const STRIP_ANSI = /\u001B\[[0-?]*[ -\/]*[@-~]/g;
+    const isBlank = text.replace(STRIP_ANSI, "").trim().length === 0;
+
+    // Remove leading newlines even if preceded by ANSI escape codes
+    // Capture leading ANSI codes and keep them while dropping only CR/LF
+    // Case 1: codes then newline(s)
+    text = text.replace(/^((?:\u001B\[[0-?]*[ -\/]*[@-~])*)(?:[\r\n]+)/, "$1");
+    // Case 2: newline(s) at very start
+    const normalized = text.replace(/^[\r\n]+/, "");
     try {
-      const raw = ansiConverter.toHtml(output.text);
-      return DOMPurify.sanitize(raw, { ADD_ATTR: ["style"] });
+      const raw = ansiConverter.toHtml(isBlank ? text : normalized);
+      // When newline:false, converter no longer injects <br/>. Keep as-is.
+      return {
+        html: DOMPurify.sanitize(raw, { ADD_ATTR: ["style"] }),
+        blank: isBlank,
+      };
     } catch {
-      return DOMPurify.sanitize(output.text, { ADD_ATTR: ["style"] });
+      const fallback = (isBlank ? text : normalized).replace(/^[\r\n]+/, "");
+      return {
+        html: DOMPurify.sanitize(fallback, { ADD_ATTR: ["style"] }),
+        blank: isBlank,
+      };
     }
   }, [ansiConverter, output]);
 
   if (output.type === "stream") {
     return (
       <pre className="whitespace-pre-wrap font-mono text-slate-100">
-        <span className="text-slate-400">[{output.name}]</span>{" "}
+        {blank ? null : (
+          <>
+            <span className="text-slate-400">[{output.name}]</span>{" "}
+          </>
+        )}
         <span dangerouslySetInnerHTML={{ __html: html }} />
       </pre>
     );
