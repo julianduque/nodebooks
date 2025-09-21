@@ -30,7 +30,7 @@ const OutlinePanel = ({ items, onSelect, activeCellId }: OutlinePanelProps) => {
                 variant="ghost"
                 size="sm"
                 className={clsx(
-                  "w-full justify-start text-sm",
+                  "w-full justify-start text-sm h-auto min-h-8 whitespace-normal break-words text-left leading-snug",
                   activeCellId === item.cellId
                     ? "bg-slate-100 text-slate-900"
                     : "text-slate-500 hover:text-slate-900"
@@ -38,7 +38,9 @@ const OutlinePanel = ({ items, onSelect, activeCellId }: OutlinePanelProps) => {
                 style={{ paddingLeft: 12 + (item.level - 1) * 12 }}
                 onClick={() => onSelect(item.cellId)}
               >
-                {item.title}
+                <span className="block w-full whitespace-normal break-words text-left">
+                  {item.title}
+                </span>
               </Button>
             </li>
           ))}

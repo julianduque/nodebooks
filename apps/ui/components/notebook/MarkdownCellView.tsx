@@ -13,6 +13,12 @@ interface MarkdownCellViewProps {
   editorKey: string;
 }
 
+// Configure marked once for GFM support and soft-break handling
+marked.use({
+  gfm: true,
+  breaks: true,
+});
+
 const MarkdownCellView = ({
   cell,
   onChange,

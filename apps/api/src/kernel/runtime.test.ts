@@ -16,6 +16,7 @@ const createEnv = (packages: Record<string, string> = {}) => ({
   runtime: "node" as const,
   version: "20.x",
   packages,
+  variables: {},
 });
 
 const createTempRoot = async () => {
