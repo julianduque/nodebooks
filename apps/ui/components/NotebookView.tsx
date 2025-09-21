@@ -72,7 +72,8 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
   const [depBusy, setDepBusy] = useState(false);
   const [depError, setDepError] = useState<string | null>(null);
   const [depOutputs, setDepOutputs] = useState<NotebookOutput[]>([]);
-  const [depReqId, setDepReqId] = useState(0);
+  // Request id to guard against stale async updates (ref-only)
+  const depReqRef = useRef(0);
   const depAbortRef = useRef<AbortController | null>(null);
   const depParsed = useMemo(
     () => parseMultipleDependencies(depDraft),
@@ -82,7 +83,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     setDepOutputs([]);
     setDepError(null);
     setDepBusy(false);
-    setDepReqId((v) => v + 1); // invalidate in-flight responses
+    depReqRef.current += 1; // invalidate in-flight responses
   }, []);
 
   const handleAbortInstall = useCallback(() => {
@@ -680,8 +681,8 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
       setDepBusy(true);
       setDepError(null);
       setDepOutputs([]);
-      const req = depReqId + 1;
-      setDepReqId(req);
+      depReqRef.current += 1;
+      const req = depReqRef.current;
 
       try {
         // Install sequentially
@@ -704,16 +705,16 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
           }
           const nextEnv = payload?.data?.env as Notebook["env"] | undefined;
           const outputs = (payload?.data?.outputs ?? []) as NotebookOutput[];
-          if (req === depReqId && nextEnv) {
+          if (req === depReqRef.current && nextEnv) {
             updateNotebook((current) => ({ ...current, env: nextEnv }), {
               persist: false,
             });
           }
-          if (req === depReqId) {
+          if (req === depReqRef.current) {
             setDepOutputs((prev) => [...prev, ...outputs]);
           }
         }
-        if (req === depReqId) {
+        if (req === depReqRef.current) {
           setDepDraft("");
           setDepOpen(false); // collapse after success
         }
@@ -732,11 +733,11 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
           );
         }
       } finally {
-        setDepBusy((prev) => (req === depReqId ? false : prev));
+        setDepBusy((prev) => (req === depReqRef.current ? false : prev));
         depAbortRef.current = null;
       }
     },
-    [notebook, updateNotebook, depReqId]
+    [notebook, updateNotebook]
   );
 
   const handleRenameStart = useCallback(() => {
@@ -1053,8 +1054,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
                 </CardContent>
               </Card>
             )}
-            {/* Inline dependency form before the first cell */}
-            <div className="sticky top-0 z-[60] mb-6 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+            <div className="sticky top-0 mb-6 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
               <div className="flex items-center justify-between gap-2">
                 <div className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
                   Dependencies
@@ -1152,9 +1152,9 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
                     </div>
                   )}
                   {(depBusy || depOutputs.length > 0) && (
-                    <div className="mt-3 space-y-2 rounded-lg border border-slate-200 bg-slate-950 p-3 text-sm text-emerald-100">
+                    <div className="mt-3 space-y-2 rounded-lg border border-slate-200 bg-slate-950 p-3 text-sm text-slate-100">
                       {depBusy && depOutputs.length === 0 ? (
-                        <div className="flex items-center gap-2 text-emerald-200/80">
+                        <div className="flex items-center gap-2 text-slate-300/80">
                           <Loader2 className="h-3.5 w-3.5 animate-spin" />{" "}
                           Preparing environment…
                         </div>

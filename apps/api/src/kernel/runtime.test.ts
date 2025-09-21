@@ -4,6 +4,13 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createCodeCell } from "@nodebooks/notebook-schema";
 import { NotebookRuntime } from "./runtime.js";
+import type {
+  DisplayDataOutput,
+  NotebookOutput,
+} from "@nodebooks/notebook-schema";
+
+const isDisplayData = (output: NotebookOutput): output is DisplayDataOutput =>
+  output.type === "display_data";
 
 const createEnv = (packages: Record<string, string> = {}) => ({
   runtime: "node" as const,
@@ -122,9 +129,7 @@ describe("NotebookRuntime", () => {
           env: createEnv({ "demo-package": "^1.0.0" }),
         });
 
-        const display = result.outputs.find(
-          (output) => output.type === "display_data"
-        );
+        const display = result.outputs.find(isDisplayData);
         expect(display).toBeDefined();
         const plain = display?.data?.["text/plain"];
         expect(String(plain)).toContain("installed-package");
@@ -153,9 +158,7 @@ describe("NotebookRuntime", () => {
           env: createEnv(),
         });
 
-        const display = result.outputs.find(
-          (output) => output.type === "display_data"
-        );
+        const display = result.outputs.find(isDisplayData);
         expect(display).toBeDefined();
         const message = display?.data?.["text/plain"];
         expect(String(message)).toContain("not allowed");
@@ -174,9 +177,7 @@ describe("NotebookRuntime", () => {
         env: createEnv(),
       });
 
-      const display = result.outputs.find(
-        (output) => output.type === "display_data"
-      );
+      const display = result.outputs.find(isDisplayData);
       expect(display).toBeDefined();
       const plain = display?.data?.["text/plain"];
       expect(String(plain)).toContain("notebook-cwd");

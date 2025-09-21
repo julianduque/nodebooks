@@ -1,12 +1,38 @@
 "use client";
 
+import { useMemo } from "react";
 import type { NotebookOutput } from "@nodebooks/notebook-schema";
+import AnsiToHtml from "ansi-to-html";
+import DOMPurify from "dompurify";
 
 const OutputView = ({ output }: { output: NotebookOutput }) => {
+  const ansiConverter = useMemo(
+    () =>
+      new AnsiToHtml({
+        // Terminal-like defaults: light text on dark bg
+        fg: "#f1f5f9", // slate-100
+        bg: "#0f172a", // slate-900
+        escapeXML: true,
+        newline: true,
+        stream: true,
+      }),
+    []
+  );
+  const html = useMemo(() => {
+    if (output.type !== "stream") return "";
+    try {
+      const raw = ansiConverter.toHtml(output.text);
+      return DOMPurify.sanitize(raw, { ADD_ATTR: ["style"] });
+    } catch {
+      return DOMPurify.sanitize(output.text, { ADD_ATTR: ["style"] });
+    }
+  }, [ansiConverter, output]);
+
   if (output.type === "stream") {
     return (
-      <pre className="whitespace-pre-wrap font-mono text-emerald-100">
-        <span className="text-emerald-300">[{output.name}]</span> {output.text}
+      <pre className="whitespace-pre-wrap font-mono text-slate-100">
+        <span className="text-slate-400">[{output.name}]</span>{" "}
+        <span dangerouslySetInnerHTML={{ __html: html }} />
       </pre>
     );
   }

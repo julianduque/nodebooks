@@ -111,13 +111,13 @@ const CodeCellView = ({
       ) : null}
 
       {(hideEditor || cell.outputs.length > 0) && (
-        <div className="space-y-2 border-t border-slate-800 bg-slate-900/60 p-4 text-sm text-emerald-100">
+        <div className="space-y-2 border-t border-slate-800 bg-slate-900/60 p-4 text-sm text-slate-100">
           {cell.outputs.length > 0 ? (
             cell.outputs.map((output, index) => (
               <OutputView key={index} output={output} />
             ))
           ) : (
-            <div className="flex items-center gap-2 text-emerald-200/80">
+            <div className="flex items-center gap-2 text-slate-300/80">
               <Loader2 className="h-3.5 w-3.5 animate-spin" /> Preparing
               environment…
             </div>
