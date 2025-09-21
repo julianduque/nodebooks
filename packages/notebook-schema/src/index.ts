@@ -80,6 +80,8 @@ export const NotebookEnvSchema = z.object({
   runtime: z.enum(["node", "bun"]).default("node"),
   version: z.string().default("20.x"),
   packages: z.record(z.string(), z.string()).default({}),
+  // Key-value environment variables available to code cells via process.env
+  variables: z.record(z.string(), z.string()).default({}),
 });
 
 export const NotebookSchema = z.object({

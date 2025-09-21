@@ -9,7 +9,6 @@ import type { Route } from "next";
 import { usePathname } from "next/navigation";
 import { Button } from "./ui/button";
 import { Separator } from "./ui/separator";
-import { ScrollArea } from "./ui/scroll-area";
 import {
   LayoutDashboard,
   NotebookPen,
@@ -17,6 +16,7 @@ import {
   Settings,
   Plus,
   PanelLeft,
+  PanelRight,
 } from "lucide-react";
 
 type NavId = "home" | "notebooks" | "templates" | "settings";
@@ -61,6 +61,12 @@ interface AppShellProps {
   onNewNotebook?: () => void;
   title?: string;
   children: ReactNode;
+  // Optional secondary left sidebar (e.g., notebook outline)
+  secondarySidebar?: ReactNode;
+  // Optional controls to render in the secondary sidebar header row
+  secondaryHeader?: ReactNode;
+  // Collapse the primary sidebar by default
+  defaultCollapsed?: boolean;
 }
 
 const AppShell = ({
@@ -69,16 +75,20 @@ const AppShell = ({
   onNewNotebook,
   title,
   children,
+  secondarySidebar,
+  secondaryHeader,
+  defaultCollapsed = false,
 }: AppShellProps) => {
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(defaultCollapsed);
+  const [secondaryCollapsed, setSecondaryCollapsed] = useState(false);
   const pathname = usePathname?.() ?? "";
 
   return (
-    <div className="flex min-h-screen w-full bg-background text-foreground">
+    <div className="flex h-screen w-full bg-background text-foreground">
       <aside
         className={cn(
           "flex h-screen shrink-0 border-r border-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-linear flex-col",
-          collapsed ? "w-12" : "w-64"
+          collapsed ? "w-12" : "w-56"
         )}
       >
         <div className="flex h-16 items-center gap-3 px-3">
@@ -111,7 +121,7 @@ const AppShell = ({
           )}
         </div>
         <Separator className="mx-2 mb-2" />
-        <ScrollArea className="flex-1 px-2">
+        <div className="flex-1 px-2">
           {!collapsed && (
             <div className="px-2 pb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
               General
@@ -158,7 +168,7 @@ const AppShell = ({
               );
             })}
           </nav>
-        </ScrollArea>
+        </div>
         <div className={cn("px-2 pb-4", collapsed && "px-1")}>
           <Button
             className={cn(
@@ -174,6 +184,36 @@ const AppShell = ({
           </Button>
         </div>
       </aside>
+      {secondarySidebar ? (
+        <aside
+          className={cn(
+            "hidden h-screen shrink-0 border-r border-slate-200 bg-white py-6 lg:flex overflow-hidden transition-[width] duration-200 ease-linear",
+            secondaryCollapsed ? "w-0 px-0" : "w-96 px-5"
+          )}
+        >
+          <div className="flex h-full w-full flex-col">
+            <div className="mb-3 flex items-center justify-between gap-2 px-1">
+              <div className="flex items-center gap-2 overflow-hidden">
+                {secondaryHeader}
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7"
+                onClick={() => setSecondaryCollapsed((prev) => !prev)}
+                aria-label={
+                  secondaryCollapsed
+                    ? "Expand secondary sidebar"
+                    : "Collapse secondary sidebar"
+                }
+              >
+                <PanelRight className="h-4 w-4" />
+              </Button>
+            </div>
+            <div className="flex-1 overflow-hidden">{secondarySidebar}</div>
+          </div>
+        </aside>
+      ) : null}
       <main className="flex flex-1 flex-col">
         <header className="sticky top-0 z-40 h-16 bg-background">
           <div className="relative flex h-full items-center gap-3 px-4 sm:gap-4">
@@ -186,6 +226,17 @@ const AppShell = ({
             >
               <PanelLeft className="h-4 w-4" />
             </Button>
+            {secondarySidebar ? (
+              <Button
+                variant="outline"
+                size="icon"
+                className="size-7"
+                onClick={() => setSecondaryCollapsed((prev) => !prev)}
+                aria-label="Toggle Secondary Sidebar"
+              >
+                <Settings className="h-4 w-4" />
+              </Button>
+            ) : null}
             <Separator orientation="vertical" className="h-6" />
             <span className="text-sm font-medium text-muted-foreground">
               {title ?? ""}
@@ -200,7 +251,7 @@ const AppShell = ({
           </div>
         </header>
         <div className="flex-1 overflow-y-auto bg-muted/20">
-          <div className="mx-auto w-full max-w-7xl p-6 sm:p-8">{children}</div>
+          <div className="mx-auto w-full max-w-7xl p-4 sm:p-6">{children}</div>
         </div>
       </main>
     </div>

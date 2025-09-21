@@ -332,6 +332,16 @@ export class NotebookRuntime {
     if (prevNoColor !== undefined) delete process.env.NO_COLOR;
     if (!prevTerm) process.env.TERM = "xterm-256color";
 
+    // Apply user-defined environment variables for the duration of execution
+    const userEnvEntries = Object.entries(env.variables ?? {}).filter(
+      ([name]) => name.trim().length > 0
+    );
+    const prevUserEnv: Record<string, string | undefined> = {};
+    for (const [name, value] of userEnvEntries) {
+      prevUserEnv[name] = process.env[name];
+      process.env[name] = String(value);
+    }
+
     try {
       await this.ensureEnvironment(notebookId, env);
 
@@ -402,6 +412,13 @@ export class NotebookRuntime {
       else delete process.env.NO_COLOR;
       if (!prevTerm) delete process.env.TERM;
       else process.env.TERM = prevTerm;
+
+      // Restore user-defined env variables
+      for (const [name] of userEnvEntries) {
+        const prev = prevUserEnv[name];
+        if (prev === undefined) delete process.env[name];
+        else process.env[name] = prev;
+      }
       this.console.setEmitter(null);
     }
   }

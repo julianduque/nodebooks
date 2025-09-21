@@ -15,9 +15,9 @@ import {
   Share2,
   Trash2,
   Eraser,
-  ChevronDown,
-  ChevronRight,
   XCircle,
+  Settings as SettingsIcon,
+  ListTree,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import {
@@ -60,25 +60,21 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
   const [dirty, setDirty] = useState(false);
   const [socketReady, setSocketReady] = useState(false);
   const [activeCellId, setActiveCellId] = useState<string | null>(null);
-  const [sidebarView, setSidebarView] = useState<"setup" | "outline">("setup");
+  const [sidebarView, setSidebarView] = useState<"setup" | "outline">(
+    "outline"
+  );
   // Navigation handled by App Router; NotebookView focuses on editor only
   const [shareStatus, setShareStatus] = useState<"idle" | "copied" | "error">(
     "idle"
   );
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameDraft, setRenameDraft] = useState("");
-  // inline dependency install form state
-  const [depDraft, setDepDraft] = useState("");
   const [depBusy, setDepBusy] = useState(false);
   const [depError, setDepError] = useState<string | null>(null);
   const [depOutputs, setDepOutputs] = useState<NotebookOutput[]>([]);
   // Request id to guard against stale async updates (ref-only)
   const depReqRef = useRef(0);
   const depAbortRef = useRef<AbortController | null>(null);
-  const depParsed = useMemo(
-    () => parseMultipleDependencies(depDraft),
-    [depDraft]
-  );
   const handleClearDepOutputs = useCallback(() => {
     setDepOutputs([]);
     setDepError(null);
@@ -92,12 +88,13 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     } catch {}
     setDepBusy(false);
   }, []);
-  const [depOpen, setDepOpen] = useState(true);
+  // dependency install panel is in Setup sidebar now
 
   const socketRef = useRef<WebSocket | null>(null);
   const saveTimerRef = useRef<NodeJS.Timeout | null>(null);
   const sessionRef = useRef<NotebookSessionSummary | null>(null);
   const renameInputRef = useRef<HTMLInputElement | null>(null);
+  const prevNotebookIdRef = useRef<string | null>(null);
 
   const notebookId = notebook?.id;
   const sessionId = session?.id;
@@ -124,10 +121,12 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
   }, [notebook]);
 
   useEffect(() => {
-    if (notebook) {
-      setSidebarView("setup");
+    if (!notebook) return;
+    if (prevNotebookIdRef.current !== notebook.id) {
+      setSidebarView("outline");
+      prevNotebookIdRef.current = notebook.id;
     }
-  }, [notebook]);
+  }, [notebook?.id, notebook]);
 
   useEffect(() => {
     if (isRenaming) {
@@ -714,10 +713,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
             setDepOutputs((prev) => [...prev, ...outputs]);
           }
         }
-        if (req === depReqRef.current) {
-          setDepDraft("");
-          setDepOpen(false); // collapse after success
-        }
+        // success: inputs live in Setup sidebar; nothing to reset here
       } catch (err) {
         const isAbort =
           typeof err === "object" &&
@@ -874,6 +870,35 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
             : `Failed to remove dependency ${trimmedName}`
         );
       }
+    },
+    [notebook, updateNotebook]
+  );
+
+  const handleAddVariable = useCallback(
+    (name: string, value: string) => {
+      const key = name.trim();
+      if (!notebook || !key) return;
+      updateNotebook((current) => ({
+        ...current,
+        env: {
+          ...current.env,
+          variables: { ...current.env.variables, [key]: String(value) },
+        },
+      }));
+    },
+    [notebook, updateNotebook]
+  );
+
+  const handleRemoveVariable = useCallback(
+    (name: string) => {
+      if (!notebook) return;
+      const key = name.trim();
+      if (!key) return;
+      updateNotebook((current) => {
+        const nextVars = { ...current.env.variables } as Record<string, string>;
+        delete nextVars[key];
+        return { ...current, env: { ...current.env, variables: nextVars } };
+      });
     },
     [notebook, updateNotebook]
   );
@@ -1046,7 +1071,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
           </div>
         </div>
         <div className="flex flex-1 overflow-hidden">
-          <div className="flex-1 overflow-y-auto bg-muted/20 px-2 py-2">
+          <div className="flex-1 bg-muted/20 px-2 py-2">
             {error && (
               <Card className="mb-6 border-rose-200 bg-rose-50">
                 <CardContent className="text-sm text-rose-700">
@@ -1054,13 +1079,14 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
                 </CardContent>
               </Card>
             )}
-            <div className="sticky top-0 mb-6 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
-              <div className="flex items-center justify-between gap-2">
-                <div className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-                  Dependencies
-                </div>
-                <div className="flex items-center gap-1">
-                  {depOpen && (
+            {/* Installation output shown at the top of the notebook */}
+            {(depBusy || depOutputs.length > 0 || depError) && (
+              <div className="mb-4 rounded-lg border border-slate-200 bg-white p-2 shadow-sm">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">
+                    Install output
+                  </div>
+                  <div className="flex items-center gap-1">
                     <Button
                       type="button"
                       variant="ghost"
@@ -1074,107 +1100,37 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
                     >
                       <Eraser className="h-4 w-4" />
                     </Button>
-                  )}
-                  {depBusy && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="text-rose-600 hover:text-rose-700"
-                      onClick={handleAbortInstall}
-                      aria-label="Abort install"
-                    >
-                      <XCircle className="h-4 w-4" />
-                    </Button>
-                  )}
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 px-2 text-xs"
-                    onClick={() => setDepOpen((v) => !v)}
-                    aria-expanded={depOpen}
-                    aria-controls="dep-form"
-                  >
-                    {depOpen ? (
-                      <span className="inline-flex items-center gap-1">
-                        <ChevronDown className="h-4 w-4" /> Hide
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1">
-                        <ChevronRight className="h-4 w-4" /> Show
-                      </span>
+                    {depBusy && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="text-rose-600 hover:text-rose-700"
+                        onClick={handleAbortInstall}
+                        aria-label="Abort install"
+                      >
+                        <XCircle className="h-4 w-4" />
+                      </Button>
                     )}
-                  </Button>
+                  </div>
                 </div>
+                <div className="mt-2 space-y-2 rounded-md border border-slate-200 bg-slate-950 p-2 text-[13px] text-slate-100">
+                  {depBusy && depOutputs.length === 0 ? (
+                    <div className="flex items-center gap-2 text-slate-300/80">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" /> Preparing
+                      environment…
+                    </div>
+                  ) : null}
+                  {depOutputs.map((output, index) => (
+                    <OutputView key={index} output={output} />
+                  ))}
+                </div>
+                {depError ? (
+                  <p className="mt-2 text-[11px] text-rose-500">{depError}</p>
+                ) : null}
               </div>
-              {depOpen && (
-                <div id="dep-form" className="mt-3">
-                  <form
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      if (!depBusy) {
-                        void handleInstallDependencyInline(depDraft);
-                      }
-                    }}
-                    className="flex items-center gap-2"
-                  >
-                    <input
-                      type="text"
-                      value={depDraft}
-                      onChange={(e) => setDepDraft(e.target.value)}
-                      placeholder="package or package@version"
-                      className="flex-1 rounded-md border border-slate-300 px-2 py-1 text-sm text-slate-700 focus:border-brand-500 focus:outline-none"
-                      autoFocus
-                    />
-                    <Button type="submit" size="sm" disabled={depBusy}>
-                      {depBusy ? (
-                        <span className="inline-flex items-center gap-2">
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />{" "}
-                          Installing
-                        </span>
-                      ) : (
-                        "Add"
-                      )}
-                    </Button>
-                  </form>
-                  {depParsed.length > 1 && (
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {depParsed.map((item, idx) => (
-                        <Badge
-                          key={`${item.name}@${item.version}:${idx}`}
-                          variant="outline"
-                          className="font-mono text-[11px]"
-                        >
-                          {item.name}@{item.version}
-                        </Badge>
-                      ))}
-                    </div>
-                  )}
-                  {(depBusy || depOutputs.length > 0) && (
-                    <div className="mt-3 space-y-2 rounded-lg border border-slate-200 bg-slate-950 p-3 text-sm text-slate-100">
-                      {depBusy && depOutputs.length === 0 ? (
-                        <div className="flex items-center gap-2 text-slate-300/80">
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />{" "}
-                          Preparing environment…
-                        </div>
-                      ) : null}
-                      {depOutputs.map((output, index) => (
-                        <OutputView key={index} output={output} />
-                      ))}
-                    </div>
-                  )}
-                  {depError ? (
-                    <p className="mt-2 text-[11px] text-rose-500">{depError}</p>
-                  ) : (
-                    <p className="mt-2 text-[11px] text-slate-400">
-                      Use <span className="font-medium">name@version</span>.
-                      Version defaults to latest.
-                    </p>
-                  )}
-                </div>
-              )}
-            </div>
+            )}
+            {/* dependency form moved to Setup sidebar */}
 
             <div className="space-y-4">
               {notebook.cells.map((cell, index) => (
@@ -1203,52 +1159,6 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
               />
             </div>
           </div>
-          <aside className="hidden w-80 shrink-0 border-l border-slate-200 bg-white px-5 py-6 lg:block">
-            <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                className={clsx(
-                  "rounded-full px-3 text-xs font-semibold",
-                  sidebarView === "outline"
-                    ? "bg-slate-900 text-white hover:bg-slate-800"
-                    : "text-slate-500 hover:text-slate-900"
-                )}
-                onClick={() => setSidebarView("outline")}
-              >
-                Outline
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                className={clsx(
-                  "rounded-full px-3 text-xs font-semibold",
-                  sidebarView === "setup"
-                    ? "bg-slate-900 text-white hover:bg-slate-800"
-                    : "text-slate-500 hover:text-slate-900"
-                )}
-                onClick={() => setSidebarView("setup")}
-              >
-                Setup
-              </Button>
-            </div>
-            <div className="mt-6 h-full overflow-hidden">
-              {sidebarView === "setup" ? (
-                <SetupPanel
-                  env={notebook.env}
-                  onRemoveDependency={handleRemoveDependency}
-                />
-              ) : (
-                <OutlinePanel
-                  items={outlineItems}
-                  onSelect={handleOutlineJump}
-                  activeCellId={runningCellId ?? undefined}
-                />
-              )}
-            </div>
-          </aside>
         </div>
       </div>
     );
@@ -1270,33 +1180,103 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     handleDeleteNotebook,
     shareStatus,
     error,
-    outlineItems,
     runningCellId,
     handleCellChange,
     handleDeleteCell,
     handleRunCell,
     handleMoveCell,
     handleAddCell,
-    handleOutlineJump,
     activeCellId,
-    sidebarView,
-    handleRemoveDependency,
-    // Inline dependency form state
-    depOpen,
-    depDraft,
+    // Install output block
     depBusy,
     depError,
     depOutputs,
     handleClearDepOutputs,
     handleAbortInstall,
+  ]);
+
+  const secondaryHeader = useMemo(() => {
+    if (!notebook) return null;
+    return (
+      <div className="flex items-center gap-2">
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          className={clsx(
+            "rounded-full px-3 text-xs font-semibold",
+            sidebarView === "outline"
+              ? "bg-slate-900 text-white hover:bg-slate-800"
+              : "text-slate-500 hover:text-slate-900"
+          )}
+          onClick={() => setSidebarView("outline")}
+        >
+          <span className="inline-flex items-center gap-1">
+            <ListTree className="h-4 w-4" /> Outline
+          </span>
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          className={clsx(
+            "rounded-full px-3 text-xs font-semibold",
+            sidebarView === "setup"
+              ? "bg-slate-900 text-white hover:bg-slate-800"
+              : "text-slate-500 hover:text-slate-900"
+          )}
+          onClick={() => setSidebarView("setup")}
+        >
+          <span className="inline-flex items-center gap-1">
+            <SettingsIcon className="h-4 w-4" /> Setup
+          </span>
+        </Button>
+      </div>
+    );
+  }, [notebook, sidebarView]);
+
+  const secondarySidebar = useMemo(() => {
+    if (!notebook) return null;
+    return (
+      <div className="h-full overflow-hidden">
+        {sidebarView === "setup" ? (
+          <SetupPanel
+            env={notebook.env}
+            onRemoveDependency={handleRemoveDependency}
+            onAddDependencies={(raw) => handleInstallDependencyInline(raw)}
+            depBusy={depBusy}
+            onAddVariable={handleAddVariable}
+            onRemoveVariable={handleRemoveVariable}
+          />
+        ) : (
+          <OutlinePanel
+            items={outlineItems}
+            onSelect={handleOutlineJump}
+            activeCellId={runningCellId ?? undefined}
+          />
+        )}
+      </div>
+    );
+  }, [
+    notebook,
+    sidebarView,
+    outlineItems,
+    handleOutlineJump,
+    runningCellId,
+    handleRemoveDependency,
+    depBusy,
     handleInstallDependencyInline,
-    depParsed,
+    handleAddVariable,
+    handleRemoveVariable,
   ]);
 
   return (
     <AppShell
       title={notebook?.name ?? "Notebook"}
       onNewNotebook={() => void handleCreateNotebook()}
+      secondarySidebar={secondarySidebar}
+      defaultCollapsed
+      secondaryHeader={secondaryHeader}
     >
       {editorView}
     </AppShell>
