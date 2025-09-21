@@ -18,7 +18,9 @@ describe("NotebookRuntime", () => {
 
     expect(result.execution.status).toBe("ok");
     expect(streams.some((line) => line.includes("hello runtime"))).toBe(true);
-    expect(result.outputs.some((output) => output.type === "display_data")).toBe(true);
+    expect(
+      result.outputs.some((output) => output.type === "display_data")
+    ).toBe(true);
   });
 
   it("transpiles TypeScript before execution", async () => {
@@ -31,7 +33,9 @@ describe("NotebookRuntime", () => {
     });
 
     expect(result.execution.status).toBe("ok");
-    expect(result.outputs.some((output) => output.type === "display_data")).toBe(true);
+    expect(
+      result.outputs.some((output) => output.type === "display_data")
+    ).toBe(true);
   });
 
   it("reports execution errors", async () => {

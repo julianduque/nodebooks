@@ -2,7 +2,12 @@ import { forwardRef } from "react";
 import type { ButtonHTMLAttributes } from "react";
 import { cn } from "../../lib/utils";
 
-type ButtonVariant = "default" | "outline" | "secondary" | "ghost" | "destructive";
+type ButtonVariant =
+  | "default"
+  | "outline"
+  | "secondary"
+  | "ghost"
+  | "destructive";
 type ButtonSize = "sm" | "md" | "lg" | "icon";
 
 const baseStyles =
@@ -29,16 +34,24 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 const Button = forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant = "default", size = "md", type = "button", ...props }, ref) => {
+  (
+    { className, variant = "default", size = "md", type = "button", ...props },
+    ref
+  ) => {
     return (
       <button
         ref={ref}
         type={type}
-        className={cn(baseStyles, variantStyles[variant], sizeStyles[size], className)}
+        className={cn(
+          baseStyles,
+          variantStyles[variant],
+          sizeStyles[size],
+          className
+        )}
         {...props}
       />
     );
-  },
+  }
 );
 
 Button.displayName = "Button";

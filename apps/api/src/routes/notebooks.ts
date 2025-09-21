@@ -25,7 +25,7 @@ const NotebookCreateSchema = NotebookMutationSchema.extend({
 
 export const registerNotebookRoutes = (
   app: FastifyInstance,
-  store: NotebookStore,
+  store: NotebookStore
 ) => {
   app.get("/notebooks", async () => {
     return {
@@ -47,7 +47,9 @@ export const registerNotebookRoutes = (
   app.post("/notebooks", async (request, reply) => {
     const body = NotebookCreateSchema.parse(request.body ?? {});
 
-    const base = createEmptyNotebook(body.name ? { name: body.name } : undefined);
+    const base = createEmptyNotebook(
+      body.name ? { name: body.name } : undefined
+    );
 
     let cells = body.cells ?? [];
     if (cells.length === 0) {
@@ -60,14 +62,16 @@ export const registerNotebookRoutes = (
             createMarkdownCell({ source: "# TypeScript Notebook" }),
             createCodeCell({
               language: "ts",
-              source: "const greeting: string = 'Hello, NodeBooks!';\nconsole.log(greeting);",
+              source:
+                "const greeting: string = 'Hello, NodeBooks!';\nconsole.log(greeting);",
             }),
           ];
           break;
         default:
           cells = [
             createMarkdownCell({
-              source: "# Welcome to NodeBooks\nRun the code cell below to get started.",
+              source:
+                "# Welcome to NodeBooks\nRun the code cell below to get started.",
             }),
             createCodeCell({
               source: "console.log('2 + 2 =', 2 + 2);",
@@ -81,7 +85,7 @@ export const registerNotebookRoutes = (
         ...base,
         env: body.env ?? base.env,
         cells,
-      }),
+      })
     );
 
     reply.code(201);

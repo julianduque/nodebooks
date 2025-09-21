@@ -1,6 +1,14 @@
-import { createEmptyNotebook, NotebookSchema, type Notebook } from "@nodebooks/notebook-schema";
+import {
+  createEmptyNotebook,
+  NotebookSchema,
+  type Notebook,
+} from "@nodebooks/notebook-schema";
 import { customAlphabet } from "nanoid";
-import type { NotebookStore, NotebookSession, SessionManager } from "../types.js";
+import type {
+  NotebookStore,
+  NotebookSession,
+  SessionManager,
+} from "../types.js";
 
 const nanoid = customAlphabet("1234567890abcdefghijklmnopqrstuvwxyz", 12);
 

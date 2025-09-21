@@ -1,6 +1,5 @@
-@import 'tailwindcss';
-@import "tailwindcss/preflight"
-@tailwind utilities;
+@import "tailwindcss";
+@import "tailwindcss/preflight" @tailwind utilities;
 
 /* Shadcn Admin theme tokens (OKLCH) */
 :root {
@@ -120,8 +119,12 @@
     @apply bg-background text-foreground min-h-svh w-full;
     margin: 0;
   }
-  a { color: inherit; }
-  a:hover { text-decoration: underline; }
+  a {
+    color: inherit;
+  }
+  a:hover {
+    text-decoration: underline;
+  }
   .sr-only {
     position: absolute;
     width: 1px;
@@ -174,5 +177,7 @@
   background-color: color-mix(in oklch, var(--foreground) 8%, transparent);
   padding: 0.1rem 0.35rem;
   border-radius: 0.25rem;
-  font-family: "Fira Code", ui-monospace, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-family:
+    "Fira Code", ui-monospace, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
 }

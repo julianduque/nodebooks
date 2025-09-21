@@ -7,7 +7,11 @@ import {
   type KernelExecuteRequest,
   type KernelServerMessage,
 } from "@nodebooks/notebook-schema";
-import type { NotebookStore, SessionManager, NotebookSession } from "../types.js";
+import type {
+  NotebookStore,
+  SessionManager,
+  NotebookSession,
+} from "../types.js";
 import { NotebookRuntime } from "./runtime.js";
 
 const runtimes = new Map<string, NotebookRuntime>();
@@ -15,7 +19,7 @@ const runtimes = new Map<string, NotebookRuntime>();
 export const registerKernelRoutes = (
   app: FastifyInstance,
   sessions: SessionManager,
-  store: NotebookStore,
+  store: NotebookStore
 ) => {
   app.get("/ws/sessions/:id", { websocket: true }, (connection, request) => {
     void handleConnection(connection, request.params, sessions, store);
@@ -26,7 +30,7 @@ const handleConnection = async (
   connection: WebSocket,
   params: unknown,
   sessions: SessionManager,
-  store: NotebookStore,
+  store: NotebookStore
 ) => {
   const { id } = z.object({ id: z.string() }).parse(params);
   const allSessions = await sessions.listSessions();
@@ -72,7 +76,9 @@ const handleConnection = async (
         cellId: "",
         ename: "InvalidMessage",
         evalue: "Received malformed kernel message",
-        traceback: parsed.error.issues.map((issue) => issue.message ?? String(issue)),
+        traceback: parsed.error.issues.map(
+          (issue) => issue.message ?? String(issue)
+        ),
       });
       return;
     }
@@ -86,13 +92,16 @@ const handleConnection = async (
         store,
       });
     } catch (error) {
-      const cellId = parsed.data.type === "execute_request" ? parsed.data.cellId : "";
+      const cellId =
+        parsed.data.type === "execute_request" ? parsed.data.cellId : "";
       sendMessage(connection, {
         type: "error",
         cellId,
         ename: "KernelError",
         evalue:
-          error instanceof Error ? error.message : "An unexpected error occurred while handling the kernel message",
+          error instanceof Error
+            ? error.message
+            : "An unexpected error occurred while handling the kernel message",
         traceback: [],
       });
     }
@@ -111,7 +120,11 @@ const parseClientMessage = (payload: unknown) => {
       raw = payload;
     } else if (payload instanceof Buffer) {
       raw = payload.toString();
-    } else if (typeof payload === "object" && payload !== null && "toString" in payload) {
+    } else if (
+      typeof payload === "object" &&
+      payload !== null &&
+      "toString" in payload
+    ) {
       raw = (payload as { toString(): string }).toString();
     } else {
       throw new Error("Unsupported message payload");
@@ -124,7 +137,10 @@ const parseClientMessage = (payload: unknown) => {
       error: {
         issues: [
           {
-            message: error instanceof Error ? error.message : "Unable to parse kernel message",
+            message:
+              error instanceof Error
+                ? error.message
+                : "Unable to parse kernel message",
           },
         ],
       },
@@ -149,7 +165,13 @@ const handleKernelMessage = async ({
 }: HandleMessageArgs) => {
   switch (message.type) {
     case "execute_request":
-      await handleExecuteRequest({ connection, message, runtime, session, store });
+      await handleExecuteRequest({
+        connection,
+        message,
+        runtime,
+        session,
+        store,
+      });
       break;
     case "interrupt_request":
       sendMessage(connection, { type: "status", state: "idle" });
@@ -239,7 +261,7 @@ const handleExecuteRequest = async ({
             execution: result.execution,
             language: runnableCell.language,
           }
-        : item,
+        : item
     ),
   });
 };
