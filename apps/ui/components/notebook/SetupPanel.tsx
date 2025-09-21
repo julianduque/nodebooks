@@ -1,9 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
-import { Trash2 } from "lucide-react";
+import { Pencil, Trash2 } from "lucide-react";
 import type { Notebook } from "@nodebooks/notebook-schema";
 
 interface SetupPanelProps {
@@ -24,8 +24,11 @@ const SetupPanel = ({
   onRemoveVariable,
 }: SetupPanelProps) => {
   const [draft, setDraft] = useState("");
-  const [varKey, setVarKey] = useState("");
-  const [varValue, setVarValue] = useState("");
+  // Variable modal state
+  const [varModalOpen, setVarModalOpen] = useState(false);
+  const [editOriginalName, setEditOriginalName] = useState<string | null>(null);
+  const [formName, setFormName] = useState("");
+  const [formValue, setFormValue] = useState("");
   const dependencies = useMemo(
     () =>
       Object.entries(env.packages ?? {})
@@ -108,41 +111,25 @@ const SetupPanel = ({
         <p className="mt-2 text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">
           Environment Variables
         </p>
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            const key = varKey.trim();
-            if (!key) return;
-            void onAddVariable(key, varValue);
-            setVarKey("");
-            setVarValue("");
-          }}
-          className="mt-2 grid grid-cols-[1fr_1fr_auto] items-center gap-2"
-        >
-          <input
-            type="text"
-            value={varKey}
-            onChange={(e) => setVarKey(e.target.value)}
-            placeholder="NAME"
-            className="w-full rounded-md border border-slate-300 px-2 py-1 text-[13px] text-slate-700 focus:border-brand-500 focus:outline-none"
-            aria-label="Variable name"
-          />
-          <input
-            type="text"
-            value={varValue}
-            onChange={(e) => setVarValue(e.target.value)}
-            placeholder="value"
-            className="w-full rounded-md border border-slate-300 px-2 py-1 text-[13px] text-slate-700 focus:border-brand-500 focus:outline-none"
-            aria-label="Variable value"
-          />
-          <Button type="submit" size="sm" className="px-3 text-[11px]">
-            Add
+        <div className="mt-2 flex items-center justify-between">
+          <p className="text-[11px] text-slate-400">
+            Available via <span className="font-mono">process.env.NAME</span> in
+            code.
+          </p>
+          <Button
+            type="button"
+            size="sm"
+            className="px-3 text-[11px]"
+            onClick={() => {
+              setEditOriginalName(null);
+              setFormName("");
+              setFormValue("");
+              setVarModalOpen(true);
+            }}
+          >
+            Add variable
           </Button>
-        </form>
-        <p className="mt-1 text-[11px] text-slate-400">
-          Available via <span className="font-mono">process.env.NAME</span> in
-          code.
-        </p>
+        </div>
         <div className="mt-2">
           {variables.length === 0 ? (
             <p className="text-xs text-slate-500">No variables set.</p>
@@ -152,7 +139,12 @@ const SetupPanel = ({
                 <VariableRow
                   key={v.name}
                   name={v.name}
-                  value={v.value}
+                  onEdit={() => {
+                    setEditOriginalName(v.name);
+                    setFormName(v.name);
+                    setFormValue(v.value ?? "");
+                    setVarModalOpen(true);
+                  }}
                   onRemove={() => void onRemoveVariable(v.name)}
                 />
               ))}
@@ -160,6 +152,25 @@ const SetupPanel = ({
           )}
         </div>
       </div>
+
+      {varModalOpen && (
+        <VariableModal
+          title={editOriginalName ? "Edit Variable" : "Add Variable"}
+          name={formName}
+          value={formValue}
+          onNameChange={setFormName}
+          onValueChange={setFormValue}
+          onCancel={() => setVarModalOpen(false)}
+          onSubmit={async () => {
+            const key = formName.trim();
+            await onAddVariable(key, formValue);
+            if (editOriginalName && editOriginalName !== key) {
+              await onRemoveVariable(editOriginalName);
+            }
+            setVarModalOpen(false);
+          }}
+        />
+      )}
     </div>
   );
 };
@@ -197,19 +208,26 @@ export default SetupPanel;
 
 interface VariableRowProps {
   name: string;
-  value?: string;
+  onEdit: () => void;
   onRemove: () => void;
 }
 
-const VariableRow = ({ name, value, onRemove }: VariableRowProps) => {
+const VariableRow = ({ name, onEdit, onRemove }: VariableRowProps) => {
   return (
     <li className="flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1">
       <div className="flex-1 truncate text-sm text-slate-700" title={name}>
         <span className="font-mono text-[12px] text-slate-600">{name}</span>
       </div>
-      <Badge variant="secondary" className="font-mono text-[11px]">
-        {value || ""}
-      </Badge>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="text-slate-600 hover:text-slate-900"
+        onClick={onEdit}
+        aria-label={`Edit variable ${name}`}
+      >
+        <Pencil className="h-4 w-4" />
+      </Button>
       <Button
         type="button"
         variant="ghost"
@@ -221,5 +239,82 @@ const VariableRow = ({ name, value, onRemove }: VariableRowProps) => {
         <Trash2 className="h-4 w-4" />
       </Button>
     </li>
+  );
+};
+
+interface VariableModalProps {
+  title: string;
+  name: string;
+  value: string;
+  onNameChange: (v: string) => void;
+  onValueChange: (v: string) => void;
+  onCancel: () => void;
+  onSubmit: () => void | Promise<void>;
+}
+
+const VariableModal = ({
+  title,
+  name,
+  value,
+  onNameChange,
+  onValueChange,
+  onCancel,
+  onSubmit,
+}: VariableModalProps) => {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onCancel();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onCancel]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="w-full max-w-md rounded-lg border border-slate-200 bg-white p-4 shadow-xl">
+        <h2 className="text-sm font-semibold text-slate-800">{title}</h2>
+        <form
+          className="mt-3 space-y-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!name.trim()) return;
+            void onSubmit();
+          }}
+        >
+          <label className="block text-xs font-medium text-slate-600">
+            Name
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => onNameChange(e.target.value)}
+              placeholder="NAME"
+              className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-[13px] text-slate-700 focus:border-brand-500 focus:outline-none"
+            />
+          </label>
+          <label className="block text-xs font-medium text-slate-600">
+            Value
+            <input
+              type="text"
+              value={value}
+              onChange={(e) => onValueChange(e.target.value)}
+              placeholder="value"
+              className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-[13px] text-slate-700 focus:border-brand-500 focus:outline-none"
+            />
+          </label>
+          <div className="mt-3 flex justify-end gap-4">
+            <Button type="button" variant="ghost" onClick={onCancel}>
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              variant="secondary"
+              className="px-3 text-[11px]"
+            >
+              Save
+            </Button>
+          </div>
+        </form>
+      </div>
+    </div>
   );
 };

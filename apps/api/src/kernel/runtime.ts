@@ -18,6 +18,7 @@ import type {
   StreamOutput,
   OutputExecution,
 } from "@nodebooks/notebook-schema";
+import { UiDisplaySchema, NODEBOOKS_UI_MIME } from "@nodebooks/notebook-schema";
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 
@@ -245,6 +246,12 @@ const toDisplayData = (value: unknown) => {
     // Ignore JSON serialization errors.
   }
 
+  // If value conforms to the structured UI spec, add vendor MIME as well
+  const uiParsed = UiDisplaySchema.safeParse(value);
+  if (uiParsed.success) {
+    data[NODEBOOKS_UI_MIME] = uiParsed.data;
+  }
+
   const display: NotebookOutput = {
     type: "display_data",
     data,
@@ -289,10 +296,25 @@ export class NotebookRuntime {
       exports: {},
       process: this.processProxy,
       Buffer,
+      // Timers
       setTimeout,
       clearTimeout,
       setInterval,
       clearInterval,
+      // Web/Fetch APIs from host Node.js (Node 20+)
+      fetch: (globalThis as unknown as { fetch?: typeof fetch }).fetch?.bind(
+        globalThis as unknown as object
+      ),
+      Headers: (globalThis as unknown as { Headers?: typeof Headers }).Headers,
+      Request: (globalThis as unknown as { Request?: typeof Request }).Request,
+      Response: (globalThis as unknown as { Response?: typeof Response })
+        .Response,
+      FormData: (globalThis as unknown as { FormData?: typeof FormData })
+        .FormData,
+      Blob: (globalThis as unknown as { Blob?: typeof Blob }).Blob,
+      File: (globalThis as unknown as { File?: typeof File }).File,
+      URL,
+      URLSearchParams,
     };
 
     this.context = vm.createContext(sandbox, {
@@ -304,6 +326,9 @@ export class NotebookRuntime {
 
     (this.context as Record<string, unknown>).global = this.context;
     (this.context as Record<string, unknown>).globalThis = this.context;
+
+    // Global UI helpers were moved to the '@nodebooks/ui' sandbox module.
+    // Users should now `import { UiImage, UiMarkdown, UiHTML, UiJSON, UiCode } from "@nodebooks/ui"`.
   }
 
   async execute({
@@ -346,7 +371,8 @@ export class NotebookRuntime {
       await this.ensureEnvironment(notebookId, env);
 
       const rewritten = rewriteTopLevelDeclarations(code, cell.language);
-      const compiled = await transform(rewritten, {
+      const wrapped = wrapForTopLevelAwait(rewritten);
+      const compiled = await transform(wrapped, {
         loader: cell.language === "ts" ? "ts" : "js",
         format: "cjs",
         target: "es2022",
@@ -479,6 +505,7 @@ export class NotebookRuntime {
         metadataPath,
         JSON.stringify({ packagesKey: envKey }, null, 2)
       );
+      await writeUiHelpersModule(sandboxDir);
       this.assignSandboxBindings(sandboxDir);
       this.currentNotebookId = notebookId;
       this.currentEnvKey = envKey;
@@ -523,6 +550,8 @@ export class NotebookRuntime {
       JSON.stringify({ packagesKey: envKey }, null, 2)
     );
 
+    await writeUiHelpersModule(sandboxDir);
+
     this.assignSandboxBindings(sandboxDir);
     this.currentNotebookId = notebookId;
     this.currentEnvKey = envKey;
@@ -566,6 +595,102 @@ const createPackagesKey = (packages: Record<string, string>) => {
   return JSON.stringify(entries);
 };
 
+// Wrap source code to support top-level await while preserving
+// the common "last expression is the result" behavior.
+// Heuristic: move the last non-empty line into a `return` inside an async IIFE.
+// If the last line does not look like an expression, it will still execute but
+// the IIFE resolves to undefined (displaying nothing), matching previous behavior.
+const wrapForTopLevelAwait = (source: string): string => {
+  const lines = source.split(/\r?\n/);
+
+  // Extract ESM imports (single- or multi-line) and keep them at the top level
+  const topImports: string[] = [];
+  const rest: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i] ?? "";
+    const t = raw.trimStart();
+    if (t.startsWith("import") && !t.startsWith("import(")) {
+      const block: string[] = [raw];
+      // Accumulate until a line containing a semicolon terminator
+      let j = i;
+      let ended = /;\s*$/.test(raw);
+      while (!ended && j + 1 < lines.length) {
+        j++;
+        block.push(lines[j] ?? "");
+        if (/;\s*$/.test(lines[j] ?? "")) {
+          ended = true;
+          break;
+        }
+      }
+      topImports.push(block.join("\n"));
+      i = j; // jump to end of block
+      continue;
+    }
+    rest.push(raw);
+  }
+
+  const header = topImports.length > 0 ? `${topImports.join("\n")}\n` : "";
+
+  // Helper: from a single line, take the last non-empty segment after ';'
+  const splitLastSegment = (line: string) => {
+    let i = line.length - 1;
+    // Skip trailing whitespace and semicolons
+    while (i >= 0 && /[\s;]/.test(line[i]!)) i--;
+    if (i < 0) return { left: line, right: null as string | null };
+    // Walk back to the previous ';'
+    let j = i;
+    while (j >= 0 && line[j] !== ";") j--;
+    if (j >= 0) {
+      const right = line.slice(j + 1).trim();
+      const left = line.slice(0, j + 1);
+      if (right.length > 0) return { left, right };
+    }
+    return { left: "", right: line.trim() };
+  };
+
+  // Find a candidate statement to return, scanning from the end upwards.
+  let idx = rest.length - 1;
+  while (idx >= 0 && rest[idx]!.trim() === "") idx--;
+  if (idx < 0) {
+    return `${header}(async()=>{ })()`; // nothing to run
+  }
+
+  const isBlockClose = (s: string) => /^(}|]|\))\s*;?$/.test(s);
+  const isControl = (s: string) =>
+    /^(if|for|while|switch|try|catch|finally|with|else)\b/.test(s);
+
+  // Choose the best candidate line and splice in a `return` there.
+  let chosenIndex = -1;
+  let returnExpr: string | null = null;
+  let chosenLeft: string | null = null;
+  for (let i = idx; i >= 0; i--) {
+    const t = rest[i]!.trim();
+    if (t === "" || isBlockClose(t) || isControl(t)) continue;
+    const { left, right } = splitLastSegment(rest[i]!);
+    returnExpr = right ?? null;
+    chosenLeft = left;
+    chosenIndex = i;
+    break;
+  }
+
+  // If we didn't find a suitable candidate, just run in IIFE without returning.
+  if (chosenIndex === -1 || !returnExpr) {
+    const body = rest.join("\n");
+    return `${header}(async()=>{\n${body}\n})()`;
+  }
+
+  const beforeLines = rest.slice(0, chosenIndex);
+  const afterLines = rest.slice(chosenIndex + 1);
+  const pieces: string[] = [];
+  if (beforeLines.join("").trim().length > 0)
+    pieces.push(beforeLines.join("\n"));
+  if (chosenLeft && chosenLeft.trim().length > 0) pieces.push(chosenLeft);
+  pieces.push(`return ${returnExpr.replace(/;\s*$/, "")}`);
+  if (afterLines.join("").trim().length > 0) pieces.push(afterLines.join("\n"));
+  const body = pieces.join("\n");
+  return `${header}(async()=>{\n${body}\n})()`;
+};
+
 const createPackageJson = (
   notebookId: string,
   packages: Record<string, string>
@@ -600,6 +725,68 @@ const ensureEntryModule = async (entryPath: string) => {
   } catch {
     await fsPromises.writeFile(entryPath, "module.exports = {}\n");
   }
+};
+
+// Provide a lightweight helper package '@nodebooks/ui' inside the sandbox so
+// cells can import { NBImage } from '@nodebooks/ui'. This is a CommonJS module
+// to match the compiled format of user code.
+const writeUiHelpersModule = async (sandboxDir: string) => {
+  const pkgDir = join(sandboxDir, "node_modules", "@nodebooks", "ui");
+  await fsPromises.mkdir(pkgDir, { recursive: true });
+
+  const pkgJsonPath = join(pkgDir, "package.json");
+  const indexPath = join(pkgDir, "index.js");
+  const dtsPath = join(pkgDir, "index.d.ts");
+
+  const pkgJson = {
+    name: "@nodebooks/ui",
+    version: "0.0.0",
+    main: "index.js",
+    types: "index.d.ts",
+  };
+
+  const indexJs = `"use strict";
+function UiImage(srcOrOpts, opts) {
+  if (srcOrOpts && typeof srcOrOpts === "object" && !Array.isArray(srcOrOpts) && "src" in srcOrOpts) {
+    return Object.assign({ ui: "image" }, srcOrOpts);
+  }
+  return Object.assign({ ui: "image", src: srcOrOpts }, opts || {});
+}
+function UiMarkdown(markdown) { return { ui: "markdown", markdown }; }
+function UiHTML(html) { return { ui: "html", html }; }
+function UiJSON(json, opts) { return Object.assign({ ui: "json", json }, opts || {}); }
+function UiCode(code, opts) { return Object.assign({ ui: "code", code }, opts || {}); }
+// Backward-compatible aliases (will be removed in a future release)
+const NBImage = UiImage; const NBMarkdown = UiMarkdown; const NBHTML = UiHTML; const NBJSON = UiJSON; const NBCode = UiCode;
+module.exports = { UiImage, UiMarkdown, UiHTML, UiJSON, UiCode, NBImage, NBMarkdown, NBHTML, NBJSON, NBCode };
+`;
+
+  const indexDts = `export type UiImageOptions = {
+  alt?: string;
+  width?: number | string;
+  height?: number | string;
+  fit?: "contain" | "cover" | "fill" | "none" | "scale-down";
+  borderRadius?: number;
+  mimeType?: string;
+};
+export declare function UiImage(src: string, opts?: UiImageOptions): { ui: "image" } & UiImageOptions & { src: string };
+export declare function UiImage(opts: { ui?: "image"; src: string } & UiImageOptions): { ui: "image" } & UiImageOptions & { src: string };
+export declare function UiMarkdown(markdown: string): { ui: "markdown"; markdown: string };
+export declare function UiHTML(html: string): { ui: "html"; html: string };
+export type UiJsonOptions = { collapsed?: boolean; maxDepth?: number };
+export declare function UiJSON(json: unknown, opts?: UiJsonOptions): { ui: "json"; json: unknown } & UiJsonOptions;
+export type UiCodeOptions = { language?: string; wrap?: boolean };
+export declare function UiCode(code: string, opts?: UiCodeOptions): { ui: "code"; code: string } & UiCodeOptions;
+// Backward-compatible aliases
+export type NBImageOptions = UiImageOptions;
+export type NBJsonOptions = UiJsonOptions;
+export type NBCodeOptions = UiCodeOptions;
+export { UiImage as NBImage, UiMarkdown as NBMarkdown, UiHTML as NBHTML, UiJSON as NBJSON, UiCode as NBCode };
+`;
+
+  await fsPromises.writeFile(pkgJsonPath, JSON.stringify(pkgJson, null, 2));
+  await fsPromises.writeFile(indexPath, indexJs);
+  await fsPromises.writeFile(dtsPath, indexDts);
 };
 
 const pathExists = async (filePath: string) => {
