@@ -19,6 +19,7 @@ import {
   Settings as SettingsIcon,
   ListTree,
 } from "lucide-react";
+import ConfirmDialog from "./ui/confirm";
 import { useRouter } from "next/navigation";
 import {
   createCodeCell,
@@ -35,11 +36,7 @@ import type {
   OutlineItem,
   NotebookViewProps,
 } from "./notebook/types";
-import {
-  formatTimestamp,
-  parseMultipleDependencies,
-  buildOutlineItems,
-} from "./notebook/utils";
+import { parseMultipleDependencies, buildOutlineItems } from "./notebook/utils";
 import CellCard from "./notebook/CellCard";
 import AddCellMenu from "./notebook/AddCellMenu";
 import OutlinePanel from "./notebook/OutlinePanel";
@@ -818,6 +815,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     },
     [notebook?.id, router]
   );
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
 
   const handleSaveNow = useCallback(() => {
     void saveNotebookNow();
@@ -916,13 +914,6 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     [notebook]
   );
 
-  const notebookHeader = useMemo(() => {
-    if (!notebook) {
-      return "";
-    }
-    return formatTimestamp(notebook.updatedAt);
-  }, [notebook]);
-
   const editorView = useMemo(() => {
     if (loading) {
       return (
@@ -953,123 +944,6 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
 
     return (
       <div className="flex min-h-full flex-1 flex-col">
-        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 bg-white px-8 py-4 shadow-sm">
-          <div>
-            <div className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">
-              Notebook
-            </div>
-            <div className="mt-2 flex items-center gap-3">
-              {isRenaming ? (
-                <input
-                  ref={renameInputRef}
-                  value={renameDraft}
-                  onChange={(event) => setRenameDraft(event.target.value)}
-                  onBlur={handleRenameCommit}
-                  onKeyDown={handleRenameKeyDown}
-                  className="min-w-[240px] rounded-lg border border-slate-300 bg-white px-3 py-1 text-3xl font-semibold text-slate-900 focus:border-brand-500 focus:outline-none"
-                  aria-label="Notebook name"
-                />
-              ) : (
-                <button
-                  type="button"
-                  className="text-left text-3xl font-semibold text-slate-900 hover:text-brand-600"
-                  onClick={handleRenameStart}
-                >
-                  {notebook.name}
-                </button>
-              )}
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={isRenaming ? handleRenameCommit : handleRenameStart}
-                aria-label="Rename notebook"
-              >
-                <Pencil className="h-4 w-4" />
-              </Button>
-            </div>
-            <div className="mt-2 flex flex-wrap items-center gap-4 text-sm text-slate-500">
-              <span>Last updated {notebookHeader}</span>
-              <span className="flex items-center gap-2">
-                <span
-                  className={clsx(
-                    "h-2 w-2 rounded-full",
-                    socketReady ? "bg-emerald-500" : "bg-amber-500"
-                  )}
-                />
-                {socketReady ? "Kernel connected" : "Kernel connecting"}
-              </span>
-              <span className="flex items-center gap-2">
-                <span
-                  className={clsx(
-                    "h-2 w-2 rounded-full",
-                    dirty ? "bg-amber-500" : "bg-emerald-500"
-                  )}
-                />
-                {dirty ? "Unsaved changes" : "Saved"}
-              </span>
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="secondary" className="uppercase tracking-[0.2em]">
-              {notebook.env.runtime.toUpperCase()} {notebook.env.version}
-            </Badge>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={handleClearAllOutputs}
-              aria-label="Clear all outputs"
-            >
-              <Eraser className="h-4 w-4" />
-            </Button>
-            <Button
-              variant="secondary"
-              size="icon"
-              onClick={handleRunAll}
-              disabled={!socketReady}
-              aria-label="Run all cells"
-            >
-              <PlayCircle className="h-4 w-4" />
-            </Button>
-            <Button
-              variant={dirty ? "secondary" : "ghost"}
-              size="icon"
-              onClick={handleSaveNow}
-              disabled={!dirty}
-              aria-label="Save notebook"
-            >
-              {dirty ? (
-                <Save className="h-4 w-4" />
-              ) : (
-                <Check className="h-4 w-4 text-emerald-500" />
-              )}
-            </Button>
-            <Button
-              variant={shareStatus === "error" ? "destructive" : "ghost"}
-              size="icon"
-              onClick={handleShare}
-              aria-label={
-                shareStatus === "copied"
-                  ? "Notebook link copied"
-                  : "Share notebook"
-              }
-            >
-              {shareStatus === "copied" ? (
-                <Check className="h-4 w-4 text-emerald-500" />
-              ) : (
-                <Share2 className="h-4 w-4" />
-              )}
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="text-rose-600 hover:text-rose-700"
-              onClick={() => handleDeleteNotebook()}
-              aria-label="Delete notebook"
-            >
-              <Trash2 className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
         <div className="flex flex-1 overflow-hidden">
           <div className="flex-1 bg-muted/20 px-2 py-2">
             {error && (
@@ -1166,19 +1040,6 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     loading,
     notebook,
     socketReady,
-    dirty,
-    notebookHeader,
-    handleRenameStart,
-    handleRenameCommit,
-    handleRenameKeyDown,
-    isRenaming,
-    renameDraft,
-    handleClearAllOutputs,
-    handleRunAll,
-    handleSaveNow,
-    handleShare,
-    handleDeleteNotebook,
-    shareStatus,
     error,
     runningCellId,
     handleCellChange,
@@ -1187,12 +1048,147 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     handleMoveCell,
     handleAddCell,
     activeCellId,
-    // Install output block
     depBusy,
     depError,
     depOutputs,
     handleClearDepOutputs,
     handleAbortInstall,
+  ]);
+
+  const topbarMain = useMemo(() => {
+    if (!notebook) return null;
+    return (
+      <div className="flex min-w-0 items-center gap-2">
+        {isRenaming ? (
+          <input
+            ref={renameInputRef}
+            value={renameDraft}
+            onChange={(event) => setRenameDraft(event.target.value)}
+            onBlur={handleRenameCommit}
+            onKeyDown={handleRenameKeyDown}
+            className="min-w-[160px] max-w-sm truncate rounded-md border border-slate-300 bg-white px-2 py-1 text-sm font-semibold text-slate-900 focus:border-brand-500 focus:outline-none"
+            aria-label="Notebook name"
+          />
+        ) : (
+          <button
+            type="button"
+            className="truncate text-left text-base font-semibold text-slate-900 hover:text-brand-600"
+            onClick={handleRenameStart}
+            title={notebook.name}
+          >
+            {notebook.name}
+          </button>
+        )}
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={isRenaming ? handleRenameCommit : handleRenameStart}
+          aria-label="Rename notebook"
+        >
+          <Pencil className="h-4 w-4" />
+        </Button>
+      </div>
+    );
+  }, [
+    notebook,
+    isRenaming,
+    renameDraft,
+    handleRenameCommit,
+    handleRenameKeyDown,
+    handleRenameStart,
+  ]);
+
+  const topbarRight = useMemo(() => {
+    if (!notebook) return null;
+    return (
+      <div className="flex items-center gap-2">
+        <Badge variant="secondary" className="uppercase tracking-[0.2em]">
+          {notebook.env.runtime.toUpperCase()} {notebook.env.version}
+        </Badge>
+        <span className="hidden items-center gap-2 text-[11px] text-slate-500 md:flex">
+          <span className="flex items-center gap-1">
+            <span
+              className={clsx(
+                "h-2 w-2 rounded-full",
+                socketReady ? "bg-emerald-500" : "bg-amber-500"
+              )}
+            />
+            {socketReady ? "Kernel connected" : "Kernel connecting"}
+          </span>
+          <span className="flex items-center gap-1">
+            <span
+              className={clsx(
+                "h-2 w-2 rounded-full",
+                dirty ? "bg-amber-500" : "bg-emerald-500"
+              )}
+            />
+            {dirty ? "Unsaved" : "Saved"}
+          </span>
+        </span>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={handleClearAllOutputs}
+          aria-label="Clear all outputs"
+        >
+          <Eraser className="h-4 w-4" />
+        </Button>
+        <Button
+          variant="secondary"
+          size="icon"
+          onClick={handleRunAll}
+          disabled={!socketReady}
+          aria-label="Run all cells"
+        >
+          <PlayCircle className="h-4 w-4" />
+        </Button>
+        <Button
+          variant={dirty ? "secondary" : "ghost"}
+          size="icon"
+          onClick={handleSaveNow}
+          disabled={!dirty}
+          aria-label="Save notebook"
+        >
+          {dirty ? (
+            <Save className="h-4 w-4" />
+          ) : (
+            <Check className="h-4 w-4 text-emerald-500" />
+          )}
+        </Button>
+        <Button
+          variant={shareStatus === "error" ? "destructive" : "ghost"}
+          size="icon"
+          onClick={handleShare}
+          aria-label={
+            shareStatus === "copied" ? "Notebook link copied" : "Share notebook"
+          }
+        >
+          {shareStatus === "copied" ? (
+            <Check className="h-4 w-4 text-emerald-500" />
+          ) : (
+            <Share2 className="h-4 w-4" />
+          )}
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="text-rose-600 hover:text-rose-700"
+          onClick={() => setConfirmDeleteOpen(true)}
+          aria-label="Delete notebook"
+        >
+          <Trash2 className="h-4 w-4" />
+        </Button>
+      </div>
+    );
+  }, [
+    notebook,
+    socketReady,
+    dirty,
+    handleClearAllOutputs,
+    handleRunAll,
+    handleSaveNow,
+    shareStatus,
+    handleShare,
   ]);
 
   const secondaryHeader = useMemo(() => {
@@ -1277,8 +1273,22 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
       secondarySidebar={secondarySidebar}
       defaultCollapsed
       secondaryHeader={secondaryHeader}
+      headerMain={topbarMain}
+      headerRight={topbarRight}
     >
       {editorView}
+      <ConfirmDialog
+        open={confirmDeleteOpen}
+        title="Delete notebook?"
+        description="This action cannot be undone. The notebook will be permanently removed."
+        confirmLabel="Delete"
+        danger
+        onCancel={() => setConfirmDeleteOpen(false)}
+        onConfirm={async () => {
+          await handleDeleteNotebook();
+          setConfirmDeleteOpen(false);
+        }}
+      />
     </AppShell>
   );
 };

@@ -5,6 +5,7 @@ import AppShell from "../../components/AppShell";
 import { Card, CardContent } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Play, Trash2, Plus } from "lucide-react";
+import ConfirmDialog from "../../components/ui/confirm";
 import type { Notebook } from "@nodebooks/notebook-schema";
 import { useRouter } from "next/navigation";
 
@@ -15,6 +16,8 @@ export default function NotebooksPage() {
   const [list, setList] = useState<Notebook[]>([]);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -104,7 +107,10 @@ export default function NotebooksPage() {
                 variant="ghost"
                 size="icon"
                 className="text-rose-600 hover:text-rose-700"
-                onClick={() => handleDelete(n.id)}
+                onClick={() => {
+                  setPendingDeleteId(n.id);
+                  setConfirmOpen(true);
+                }}
                 aria-label={`Delete ${n.name}`}
               >
                 <Trash2 className="h-4 w-4" />
@@ -114,7 +120,7 @@ export default function NotebooksPage() {
         ))}
       </div>
     );
-  }, [loading, list, handleCreate, handleOpen, handleDelete]);
+  }, [loading, list, handleCreate, handleOpen]);
 
   return (
     <AppShell title="Notebooks" onNewNotebook={handleCreate}>
@@ -123,6 +129,19 @@ export default function NotebooksPage() {
         Manage all notebooks in your workspace.
       </p>
       {content}
+      <ConfirmDialog
+        open={confirmOpen}
+        title="Delete notebook?"
+        description="This action cannot be undone. The notebook will be permanently removed."
+        confirmLabel="Delete"
+        danger
+        onCancel={() => setConfirmOpen(false)}
+        onConfirm={async () => {
+          if (pendingDeleteId) await handleDelete(pendingDeleteId);
+          setConfirmOpen(false);
+          setPendingDeleteId(null);
+        }}
+      />
     </AppShell>
   );
 }

@@ -1,5 +1,60 @@
 import { z } from "zod";
 
+// Vendor MIME type for structured UI displays
+export const NODEBOOKS_UI_MIME = "application/vnd.nodebooks.ui+json" as const;
+
+// UI Display schemas (rendered specially by the frontend)
+export const UiImageSchema = z.object({
+  ui: z.literal("image"),
+  // Either a full URL, a data URL, or a raw base64 payload
+  src: z.string(),
+  // Required when src is a raw base64 payload without data URL prefix
+  mimeType: z.string().optional(),
+  alt: z.string().optional(),
+  width: z.union([z.number(), z.string()]).optional(),
+  height: z.union([z.number(), z.string()]).optional(),
+  fit: z.enum(["contain", "cover", "fill", "none", "scale-down"]).optional(),
+  borderRadius: z.number().optional(),
+});
+
+export const UiMarkdownSchema = z.object({
+  ui: z.literal("markdown"),
+  markdown: z.string(),
+});
+
+export const UiHtmlSchema = z.object({
+  ui: z.literal("html"),
+  html: z.string(),
+});
+
+export const UiJsonSchema = z.object({
+  ui: z.literal("json"),
+  json: z.unknown(),
+  collapsed: z.boolean().optional(),
+  maxDepth: z.number().int().positive().optional(),
+});
+
+export const UiCodeSchema = z.object({
+  ui: z.literal("code"),
+  code: z.string(),
+  language: z.string().optional(),
+  wrap: z.boolean().optional(),
+});
+
+export const UiDisplaySchema = z.discriminatedUnion("ui", [
+  UiImageSchema,
+  UiMarkdownSchema,
+  UiHtmlSchema,
+  UiJsonSchema,
+  UiCodeSchema,
+]);
+export type UiDisplay = z.infer<typeof UiDisplaySchema>;
+export type UiImage = z.infer<typeof UiImageSchema>;
+export type UiMarkdown = z.infer<typeof UiMarkdownSchema>;
+export type UiHtml = z.infer<typeof UiHtmlSchema>;
+export type UiJson = z.infer<typeof UiJsonSchema>;
+export type UiCode = z.infer<typeof UiCodeSchema>;
+
 const createId = () => {
   if (
     typeof globalThis.crypto !== "undefined" &&

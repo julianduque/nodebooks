@@ -16,7 +16,6 @@ import {
   Settings,
   Plus,
   PanelLeft,
-  PanelRight,
 } from "lucide-react";
 
 type NavId = "home" | "notebooks" | "templates" | "settings";
@@ -67,6 +66,10 @@ interface AppShellProps {
   secondaryHeader?: ReactNode;
   // Collapse the primary sidebar by default
   defaultCollapsed?: boolean;
+  // Optional custom content in top toolbar, left side (after separators)
+  headerMain?: ReactNode;
+  // Optional custom right-aligned actions in top toolbar
+  headerRight?: ReactNode;
 }
 
 const AppShell = ({
@@ -78,6 +81,8 @@ const AppShell = ({
   secondarySidebar,
   secondaryHeader,
   defaultCollapsed = false,
+  headerMain,
+  headerRight,
 }: AppShellProps) => {
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
   const [secondaryCollapsed, setSecondaryCollapsed] = useState(false);
@@ -92,32 +97,49 @@ const AppShell = ({
         )}
       >
         <div className="flex h-16 items-center gap-3 px-3">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-7"
-            onClick={() => setCollapsed((prev) => !prev)}
-            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-          >
-            <PanelLeft className="h-4 w-4" />
-            <span className="sr-only">Toggle Sidebar</span>
-          </Button>
-          {!collapsed && (
-            <div className="flex items-center gap-2">
+          {collapsed ? (
+            <button
+              type="button"
+              onClick={() => setCollapsed(false)}
+              aria-label="Expand sidebar"
+              className="rounded-md p-1 hover:bg-sidebar-accent"
+            >
               <Image
                 src="/assets/nodebooks-logo.svg"
                 alt="NodeBooks"
-                width={32}
-                height={32}
+                width={28}
+                height={28}
                 priority
               />
-              <div className="leading-tight">
-                <p className="text-sm font-semibold tracking-tight">
-                  NodeBooks
-                </p>
-                <p className="text-[10px] text-muted-foreground">Workspace</p>
+            </button>
+          ) : (
+            <>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7"
+                onClick={() => setCollapsed(true)}
+                aria-label="Collapse sidebar"
+              >
+                <PanelLeft className="h-4 w-4" />
+                <span className="sr-only">Toggle Sidebar</span>
+              </Button>
+              <div className="flex items-center gap-2">
+                <Image
+                  src="/assets/nodebooks-logo.svg"
+                  alt="NodeBooks"
+                  width={32}
+                  height={32}
+                  priority
+                />
+                <div className="leading-tight">
+                  <p className="text-sm font-semibold tracking-tight">
+                    NodeBooks
+                  </p>
+                  <p className="text-[10px] text-muted-foreground">Workspace</p>
+                </div>
               </div>
-            </div>
+            </>
           )}
         </div>
         <Separator className="mx-2 mb-2" />
@@ -196,19 +218,6 @@ const AppShell = ({
               <div className="flex items-center gap-2 overflow-hidden">
                 {secondaryHeader}
               </div>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-7"
-                onClick={() => setSecondaryCollapsed((prev) => !prev)}
-                aria-label={
-                  secondaryCollapsed
-                    ? "Expand secondary sidebar"
-                    : "Collapse secondary sidebar"
-                }
-              >
-                <PanelRight className="h-4 w-4" />
-              </Button>
             </div>
             <div className="flex-1 overflow-hidden">{secondarySidebar}</div>
           </div>
@@ -238,16 +247,16 @@ const AppShell = ({
               </Button>
             ) : null}
             <Separator orientation="vertical" className="h-6" />
-            <span className="text-sm font-medium text-muted-foreground">
-              {title ?? ""}
-            </span>
-            <div className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
-              <span>Status</span>
-              <span className="flex items-center gap-1 rounded-full border border-border px-2 py-1">
-                <span className="h-2 w-2 rounded-full bg-emerald-500" />
-                Live
+            {headerMain ? (
+              <div className="flex min-w-0 items-center gap-2 overflow-hidden">
+                {headerMain}
+              </div>
+            ) : (
+              <span className="text-sm font-medium text-muted-foreground">
+                {title ?? ""}
               </span>
-            </div>
+            )}
+            <div className="ml-auto flex items-center gap-2">{headerRight}</div>
           </div>
         </header>
         <div className="flex-1 overflow-y-auto bg-muted/20">

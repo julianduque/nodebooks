@@ -2,6 +2,8 @@
 
 import { useMemo } from "react";
 import type { NotebookOutput } from "@nodebooks/notebook-schema";
+import { UiDisplaySchema, NODEBOOKS_UI_MIME } from "@nodebooks/notebook-schema";
+import { UiRenderer } from "@nodebooks/notebook-ui";
 import AnsiToHtml from "ansi-to-html";
 import DOMPurify from "dompurify";
 
@@ -76,13 +78,34 @@ const OutputView = ({ output }: { output: NotebookOutput }) => {
     );
   }
 
-  return (
-    <div className="rounded-lg border border-slate-700 bg-slate-800/90 p-3">
-      <pre className="whitespace-pre-wrap text-xs text-slate-100">
-        {JSON.stringify(output.data, null, 2)}
-      </pre>
-    </div>
-  );
+  // Non-stream, non-error: attempt to render structured UI first
+  if (
+    output.type === "display_data" ||
+    output.type === "execute_result" ||
+    output.type === "update_display_data"
+  ) {
+    const raw = output.data?.[NODEBOOKS_UI_MIME as string];
+    const parsed = UiDisplaySchema.safeParse(raw);
+    if (parsed.success) {
+      return (
+        <div className="rounded-lg border border-slate-700 bg-slate-800/90 p-3">
+          <UiRenderer display={parsed.data} />
+        </div>
+      );
+    }
+
+    // Fallback to raw data
+    return (
+      <div className="rounded-lg border border-slate-700 bg-slate-800/90 p-3">
+        <pre className="whitespace-pre-wrap text-xs text-slate-100">
+          {JSON.stringify(output.data, null, 2)}
+        </pre>
+      </div>
+    );
+  }
+
+  // Should be unreachable, but keep a tiny fallback
+  return null;
 };
 
 export default OutputView;
