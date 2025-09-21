@@ -2,7 +2,10 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, beforeEach, afterEach } from "vitest";
-import { createCodeCell, createEmptyNotebook } from "@nodebooks/notebook-schema";
+import {
+  createCodeCell,
+  createEmptyNotebook,
+} from "@nodebooks/notebook-schema";
 import { SqliteNotebookStore } from "./sqlite.js";
 
 describe("SqliteNotebookStore", () => {

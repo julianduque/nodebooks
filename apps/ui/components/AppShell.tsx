@@ -3,6 +3,10 @@
 import { useState } from "react";
 import type { ReactNode } from "react";
 import { cn } from "../lib/utils";
+import Link from "next/link";
+import Image from "next/image";
+import type { Route } from "next";
+import { usePathname } from "next/navigation";
 import { Button } from "./ui/button";
 import { Separator } from "./ui/separator";
 import { ScrollArea } from "./ui/scroll-area";
@@ -21,31 +25,60 @@ interface NavItem {
   id: NavId;
   label: string;
   icon: ReactNode;
+  href: Route;
 }
 
 const navItems: NavItem[] = [
-  { id: "home", label: "Dashboard", icon: <LayoutDashboard className="h-4 w-4" /> },
-  { id: "notebooks", label: "Notebooks", icon: <NotebookPen className="h-4 w-4" /> },
-  { id: "templates", label: "Templates", icon: <LayoutTemplate className="h-4 w-4" /> },
-  { id: "settings", label: "Settings", icon: <Settings className="h-4 w-4" /> },
+  {
+    id: "home",
+    label: "Dashboard",
+    icon: <LayoutDashboard className="h-4 w-4" />,
+    href: "/",
+  },
+  {
+    id: "notebooks",
+    label: "Notebooks",
+    icon: <NotebookPen className="h-4 w-4" />,
+    href: "/notebooks",
+  },
+  {
+    id: "templates",
+    label: "Templates",
+    icon: <LayoutTemplate className="h-4 w-4" />,
+    href: "/templates",
+  },
+  {
+    id: "settings",
+    label: "Settings",
+    icon: <Settings className="h-4 w-4" />,
+    href: "/settings",
+  },
 ];
 
 interface AppShellProps {
-  active: NavId | string;
-  onNavigate: (id: NavId) => void;
-  onNewNotebook: () => void;
+  active?: NavId | string;
+  onNavigate?: (id: NavId) => void;
+  onNewNotebook?: () => void;
+  title?: string;
   children: ReactNode;
 }
 
-const AppShell = ({ active, onNavigate, onNewNotebook, children }: AppShellProps) => {
+const AppShell = ({
+  active,
+  onNavigate,
+  onNewNotebook,
+  title,
+  children,
+}: AppShellProps) => {
   const [collapsed, setCollapsed] = useState(false);
+  const pathname = usePathname?.() ?? "";
 
   return (
     <div className="flex min-h-screen w-full bg-background text-foreground">
       <aside
         className={cn(
           "flex h-screen shrink-0 border-r border-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-linear flex-col",
-          collapsed ? "w-12" : "w-64",
+          collapsed ? "w-12" : "w-64"
         )}
       >
         <div className="flex h-16 items-center gap-3 px-3">
@@ -61,9 +94,17 @@ const AppShell = ({ active, onNavigate, onNewNotebook, children }: AppShellProps
           </Button>
           {!collapsed && (
             <div className="flex items-center gap-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary text-primary-foreground text-sm font-bold">NB</div>
+              <Image
+                src="/assets/nodebooks-logo.svg"
+                alt="NodeBooks"
+                width={32}
+                height={32}
+                priority
+              />
               <div className="leading-tight">
-                <p className="text-sm font-semibold tracking-tight">NodeBooks</p>
+                <p className="text-sm font-semibold tracking-tight">
+                  NodeBooks
+                </p>
                 <p className="text-[10px] text-muted-foreground">Workspace</p>
               </div>
             </div>
@@ -72,38 +113,57 @@ const AppShell = ({ active, onNavigate, onNewNotebook, children }: AppShellProps
         <Separator className="mx-2 mb-2" />
         <ScrollArea className="flex-1 px-2">
           {!collapsed && (
-            <div className="px-2 pb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">General</div>
+            <div className="px-2 pb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              General
+            </div>
           )}
           <nav className="flex flex-col gap-1">
             {navItems.map((item) => {
-              const isActive = active === item.id;
-              return (
-                <button
-                  key={item.id}
-                  type="button"
+              const isActive = onNavigate
+                ? active === item.id
+                : pathname === item.href;
+              const content = (
+                <span
                   className={cn(
                     "flex h-9 w-full items-center rounded-md px-2 text-sm transition-colors",
                     collapsed ? "justify-center" : "justify-start gap-2",
                     isActive
                       ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                      : "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                      : "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                   )}
-                  onClick={() => onNavigate(item.id)}
-                  aria-current={isActive ? "page" : undefined}
                   aria-label={item.label}
                 >
-                  <span className="shrink-0 text-foreground/80">{item.icon}</span>
+                  <span className="shrink-0 text-foreground/80">
+                    {item.icon}
+                  </span>
                   {!collapsed && <span className="truncate">{item.label}</span>}
-                </button>
+                </span>
+              );
+              return (
+                <div key={item.id}>
+                  {onNavigate ? (
+                    <button
+                      type="button"
+                      onClick={() => onNavigate?.(item.id)}
+                      className="w-full text-left"
+                    >
+                      {content}
+                    </button>
+                  ) : (
+                    <Link href={item.href} className="block">
+                      {content}
+                    </Link>
+                  )}
+                </div>
               );
             })}
           </nav>
         </ScrollArea>
-        <div className={cn("px-2 pb-4", collapsed && "px-1")}> 
+        <div className={cn("px-2 pb-4", collapsed && "px-1")}>
           <Button
             className={cn(
               "w-full gap-2",
-              collapsed ? "justify-center h-9" : "justify-center h-9",
+              collapsed ? "justify-center h-9" : "justify-center h-9"
             )}
             variant="outline"
             type="button"
@@ -127,7 +187,9 @@ const AppShell = ({ active, onNavigate, onNewNotebook, children }: AppShellProps
               <PanelLeft className="h-4 w-4" />
             </Button>
             <Separator orientation="vertical" className="h-6" />
-            <span className="text-sm font-medium text-muted-foreground">Dashboard</span>
+            <span className="text-sm font-medium text-muted-foreground">
+              {title ?? ""}
+            </span>
             <div className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">
               <span>Status</span>
               <span className="flex items-center gap-1 rounded-full border border-border px-2 py-1">
@@ -138,9 +200,7 @@ const AppShell = ({ active, onNavigate, onNewNotebook, children }: AppShellProps
           </div>
         </header>
         <div className="flex-1 overflow-y-auto bg-muted/20">
-          <div className="mx-auto w-full max-w-7xl p-6 sm:p-8">
-            {children}
-          </div>
+          <div className="mx-auto w-full max-w-7xl p-6 sm:p-8">{children}</div>
         </div>
       </main>
     </div>

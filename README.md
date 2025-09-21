@@ -36,17 +36,29 @@ The API stores notebook documents in a SQLite database located at `./data/nodebo
 ### Running tests & quality checks
 
 ```bash
-pnpm lint
-pnpm test
+pnpm lint           # ESLint (root config across all workspaces)
+pnpm test           # Vitest across all workspaces
+pnpm format:check   # Prettier check (no writes)
 ```
 
-Both commands run across all workspaces. Unit tests cover the shared schema helpers and the kernel runtime execution engine. The project uses Vitest 3 with globals enabled.
+These commands run across all workspaces. Unit tests cover the shared schema helpers and the kernel runtime execution engine. The project uses Vitest 3 with globals enabled.
 
 To verify dependency freshness run:
 
 ```bash
 pnpm outdated
 ```
+
+### Formatting
+
+Prettier enforces code style (2-space indent, double quotes). Run:
+
+```bash
+pnpm format         # Write formatting changes
+pnpm format:check   # Verify formatting without writes
+```
+
+Configuration lives in `.prettierrc`; generated/build artifacts and `apps/api/data` are ignored via `.prettierignore`.
 
 ### Docker workflow
 

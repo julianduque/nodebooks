@@ -25,7 +25,8 @@ interface ExecuteResult {
 }
 
 class RuntimeConsole {
-  private emitter: ((name: StreamOutput["name"], text: string) => void) | null = null;
+  private emitter: ((name: StreamOutput["name"], text: string) => void) | null =
+    null;
 
   readonly proxy: Console = Object.assign(Object.create(console), {
     log: (...args: unknown[]) => {
@@ -45,7 +46,9 @@ class RuntimeConsole {
     },
   }) as Console;
 
-  setEmitter(emitter: ((name: StreamOutput["name"], text: string) => void) | null) {
+  setEmitter(
+    emitter: ((name: StreamOutput["name"], text: string) => void) | null
+  ) {
     this.emitter = emitter;
   }
 
@@ -136,7 +139,12 @@ export class NotebookRuntime {
     (this.context as Record<string, unknown>).globalThis = this.context;
   }
 
-  async execute({ cell, code, onStream, timeoutMs }: ExecuteOptions): Promise<ExecuteResult> {
+  async execute({
+    cell,
+    code,
+    onStream,
+    timeoutMs,
+  }: ExecuteOptions): Promise<ExecuteResult> {
     const outputs: NotebookOutput[] = [];
     const started = Date.now();
     const timeout = timeoutMs ?? cell.metadata.timeoutMs ?? DEFAULT_TIMEOUT_MS;
@@ -207,7 +215,10 @@ export class NotebookRuntime {
   }
 }
 
-const withTimeout = async <T>(promise: Promise<T>, timeoutMs: number): Promise<T> => {
+const withTimeout = async <T>(
+  promise: Promise<T>,
+  timeoutMs: number
+): Promise<T> => {
   let timer: NodeJS.Timeout | undefined;
 
   const timeoutPromise = new Promise<never>((_, reject) => {

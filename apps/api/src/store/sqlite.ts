@@ -18,14 +18,16 @@ export class SqliteNotebookStore implements NotebookStore {
   private sqlModule!: SqlJsStatic;
 
   constructor(options: SqliteNotebookStoreOptions = {}) {
-    this.file = options.databaseFile ?? path.resolve(process.cwd(), "data", "nodebooks.sqlite");
+    this.file =
+      options.databaseFile ??
+      path.resolve(process.cwd(), "data", "nodebooks.sqlite");
     this.ready = this.initialize();
   }
 
   async all(): Promise<Notebook[]> {
     await this.ready;
     const statement = this.db.prepare(
-      "SELECT data FROM notebooks ORDER BY updated_at DESC, id ASC",
+      "SELECT data FROM notebooks ORDER BY updated_at DESC, id ASC"
     );
 
     const notebooks: Notebook[] = [];
@@ -43,7 +45,7 @@ export class SqliteNotebookStore implements NotebookStore {
   async get(id: string): Promise<Notebook | undefined> {
     await this.ready;
     const statement = this.db.prepare(
-      "SELECT data FROM notebooks WHERE id = ?1 LIMIT 1",
+      "SELECT data FROM notebooks WHERE id = ?1 LIMIT 1"
     );
     statement.bind([id]);
 
@@ -72,7 +74,7 @@ export class SqliteNotebookStore implements NotebookStore {
        ON CONFLICT(id) DO UPDATE SET
          name = excluded.name,
          data = excluded.data,
-         updated_at = excluded.updated_at`,
+         updated_at = excluded.updated_at`
     );
 
     statement.run([
@@ -127,12 +129,13 @@ export class SqliteNotebookStore implements NotebookStore {
         data TEXT NOT NULL,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
-      )`,
+      )`
     );
 
     this.db.run(
       `CREATE INDEX IF NOT EXISTS idx_notebooks_updated_at
-        ON notebooks (updated_at DESC)`);
+        ON notebooks (updated_at DESC)`
+    );
 
     await this.persist();
   }

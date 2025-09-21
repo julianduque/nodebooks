@@ -4,7 +4,7 @@ import type { SessionManager } from "../types.js";
 
 export const registerSessionRoutes = (
   app: FastifyInstance,
-  sessions: SessionManager,
+  sessions: SessionManager
 ) => {
   app.get("/notebooks/:id/sessions", async (request, reply) => {
     const params = z.object({ id: z.string() }).parse(request.params);

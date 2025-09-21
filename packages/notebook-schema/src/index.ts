@@ -1,7 +1,10 @@
 import { z } from "zod";
 
 const createId = () => {
-  if (typeof globalThis.crypto !== "undefined" && "randomUUID" in globalThis.crypto) {
+  if (
+    typeof globalThis.crypto !== "undefined" &&
+    "randomUUID" in globalThis.crypto
+  ) {
     return globalThis.crypto.randomUUID();
   }
 
@@ -126,7 +129,7 @@ export const createCodeCell = (partial?: Partial<CodeCell>): CodeCell => {
 };
 
 export const createMarkdownCell = (
-  partial?: Partial<MarkdownCell>,
+  partial?: Partial<MarkdownCell>
 ): MarkdownCell => {
   return MarkdownCellSchema.parse({
     id: partial?.id ?? createId(),
@@ -195,11 +198,15 @@ export const KernelClientMessageSchema = z.discriminatedUnion("type", [
 
 export type KernelHelloMessage = z.infer<typeof KernelHelloMessageSchema>;
 export type KernelStatusMessage = z.infer<typeof KernelStatusMessageSchema>;
-export type KernelExecuteReplyMessage = z.infer<typeof KernelExecuteReplySchema>;
+export type KernelExecuteReplyMessage = z.infer<
+  typeof KernelExecuteReplySchema
+>;
 export type KernelStreamMessage = z.infer<typeof KernelStreamMessageSchema>;
 export type KernelDisplayMessage = z.infer<typeof KernelDisplayMessageSchema>;
 export type KernelErrorMessage = z.infer<typeof KernelErrorMessageSchema>;
 export type KernelServerMessage = z.infer<typeof KernelServerMessageSchema>;
 export type KernelExecuteRequest = z.infer<typeof KernelExecuteRequestSchema>;
-export type KernelInterruptRequest = z.infer<typeof KernelInterruptRequestSchema>;
+export type KernelInterruptRequest = z.infer<
+  typeof KernelInterruptRequestSchema
+>;
 export type KernelClientMessage = z.infer<typeof KernelClientMessageSchema>;

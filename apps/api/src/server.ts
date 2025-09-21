@@ -16,7 +16,9 @@ export interface CreateServerOptions {
   logger?: boolean;
 }
 
-export const createServer = async ({ logger = true }: CreateServerOptions = {}) => {
+export const createServer = async ({
+  logger = true,
+}: CreateServerOptions = {}) => {
   const app = Fastify({ logger });
 
   await app.register(cors, {
@@ -41,10 +43,11 @@ export const createServer = async ({ logger = true }: CreateServerOptions = {}) 
           }),
           createCodeCell({
             language: "ts",
-            source: "const answer: number = 21 * 2;\nconsole.log('The answer is', answer);\nanswer;",
+            source:
+              "const answer: number = 21 * 2;\nconsole.log('The answer is', answer);\nanswer;",
           }),
         ],
-      }),
+      })
     );
   }
   const sessions = new InMemorySessionManager(store);
