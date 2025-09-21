@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import { promises as fsPromises } from "node:fs";
-import { createRequire, type NodeRequire } from "node:module";
+import { createRequire } from "node:module";
 import { dirname, join, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
 import { execFile } from "node:child_process";
@@ -42,6 +42,130 @@ interface ExecuteResult {
   outputs: NotebookOutput[];
   execution: OutputExecution;
 }
+
+// Best-effort rewrite to make top-level declarations idempotent and persistent.
+// Converts top-level `const/let/var x = ...` to `globalThis.x = ...` (dropping TS types),
+// and `function f(...)` to `globalThis.f = function f(...)`,
+// `class C ...` to `globalThis.C = class C ...`.
+// This allows re-running a cell without "already declared" errors and makes
+// definitions visible to following cells via the shared context.
+const rewriteTopLevelDeclarations = (source: string, lang: "js" | "ts") => {
+  const lines = source.split(/\r?\n/);
+  let depth = 0;
+  let inBlockComment = false;
+  let inString: false | '"' | "'" | "`" = false;
+  let result: string[] = [];
+
+  const replaceVar = (line: string) => {
+    // handle export prefix
+    const exportRe = /^\s*export\s+/;
+    const exportPrefix = exportRe.test(line) ? line.match(exportRe)![0] : "";
+    let rest = exportPrefix ? line.slice(exportPrefix.length) : line;
+    // const/let/var with optional type annotation
+    const varRe =
+      /^(\s*)(const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::[^=;]+)?\s*=\s*/;
+    const m = rest.match(varRe);
+    if (!m) return null;
+    const indent = m[1] ?? "";
+    const name = m[3];
+    const after = rest.slice(m[0].length);
+    return `${indent}globalThis.${name} = ${after}`;
+  };
+
+  const replaceFunction = (line: string) => {
+    const exportRe = /^\s*export\s+/;
+    const exportPrefix = exportRe.test(line) ? line.match(exportRe)![0] : "";
+    let rest = exportPrefix ? line.slice(exportPrefix.length) : line;
+    const fnRe = /^(\s*)function\s+([A-Za-z_$][\w$]*)\s*\(/;
+    const m = rest.match(fnRe);
+    if (!m) return null;
+    const indent = m[1] ?? "";
+    const name = m[2];
+    return line.replace(
+      new RegExp(`^${indent}(?:export\\s+)?function\\s+${name}\\s*\\(`),
+      `${indent}globalThis.${name} = function ${name}(`
+    );
+  };
+
+  const replaceClass = (line: string) => {
+    const exportRe = /^\s*export\s+/;
+    const exportPrefix = exportRe.test(line) ? line.match(exportRe)![0] : "";
+    let rest = exportPrefix ? line.slice(exportPrefix.length) : line;
+    const clsRe = /^(\s*)class\s+([A-Za-z_$][\w$]*)\b/;
+    const m = rest.match(clsRe);
+    if (!m) return null;
+    const indent = m[1] ?? "";
+    const name = m[2];
+    return line.replace(
+      new RegExp(`^${indent}(?:export\\s+)?class\\s+${name}\b`),
+      `${indent}globalThis.${name} = class ${name}`
+    );
+  };
+
+  for (let i = 0; i < lines.length; i++) {
+    let line = lines[i];
+    let j = 0;
+    while (j < line.length) {
+      const ch = line[j];
+      const next = line[j + 1];
+      if (!inString && !inBlockComment) {
+        if (ch === "/" && next === "*") {
+          inBlockComment = true;
+          j += 2;
+          continue;
+        }
+        if (ch === "/" && next === "/") {
+          // rest is comment
+          break;
+        }
+        if (ch === '"' || ch === "'" || ch === "`") {
+          inString = ch as '"' | "'" | "`";
+          j++;
+          continue;
+        }
+        if (ch === "{") depth++;
+        else if (ch === "}") depth = Math.max(0, depth - 1);
+      } else if (inBlockComment) {
+        if (ch === "*" && next === "/") {
+          inBlockComment = false;
+          j += 2;
+          continue;
+        }
+      } else if (inString) {
+        if (ch === "\\") {
+          j += 2; // escape
+          continue;
+        }
+        if (ch === inString) {
+          inString = false;
+        }
+      }
+      j++;
+    }
+
+    if (depth === 0 && !inBlockComment && !inString) {
+      const replacedVar = replaceVar(line);
+      if (replacedVar !== null) {
+        result.push(replacedVar);
+        continue;
+      }
+      const replacedFn = replaceFunction(line);
+      if (replacedFn !== null) {
+        result.push(replacedFn);
+        continue;
+      }
+      const replacedCls = replaceClass(line);
+      if (replacedCls !== null) {
+        result.push(replacedCls);
+        continue;
+      }
+    }
+
+    result.push(line);
+  }
+
+  return result.join("\n");
+};
 
 class RuntimeConsole {
   private emitter: ((name: StreamOutput["name"], text: string) => void) | null =
@@ -138,7 +262,7 @@ export class NotebookRuntime {
   ) => Promise<void>;
   private readonly processProxy: NodeJS.Process;
   private sandboxDir: string | null = null;
-  private sandboxRequire: NodeRequire | null = null;
+  private sandboxRequire: NodeJS.Require | null = null;
   private sandboxFs: typeof fs | null = null;
   private prepareQueue: Promise<void> = Promise.resolve();
   private currentNotebookId: string | null = null;
@@ -150,8 +274,8 @@ export class NotebookRuntime {
       options.installDependencies ?? defaultInstallDependencies;
     fs.mkdirSync(this.workspaceRoot, { recursive: true });
 
-    this.processProxy = createProcessProxy(() =>
-      this.sandboxDir ?? this.workspaceRoot
+    this.processProxy = createProcessProxy(
+      () => this.sandboxDir ?? this.workspaceRoot
     );
 
     const placeholderRequire = createPlaceholderRequire();
@@ -200,7 +324,8 @@ export class NotebookRuntime {
     try {
       await this.ensureEnvironment(notebookId, env);
 
-      const compiled = await transform(code, {
+      const rewritten = rewriteTopLevelDeclarations(code, cell.language);
+      const compiled = await transform(rewritten, {
         loader: cell.language === "ts" ? "ts" : "js",
         format: "cjs",
         target: "es2022",
@@ -311,6 +436,8 @@ export class NotebookRuntime {
     await ensureEntryModule(entryPath);
 
     if (Object.keys(packages).length === 0) {
+      // Emit a note when clearing deps so callers can see activity in cell output.
+      this.console.proxy.log("[env] Clearing all dependencies (no packages)");
       await fsPromises.rm(nodeModulesPath, { recursive: true, force: true });
       await fsPromises.rm(lockfilePath, { force: true });
       await fsPromises.writeFile(
@@ -326,15 +453,28 @@ export class NotebookRuntime {
     const hasNodeModules = await pathExists(nodeModulesPath);
 
     if (packagesChanged || !hasNodeModules) {
+      const list = Object.entries(packages)
+        .map(([n, v]) => `${n}@${v}`)
+        .join(", ");
+      this.console.proxy.log(
+        list.length > 0
+          ? `[env] Installing dependencies: ${list}`
+          : "[env] Installing dependencies"
+      );
       try {
         await this.installDeps(sandboxDir, packages);
+        this.console.proxy.log("[env] Install complete");
       } catch (error) {
         const message =
           error && typeof error === "object" && "stderr" in error
-            ? String((error as { stderr?: unknown }).stderr || (error as Error).message)
+            ? String(
+                (error as { stderr?: unknown }).stderr ||
+                  (error as Error).message
+              )
             : error instanceof Error
-            ? error.message
-            : "Unknown installation error";
+              ? error.message
+              : "Unknown installation error";
+        this.console.proxy.error(`[env] Install failed: ${message}`);
         throw new Error(
           `Failed to install notebook dependencies: ${message}`.trim()
         );
@@ -434,15 +574,15 @@ const pathExists = async (filePath: string) => {
   }
 };
 
-const createPlaceholderRequire = (): NodeRequire => {
+const createPlaceholderRequire = (): NodeJS.Require => {
   const base = createRequire(import.meta.url);
   const placeholder = ((specifier: string) => {
     throw new Error("Notebook runtime is not initialized yet");
-  }) as NodeRequire;
+  }) as unknown as NodeJS.Require;
 
   const resolveFn = ((request: string, options?: unknown) => {
     return base.resolve(request, options as never);
-  }) as NodeRequire["resolve"];
+  }) as NodeJS.Require["resolve"];
   if (base.resolve.paths) {
     resolveFn.paths = base.resolve.paths.bind(base.resolve);
   }
@@ -457,7 +597,7 @@ const createPlaceholderRequire = (): NodeRequire => {
 const createSandboxRequire = (
   root: string,
   fsModule: typeof fs
-): NodeRequire => {
+): NodeJS.Require => {
   const entry = join(root, "__runtime__.cjs");
   const base = createRequire(entry);
 
@@ -474,11 +614,11 @@ const createSandboxRequire = (
       );
     }
     return base(specifier);
-  }) as NodeRequire;
+  }) as unknown as NodeJS.Require;
 
   const resolveFn = ((request: string, options?: unknown) => {
     return base.resolve(request, options as never);
-  }) as NodeRequire["resolve"];
+  }) as NodeJS.Require["resolve"];
   if (base.resolve.paths) {
     resolveFn.paths = base.resolve.paths.bind(base.resolve);
   }
@@ -581,11 +721,7 @@ const PATH_ARG_MAP: Record<string, number[]> = {
   writeFileSync: [0],
 };
 
-const sanitizeFsArgs = (
-  method: string,
-  args: unknown[],
-  root: string
-) => {
+const sanitizeFsArgs = (method: string, args: unknown[], root: string) => {
   const indices = PATH_ARG_MAP[method];
   if (!indices || indices.length === 0) {
     return args;
@@ -616,10 +752,7 @@ const sanitizePathArgument = (root: string, value: unknown) => {
 const ensureWithinRoot = (root: string, input: string) => {
   const normalizedRoot = resolve(root);
   const target = resolve(normalizedRoot, input);
-  if (
-    target === normalizedRoot ||
-    target.startsWith(normalizedRoot + sep)
-  ) {
+  if (target === normalizedRoot || target.startsWith(normalizedRoot + sep)) {
     return target;
   }
   throw new Error(
@@ -665,7 +798,10 @@ const defaultInstallDependencies = async (
   packages: Record<string, string>
 ) => {
   if (Object.keys(packages).length === 0) {
-    await fsPromises.rm(join(cwd, "node_modules"), { recursive: true, force: true });
+    await fsPromises.rm(join(cwd, "node_modules"), {
+      recursive: true,
+      force: true,
+    });
     await fsPromises.rm(join(cwd, "package-lock.json"), { force: true });
     return;
   }

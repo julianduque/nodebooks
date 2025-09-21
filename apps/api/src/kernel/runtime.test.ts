@@ -22,7 +22,10 @@ const withRuntime = async (
   run: (runtime: NotebookRuntime, root: string) => Promise<void>
 ) => {
   const root = await createTempRoot();
-  const runtime = new NotebookRuntime({ ...(options ?? {}), workspaceRoot: root });
+  const runtime = new NotebookRuntime({
+    ...(options ?? {}),
+    workspaceRoot: root,
+  });
   try {
     await run(runtime, root);
   } finally {
@@ -47,9 +50,7 @@ describe("NotebookRuntime", () => {
       });
 
       expect(result.execution.status).toBe("ok");
-      expect(streams.some((line) => line.includes("hello runtime"))).toBe(
-        true
-      );
+      expect(streams.some((line) => line.includes("hello runtime"))).toBe(true);
       expect(
         result.outputs.some((output) => output.type === "display_data")
       ).toBe(true);

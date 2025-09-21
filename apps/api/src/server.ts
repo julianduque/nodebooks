@@ -9,6 +9,7 @@ import {
 import { InMemorySessionManager } from "./store/memory.js";
 import { SqliteNotebookStore } from "./store/sqlite.js";
 import { registerNotebookRoutes } from "./routes/notebooks.js";
+import { registerDependencyRoutes } from "./routes/dependencies.js";
 import { registerSessionRoutes } from "./routes/sessions.js";
 import { registerKernelRoutes } from "./kernel/router.js";
 
@@ -55,6 +56,7 @@ export const createServer = async ({
   app.get("/health", async () => ({ status: "ok" }));
 
   registerNotebookRoutes(app, store);
+  registerDependencyRoutes(app, store);
   registerSessionRoutes(app, sessions);
   registerKernelRoutes(app, sessions, store);
 

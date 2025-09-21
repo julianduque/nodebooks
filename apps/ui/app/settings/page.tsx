@@ -15,7 +15,7 @@ export default function SettingsPage() {
           <div>
             <h3 className="text-sm font-semibold text-slate-900">Theme</h3>
             <p className="text-sm text-slate-500">
-              Dark mode is enabled by default. Light mode toggle coming soon.
+              Light mode is enabled by default. Dark mode toggle coming soon.
             </p>
           </div>
         </CardContent>

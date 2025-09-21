@@ -22,6 +22,9 @@ import {
   Share2,
   Trash2,
   Eraser,
+  ChevronDown,
+  ChevronRight,
+  XCircle,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import type { OnMount } from "@monaco-editor/react";
@@ -87,15 +90,38 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
   const [dirty, setDirty] = useState(false);
   const [socketReady, setSocketReady] = useState(false);
   const [activeCellId, setActiveCellId] = useState<string | null>(null);
-  const [sidebarView, setSidebarView] = useState<"setup" | "outline">(
-    "setup"
-  );
+  const [sidebarView, setSidebarView] = useState<"setup" | "outline">("setup");
   // Navigation handled by App Router; NotebookView focuses on editor only
   const [shareStatus, setShareStatus] = useState<"idle" | "copied" | "error">(
     "idle"
   );
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameDraft, setRenameDraft] = useState("");
+  // inline dependency install form state
+  const [depDraft, setDepDraft] = useState("");
+  const [depBusy, setDepBusy] = useState(false);
+  const [depError, setDepError] = useState<string | null>(null);
+  const [depOutputs, setDepOutputs] = useState<NotebookOutput[]>([]);
+  const [depReqId, setDepReqId] = useState(0);
+  const depAbortRef = useRef<AbortController | null>(null);
+  const depParsed = useMemo(
+    () => parseMultipleDependencies(depDraft),
+    [depDraft]
+  );
+  const handleClearDepOutputs = useCallback(() => {
+    setDepOutputs([]);
+    setDepError(null);
+    setDepBusy(false);
+    setDepReqId((v) => v + 1); // invalidate in-flight responses
+  }, []);
+
+  const handleAbortInstall = useCallback(() => {
+    try {
+      depAbortRef.current?.abort();
+    } catch {}
+    setDepBusy(false);
+  }, []);
+  const [depOpen, setDepOpen] = useState(true);
 
   const socketRef = useRef<WebSocket | null>(null);
   const saveTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -669,6 +695,75 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     [notebook, updateNotebookCell, runningCellId]
   );
 
+  const handleInstallDependencyInline = useCallback(
+    async (raw: string) => {
+      if (!notebook) return;
+
+      const items = parseMultipleDependencies(raw);
+      if (items.length === 0) {
+        setDepError(
+          "Enter dependencies like react or react@18.2.0, comma separated"
+        );
+        return;
+      }
+
+      setDepBusy(true);
+      setDepError(null);
+      setDepOutputs([]);
+      const req = depReqId + 1;
+      setDepReqId(req);
+
+      try {
+        // Install sequentially
+        for (const item of items) {
+          const controller = new AbortController();
+          depAbortRef.current = controller;
+          const res = await fetch(
+            `${API_BASE_URL}/notebooks/${notebook.id}/dependencies`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ name: item.name, version: item.version }),
+              signal: controller.signal,
+            }
+          );
+          const payload = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            const message = payload?.error || `Failed to add ${item.name}`;
+            throw new Error(message);
+          }
+          const nextEnv = payload?.data?.env as Notebook["env"] | undefined;
+          const outputs = (payload?.data?.outputs ?? []) as NotebookOutput[];
+          if (req === depReqId && nextEnv) {
+            updateNotebook((current) => ({ ...current, env: nextEnv }), {
+              persist: false,
+            });
+          }
+          if (req === depReqId) {
+            setDepOutputs((prev) => [...prev, ...outputs]);
+          }
+        }
+        if (req === depReqId) {
+          setDepDraft("");
+          setDepOpen(false); // collapse after success
+        }
+      } catch (err) {
+        if ((err as any)?.name === "AbortError") {
+          setDepError(null);
+          setDepOutputs([]);
+        } else {
+          setDepError(
+            err instanceof Error ? err.message : "Failed to add dependency"
+          );
+        }
+      } finally {
+        setDepBusy((prev) => (req === depReqId ? false : prev));
+        depAbortRef.current = null;
+      }
+    },
+    [notebook, updateNotebook, depReqId]
+  );
+
   const handleRenameStart = useCallback(() => {
     if (!notebook) {
       return;
@@ -772,66 +867,84 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
   }, [notebook]);
 
   const handleAddDependency = useCallback(
-    (name: string, version: string) => {
-      updateNotebook((current) => {
-        const trimmedName = name.trim();
-        if (!trimmedName) {
-          return current;
+    async (name: string, version: string) => {
+      if (!notebook) return;
+      const trimmedName = name.trim();
+      const trimmedVersion = (version || "latest").trim() || "latest";
+      if (!trimmedName) return;
+
+      try {
+        const res = await fetch(
+          `${API_BASE_URL}/notebooks/${notebook.id}/dependencies`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              name: trimmedName,
+              version: trimmedVersion,
+            }),
+          }
+        );
+        if (!res.ok) {
+          const payload = await res.json().catch(() => ({}));
+          const message = payload?.error || `Failed to add ${trimmedName}`;
+          throw new Error(message);
         }
-        const trimmedVersion = version.trim() || "latest";
-        const currentVersion = current.env.packages[trimmedName];
-        if (currentVersion === trimmedVersion) {
-          return current;
+        const payload = await res.json();
+        const nextEnv = payload?.data?.env;
+        if (nextEnv) {
+          updateNotebook((current) => ({ ...current, env: nextEnv }), {
+            persist: false,
+          });
+          setDirty(false);
         }
-        const packages = { ...current.env.packages, [trimmedName]: trimmedVersion };
-        return { ...current, env: { ...current.env, packages } };
-      });
+      } catch (err) {
+        setError(
+          err instanceof Error
+            ? err.message
+            : `Failed to add dependency ${trimmedName}`
+        );
+      }
     },
-    [updateNotebook]
+    [notebook, updateNotebook]
   );
 
-  const handleUpdateDependency = useCallback(
-    (previousName: string, nextName: string, version: string) => {
-      updateNotebook((current) => {
-        const trimmedNext = nextName.trim();
-        const trimmedVersion = version.trim() || "latest";
-        const packages = { ...current.env.packages };
-
-        if (!(previousName in packages) && !trimmedNext) {
-          return current;
-        }
-
-        const currentVersion = packages[previousName];
-        if (
-          previousName === trimmedNext &&
-          currentVersion === trimmedVersion
-        ) {
-          return current;
-        }
-
-        delete packages[previousName];
-        if (trimmedNext) {
-          packages[trimmedNext] = trimmedVersion;
-        }
-
-        return { ...current, env: { ...current.env, packages } };
-      });
-    },
-    [updateNotebook]
-  );
+  // Inline editing of dependencies removed — add/remove only.
 
   const handleRemoveDependency = useCallback(
-    (name: string) => {
-      updateNotebook((current) => {
-        if (!(name in current.env.packages)) {
-          return current;
+    async (name: string) => {
+      if (!notebook) return;
+      const trimmedName = name.trim();
+      if (!trimmedName) return;
+      try {
+        const res = await fetch(
+          `${API_BASE_URL}/notebooks/${notebook.id}/dependencies/${encodeURIComponent(
+            trimmedName
+          )}`,
+          { method: "DELETE" }
+        );
+        if (!res.ok) {
+          const payload = await res.json().catch(() => ({}));
+          const message = payload?.error || `Failed to remove ${trimmedName}`;
+          throw new Error(message);
         }
-        const packages = { ...current.env.packages };
-        delete packages[name];
-        return { ...current, env: { ...current.env, packages } };
-      });
+        const payload = await res.json();
+        const nextEnv = payload?.data?.env;
+        if (nextEnv) {
+          updateNotebook((current) => ({ ...current, env: nextEnv }), {
+            persist: false,
+          });
+          setDirty(false);
+        }
+      } catch (err) {
+        setError(
+          err instanceof Error
+            ? err.message
+            : `Failed to remove dependency ${trimmedName}`
+        );
+      }
     },
-    [updateNotebook]
+    [notebook, updateNotebook]
   );
 
   const handleOutlineJump = useCallback((cellId: string) => {
@@ -1030,6 +1143,129 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
                 </CardContent>
               </Card>
             )}
+            {/* Inline dependency form before the first cell */}
+            <div className="sticky top-0 z-[60] mb-6 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+                  Dependencies
+                </div>
+                <div className="flex items-center gap-1">
+                  {depOpen && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="text-slate-600 hover:text-slate-900"
+                      onClick={handleClearDepOutputs}
+                      disabled={
+                        !depBusy && depOutputs.length === 0 && !depError
+                      }
+                      aria-label="Clear outputs"
+                    >
+                      <Eraser className="h-4 w-4" />
+                    </Button>
+                  )}
+                  {depBusy && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="text-rose-600 hover:text-rose-700"
+                      onClick={handleAbortInstall}
+                      aria-label="Abort install"
+                    >
+                      <XCircle className="h-4 w-4" />
+                    </Button>
+                  )}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-xs"
+                    onClick={() => setDepOpen((v) => !v)}
+                    aria-expanded={depOpen}
+                    aria-controls="dep-form"
+                  >
+                    {depOpen ? (
+                      <span className="inline-flex items-center gap-1">
+                        <ChevronDown className="h-4 w-4" /> Hide
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1">
+                        <ChevronRight className="h-4 w-4" /> Show
+                      </span>
+                    )}
+                  </Button>
+                </div>
+              </div>
+              {depOpen && (
+                <div id="dep-form" className="mt-3">
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      if (!depBusy) {
+                        void handleInstallDependencyInline(depDraft);
+                      }
+                    }}
+                    className="flex items-center gap-2"
+                  >
+                    <input
+                      type="text"
+                      value={depDraft}
+                      onChange={(e) => setDepDraft(e.target.value)}
+                      placeholder="package or package@version"
+                      className="flex-1 rounded-md border border-slate-300 px-2 py-1 text-sm text-slate-700 focus:border-brand-500 focus:outline-none"
+                      autoFocus
+                    />
+                    <Button type="submit" size="sm" disabled={depBusy}>
+                      {depBusy ? (
+                        <span className="inline-flex items-center gap-2">
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />{" "}
+                          Installing
+                        </span>
+                      ) : (
+                        "Add"
+                      )}
+                    </Button>
+                  </form>
+                  {depParsed.length > 1 && (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {depParsed.map((item, idx) => (
+                        <Badge
+                          key={`${item.name}@${item.version}:${idx}`}
+                          variant="outline"
+                          className="font-mono text-[11px]"
+                        >
+                          {item.name}@{item.version}
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+                  {(depBusy || depOutputs.length > 0) && (
+                    <div className="mt-3 space-y-2 rounded-lg border border-slate-200 bg-slate-950 p-3 text-sm text-emerald-100">
+                      {depBusy && depOutputs.length === 0 ? (
+                        <div className="flex items-center gap-2 text-emerald-200/80">
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />{" "}
+                          Preparing environment…
+                        </div>
+                      ) : null}
+                      {depOutputs.map((output, index) => (
+                        <OutputView key={index} output={output} />
+                      ))}
+                    </div>
+                  )}
+                  {depError ? (
+                    <p className="mt-2 text-[11px] text-rose-500">{depError}</p>
+                  ) : (
+                    <p className="mt-2 text-[11px] text-slate-400">
+                      Use <span className="font-medium">name@version</span>.
+                      Version defaults to latest.
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+
             <div className="space-y-6">
               {notebook.cells.map((cell, index) => (
                 <CellCard
@@ -1065,20 +1301,6 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
                 variant="ghost"
                 className={clsx(
                   "rounded-full px-3 text-xs font-semibold",
-                  sidebarView === "setup"
-                    ? "bg-slate-900 text-white hover:bg-slate-800"
-                    : "text-slate-500 hover:text-slate-900"
-                )}
-                onClick={() => setSidebarView("setup")}
-              >
-                Setup
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                className={clsx(
-                  "rounded-full px-3 text-xs font-semibold",
                   sidebarView === "outline"
                     ? "bg-slate-900 text-white hover:bg-slate-800"
                     : "text-slate-500 hover:text-slate-900"
@@ -1087,13 +1309,25 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
               >
                 Outline
               </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className={clsx(
+                  "rounded-full px-3 text-xs font-semibold",
+                  sidebarView === "setup"
+                    ? "bg-slate-900 text-white hover:bg-slate-800"
+                    : "text-slate-500 hover:text-slate-900"
+                )}
+                onClick={() => setSidebarView("setup")}
+              >
+                Setup
+              </Button>
             </div>
             <div className="mt-6 h-full overflow-hidden">
               {sidebarView === "setup" ? (
                 <SetupPanel
                   env={notebook.env}
-                  onAddDependency={handleAddDependency}
-                  onUpdateDependency={handleUpdateDependency}
                   onRemoveDependency={handleRemoveDependency}
                 />
               ) : (
@@ -1137,8 +1371,17 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     activeCellId,
     sidebarView,
     handleAddDependency,
-    handleUpdateDependency,
     handleRemoveDependency,
+    // Inline dependency form state
+    depOpen,
+    depDraft,
+    depBusy,
+    depError,
+    depOutputs,
+    handleClearDepOutputs,
+    handleAbortInstall,
+    depParsed,
+    depReqId,
   ]);
 
   return (
@@ -1462,9 +1705,22 @@ const CodeCellView = ({
     });
   }, []);
 
+  const hideEditor = Boolean(
+    (cell.metadata as { display?: { hideEditor?: boolean } })?.display
+      ?.hideEditor
+  );
+  const title =
+    (cell.metadata as { display?: { title?: string } })?.display?.title ??
+    undefined;
+
   return (
     <div className="relative rounded-2xl bg-slate-950 text-slate-100 shadow-lg ring-1 ring-slate-900/60">
-      <div className="absolute right-3 top-3 z-10">
+      <div className="absolute right-3 top-3 z-10 flex items-center gap-2">
+        {title ? (
+          <Badge variant="outline" className="px-2 py-0.5 text-[10px]">
+            {title}
+          </Badge>
+        ) : null}
         <Badge
           variant="secondary"
           className="px-2 py-0.5 text-[10px] tracking-wide"
@@ -1472,37 +1728,51 @@ const CodeCellView = ({
           {cell.language.toUpperCase()}
         </Badge>
       </div>
-      <div className="overflow-hidden rounded-2xl">
-        <MonacoEditor
-          key={editorKey}
-          path={`${cell.id}.${cell.language === "ts" ? "ts" : "js"}`}
-          height="260px"
-          defaultLanguage={cell.language === "ts" ? "typescript" : "javascript"}
-          language={cell.language === "ts" ? "typescript" : "javascript"}
-          theme="vs-dark"
-          value={cell.source}
-          onChange={(value) =>
-            onChange(() => ({ ...cell, source: value ?? "" }))
-          }
-          onMount={handleEditorMount}
-          options={{
-            minimap: { enabled: false },
-            fontSize: 14,
-            lineNumbers: "on",
-            scrollBeyondLastLine: false,
-            automaticLayout: true,
-            readOnly: isRunning,
-            padding: { top: 18, bottom: 18 },
-          }}
-        />
-      </div>
-      {cell.outputs.length > 0 && (
+
+      {!hideEditor ? (
+        <div className="overflow-hidden rounded-2xl">
+          <MonacoEditor
+            key={editorKey}
+            path={`${cell.id}.${cell.language === "ts" ? "ts" : "js"}`}
+            height="260px"
+            defaultLanguage={
+              cell.language === "ts" ? "typescript" : "javascript"
+            }
+            language={cell.language === "ts" ? "typescript" : "javascript"}
+            theme="vs-dark"
+            value={cell.source}
+            onChange={(value) =>
+              onChange(() => ({ ...cell, source: value ?? "" }))
+            }
+            onMount={handleEditorMount}
+            options={{
+              minimap: { enabled: false },
+              fontSize: 14,
+              lineNumbers: "on",
+              scrollBeyondLastLine: false,
+              automaticLayout: true,
+              readOnly: isRunning,
+              padding: { top: 18, bottom: 18 },
+            }}
+          />
+        </div>
+      ) : null}
+
+      {(hideEditor || cell.outputs.length > 0) && (
         <div className="space-y-2 border-t border-slate-800 bg-slate-900/60 p-4 text-sm text-emerald-100">
-          {cell.outputs.map((output, index) => (
-            <OutputView key={index} output={output} />
-          ))}
+          {cell.outputs.length > 0 ? (
+            cell.outputs.map((output, index) => (
+              <OutputView key={index} output={output} />
+            ))
+          ) : (
+            <div className="flex items-center gap-2 text-emerald-200/80">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" /> Preparing
+              environment…
+            </div>
+          )}
         </div>
       )}
+
       <div className="flex items-center justify-end border-t border-slate-800 px-4 py-2 text-xs uppercase tracking-[0.2em] text-slate-400">
         {isRunning ? (
           <span className="flex items-center gap-2 text-amber-400">
@@ -1547,21 +1817,10 @@ const OutputView = ({ output }: { output: NotebookOutput }) => {
 
 interface SetupPanelProps {
   env: Notebook["env"];
-  onAddDependency: (name: string, version: string) => void;
-  onUpdateDependency: (
-    previousName: string,
-    nextName: string,
-    version: string
-  ) => void;
-  onRemoveDependency: (name: string) => void;
+  onRemoveDependency: (name: string) => Promise<void> | void;
 }
 
-const SetupPanel = ({
-  env,
-  onAddDependency,
-  onUpdateDependency,
-  onRemoveDependency,
-}: SetupPanelProps) => {
+const SetupPanel = ({ env, onRemoveDependency }: SetupPanelProps) => {
   const dependencies = useMemo(
     () =>
       Object.entries(env.packages ?? {})
@@ -1569,29 +1828,6 @@ const SetupPanel = ({
         .sort((a, b) => a[0].localeCompare(b[0])),
     [env.packages]
   );
-  const [draft, setDraft] = useState("");
-  const [error, setError] = useState<string | null>(null);
-
-  const handleSubmit = useCallback(
-    (event: React.FormEvent<HTMLFormElement>) => {
-      event.preventDefault();
-      const parsed = parseDependencySpecifier(draft);
-      if (!parsed) {
-        setError("Enter a dependency like react or react@18.2.0");
-        return;
-      }
-      onAddDependency(parsed.name, parsed.version);
-      setDraft("");
-      setError(null);
-    },
-    [draft, onAddDependency]
-  );
-
-  useEffect(() => {
-    if (!draft) {
-      setError(null);
-    }
-  }, [draft]);
 
   return (
     <div className="flex h-full flex-col gap-5">
@@ -1603,8 +1839,7 @@ const SetupPanel = ({
           {env.runtime.toUpperCase()} {env.version}
         </p>
         <p className="text-xs text-slate-500">
-          Dependencies are installed in an isolated workspace for this
-          notebook.
+          Dependencies are installed in an isolated workspace for this notebook.
         </p>
       </div>
       <div className="flex-1 overflow-y-auto pr-1">
@@ -1619,46 +1854,12 @@ const SetupPanel = ({
                 key={name}
                 name={name}
                 version={version}
-                onCommit={(nextName, nextVersion) =>
-                  onUpdateDependency(name, nextName, nextVersion)
-                }
                 onRemove={() => onRemoveDependency(name)}
               />
             ))}
           </ul>
         )}
       </div>
-      <form
-        onSubmit={handleSubmit}
-        className="space-y-2 border-t border-slate-200 pt-4"
-      >
-        <label
-          htmlFor="new-dependency"
-          className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500"
-        >
-          Add dependency
-        </label>
-        <div className="flex items-center gap-2">
-          <input
-            id="new-dependency"
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            placeholder="package or package@version"
-            className="flex-1 rounded-md border border-slate-300 px-2 py-1 text-sm text-slate-700 focus:border-brand-500 focus:outline-none"
-          />
-          <Button type="submit" size="sm" className="px-3">
-            Add
-          </Button>
-        </div>
-        {error ? (
-          <p className="text-[11px] text-rose-500">{error}</p>
-        ) : (
-          <p className="text-[11px] text-slate-400">
-            Use <span className="font-medium">name@version</span>. Version
-            defaults to latest.
-          </p>
-        )}
-      </form>
     </div>
   );
 };
@@ -1666,71 +1867,16 @@ const SetupPanel = ({
 interface DependencyRowProps {
   name: string;
   version: string;
-  onCommit: (name: string, version: string) => void;
   onRemove: () => void;
 }
 
-const DependencyRow = ({
-  name,
-  version,
-  onCommit,
-  onRemove,
-}: DependencyRowProps) => {
-  const [draftName, setDraftName] = useState(name);
-  const [draftVersion, setDraftVersion] = useState(version);
-
-  useEffect(() => {
-    setDraftName(name);
-  }, [name]);
-
-  useEffect(() => {
-    setDraftVersion(version);
-  }, [version]);
-
-  const commit = useCallback(() => {
-    const trimmedName = draftName.trim();
-    const trimmedVersion = draftVersion.trim();
-    const normalizedVersion = trimmedVersion || "latest";
-    const currentNormalized = (version || "").trim() || "latest";
-    if (trimmedName === name && normalizedVersion === currentNormalized) {
-      return;
-    }
-    onCommit(trimmedName, normalizedVersion);
-  }, [draftName, draftVersion, name, onCommit, version]);
-
-  const handleKeyDown = useCallback(
-    (event: React.KeyboardEvent<HTMLInputElement>) => {
-      if (event.key === "Enter") {
-        event.preventDefault();
-        commit();
-      }
-      if (event.key === "Escape") {
-        event.preventDefault();
-        setDraftName(name);
-        setDraftVersion(version);
-      }
-    },
-    [commit, name, version]
-  );
-
+const DependencyRow = ({ name, version, onRemove }: DependencyRowProps) => {
   return (
     <li className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2">
-      <input
-        value={draftName}
-        onChange={(event) => setDraftName(event.target.value)}
-        onBlur={commit}
-        onKeyDown={handleKeyDown}
-        placeholder="package"
-        className="flex-1 rounded-md border border-slate-300 px-2 py-1 text-sm text-slate-700 focus:border-brand-500 focus:outline-none"
-      />
-      <input
-        value={draftVersion}
-        onChange={(event) => setDraftVersion(event.target.value)}
-        onBlur={commit}
-        onKeyDown={handleKeyDown}
-        placeholder="latest"
-        className="w-28 rounded-md border border-slate-300 px-2 py-1 text-sm text-slate-700 focus:border-brand-500 focus:outline-none"
-      />
+      <div className="flex-1 truncate text-sm text-slate-700">{name}</div>
+      <Badge variant="secondary" className="font-mono text-[11px]">
+        {version || "latest"}
+      </Badge>
       <Button
         type="button"
         variant="ghost"
@@ -1770,6 +1916,16 @@ const parseDependencySpecifier = (raw: string) => {
     return name ? { name, version } : null;
   }
   return { name: value, version: "latest" };
+};
+
+const parseMultipleDependencies = (raw: string) => {
+  const items = String(raw)
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((token) => parseDependencySpecifier(token))
+    .filter((x): x is { name: string; version: string } => Boolean(x));
+  return items;
 };
 
 interface OutlinePanelProps {
