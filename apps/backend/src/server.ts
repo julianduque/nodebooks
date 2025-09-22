@@ -5,8 +5,13 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Socket } from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { InMemorySessionManager } from "./store/memory.js";
+import {
+  InMemoryNotebookStore,
+  InMemorySessionManager,
+} from "./store/memory.js";
 import { SqliteNotebookStore } from "./store/sqlite.js";
+import { PostgresNotebookStore } from "./store/postgres.js";
+import type { NotebookStore } from "./types.js";
 import { registerNotebookRoutes } from "./routes/notebooks.js";
 import { registerDependencyRoutes } from "./routes/dependencies.js";
 import { registerSessionRoutes } from "./routes/sessions.js";
@@ -103,10 +108,19 @@ export const createServer = async ({
     }
   }
 
-  const store = new SqliteNotebookStore({
-    databaseFile: process.env.NODEBOOKS_SQLITE_PATH,
+  const { store, driver } = createNotebookStore({
+    driver: process.env.NODEBOOKS_PERSISTENCE,
   });
   const sessions = new InMemorySessionManager(store);
+
+  const maybeClosable = store as { close?: () => Promise<void> | void };
+  if (typeof maybeClosable.close === "function") {
+    app.addHook("onClose", async () => {
+      await maybeClosable.close?.();
+    });
+  }
+
+  app.log.info({ persistence: driver }, "Notebook persistence ready");
 
   app.get("/health", async () => ({ status: "ok" }));
 
@@ -159,4 +173,61 @@ export const createServer = async ({
   );
 
   return app;
+};
+
+type PersistenceDriver = "in-memory" | "sqlite" | "postgres";
+
+interface CreateNotebookStoreOptions {
+  driver?: string;
+  sqlitePath?: string;
+  databaseUrl?: string;
+}
+
+interface NotebookStoreResult {
+  store: NotebookStore;
+  driver: PersistenceDriver;
+}
+
+const resolvePersistenceDriver = (
+  raw: string | undefined
+): PersistenceDriver => {
+  const normalized = (raw ?? "sqlite").trim().toLowerCase();
+  if (normalized === "in-memory" || normalized === "memory") {
+    return "in-memory";
+  }
+  if (normalized === "sqlite") {
+    return "sqlite";
+  }
+  if (normalized === "postgres" || normalized === "postgresql") {
+    return "postgres";
+  }
+  throw new Error(
+    `Unsupported NODEBOOKS_PERSISTENCE value "${raw}". Use "in-memory", "sqlite", or "postgres".`
+  );
+};
+
+export const createNotebookStore = (
+  options: CreateNotebookStoreOptions = {}
+): NotebookStoreResult => {
+  const driver = resolvePersistenceDriver(
+    options.driver ?? process.env.NODEBOOKS_PERSISTENCE
+  );
+  switch (driver) {
+    case "in-memory":
+      return { store: new InMemoryNotebookStore(), driver };
+    case "sqlite":
+      return {
+        store: new SqliteNotebookStore({
+          databaseFile: options.sqlitePath ?? process.env.NODEBOOKS_SQLITE_PATH,
+        }),
+        driver,
+      };
+    case "postgres":
+      return {
+        store: new PostgresNotebookStore({
+          connectionString: options.databaseUrl ?? process.env.DATABASE_URL,
+        }),
+        driver,
+      };
+  }
 };
