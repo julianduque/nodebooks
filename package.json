@@ -8,7 +8,9 @@
   ],
   "scripts": {
     "build": "pnpm -r build",
-    "dev": "pnpm -r --parallel dev",
+    "dev": "pnpm --filter @nodebooks/server dev",
+    "ui:dev": "pnpm --filter @nodebooks/client dev",
+    "api:dev": "pnpm --filter @nodebooks/server dev:api-only",
     "lint": "pnpm -r lint",
     "test": "pnpm -r test",
     "format": "prettier --write .",

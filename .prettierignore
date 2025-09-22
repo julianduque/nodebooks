@@ -10,8 +10,7 @@ pnpm-lock.yaml
 **/coverage
 
 # Project-specific generated/binary data
-apps/api/data
+apps/backend/data
 **/*.db
 **/*.sqlite
 **/*.sqlite3
-

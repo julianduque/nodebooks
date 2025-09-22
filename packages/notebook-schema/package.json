@@ -5,10 +5,10 @@
   "main": "src/index.ts",
   "types": "src/index.ts",
   "scripts": {
-    "build": "tsc --project tsconfig.json",
+    "build": "tsc --project tsconfig.build.json",
     "lint": "eslint .",
     "test": "vitest run",
-    "dev": "tsc --project tsconfig.json --watch"
+    "dev": "tsc --project tsconfig.build.json --watch"
   },
   "dependencies": {
     "zod": "^4.1.9"

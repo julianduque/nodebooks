@@ -9,8 +9,7 @@ import { useCallback } from "react";
 import type { Notebook } from "@nodebooks/notebook-schema";
 import { useRouter } from "next/navigation";
 
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "/api";
 
 const TEMPLATES = [
   {

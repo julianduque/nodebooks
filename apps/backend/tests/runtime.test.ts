@@ -3,7 +3,7 @@ import { promises as fs } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createCodeCell } from "@nodebooks/notebook-schema";
-import { NotebookRuntime } from "./runtime.js";
+import { NotebookRuntime } from "../src/kernel/runtime.js";
 import type {
   DisplayDataOutput,
   NotebookOutput,
@@ -272,11 +272,11 @@ describe("NotebookRuntime", () => {
 
       const display = result.outputs.find(isDisplayData);
       expect(display).toBeDefined();
-      const json = display?.data?.["application/json"] as any;
+      const json = display?.data?.["application/json"] as unknown;
       const plain = String(display?.data?.["text/plain"]);
       // Either structured UI object or plain object string should reflect the label
       if (json && typeof json === "object") {
-        expect(json).toHaveProperty("ui");
+        expect(json as Record<string, unknown>).toHaveProperty("ui");
       }
       expect(plain).toContain("z.txt");
     });

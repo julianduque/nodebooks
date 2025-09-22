@@ -7,8 +7,8 @@ NodeBooks is an experimental JS/TS notebook environment that pairs a Fastify API
 ```
 nodebooks/
 ├── apps/
-│   ├── api/              # Fastify 5 API server with REST + WebSocket kernel bridge
-│   └── ui/               # Next.js 15 client with Monaco-powered notebook UI
+│   ├── backend/          # Fastify 5 API server with REST + WebSocket kernel bridge
+│   └── client/           # Next.js 15 client with Monaco-powered notebook UI
 ├── packages/
 │   └── notebook-schema/  # Shared schema + kernel protocol helpers
 ├── Dockerfile            # Local development container (pnpm dev inside)
@@ -19,15 +19,25 @@ nodebooks/
 
 ## Getting started
 
-Install dependencies with pnpm (v10+), then launch the API and UI in parallel:
+Install dependencies with pnpm (v10+).
+
+Single-port dev (Fastify serves Next.js):
 
 ```bash
 pnpm install
+pnpm --filter @nodebooks/api dev
+```
+
+- App: http://localhost:4000 (Fastify + Next.js dev)
+
+Legacy multi-process dev (separate ports):
+
+```bash
 pnpm dev
 ```
 
-- API: http://localhost:4000 (Fastify, REST, WebSocket kernel)
-- UI: http://localhost:3000 (Next.js 15)
+- API: http://localhost:4000
+- UI: http://localhost:3000
 
 The UI now fetches notebooks from the API, shows a sidebar of available notebooks, persists edits automatically, and opens a WebSocket session per notebook. Executing a code cell streams console output and final results from the Node-based runtime.
 
@@ -58,15 +68,15 @@ pnpm format         # Write formatting changes
 pnpm format:check   # Verify formatting without writes
 ```
 
-Configuration lives in `.prettierrc`; generated/build artifacts and `apps/api/data` are ignored via `.prettierignore`.
+Configuration lives in `.prettierrc`; generated/build artifacts and `apps/backend/data` are ignored via `.prettierignore`.
 
 ### Docker workflow
 
-A development-friendly Dockerfile is included. Build the image and run the workspace processes inside the container:
+A production-oriented Dockerfile is included. Build the image and run a single server that serves both API and UI on one port:
 
 ```bash
-docker build -t nodebooks-dev .
-docker run --rm -it -p 3000:3000 -p 4000:4000 nodebooks-dev
+docker build -t nodebooks .
+docker run --rm -it -p 4000:4000 nodebooks
 ```
 
 ### Next steps
