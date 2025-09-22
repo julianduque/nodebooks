@@ -281,4 +281,30 @@ describe("NotebookRuntime", () => {
       expect(plain).toContain("z.txt");
     });
   });
+
+  it("handles multi-line variable initializers", async () => {
+    await withRuntime(undefined, async (runtime) => {
+      const cell = createCodeCell({ id: "cell-multiline-var", language: "js" });
+
+      const result = await runtime.execute({
+        cell,
+        code: [
+          "const value =",
+          "  Math.max(",
+          "    1,",
+          "    2,",
+          "    (3 + 4)",
+          "  );",
+          "value;",
+        ].join("\n"),
+        notebookId: "notebook-multiline-var",
+        env: createEnv(),
+      });
+
+      const display = result.outputs.find(isDisplayData);
+      expect(display).toBeDefined();
+      const plain = String(display?.data?.["text/plain"]);
+      expect(plain).toContain("7");
+    });
+  });
 });
