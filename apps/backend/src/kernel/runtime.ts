@@ -527,9 +527,9 @@ export class NotebookRuntime {
         filename,
       });
 
-      let result = script.runInContext(this.context, { timeout });
+      let result = script.runInContext(this.context, { timeout: Number(timeout) });
       if (result && typeof (result as Promise<unknown>).then === "function") {
-        result = await withTimeout(result as Promise<unknown>, timeout);
+        result = await withTimeout(result as Promise<unknown>, Number(timeout));
       }
 
       const displayOutputs = toDisplayData(result);
