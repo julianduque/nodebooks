@@ -10,8 +10,8 @@ WORKDIR /app
 
 COPY package.json pnpm-workspace.yaml tsconfig.base.json ./
 COPY pnpm-lock.yaml ./
-COPY apps/api/package.json apps/api/
-COPY apps/ui/package.json apps/ui/
+COPY apps/backend/package.json apps/backend/
+COPY apps/client/package.json apps/client/
 COPY packages/notebook-schema/package.json packages/notebook-schema/
 
 RUN pnpm install --frozen-lockfile
@@ -20,6 +20,6 @@ COPY . .
 
 RUN pnpm build
 
-EXPOSE 3000 4000
+EXPOSE 4000
 
-CMD ["pnpm", "dev"]
+CMD ["pnpm", "--filter", "@nodebooks/api", "start"]

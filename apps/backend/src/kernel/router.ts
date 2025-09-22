@@ -1,5 +1,6 @@
-import type { FastifyInstance } from "fastify";
-import WebSocket, { type RawData } from "ws";
+import type { IncomingMessage } from "node:http";
+import type { Socket } from "node:net";
+import WebSocket, { WebSocketServer, type RawData } from "ws";
 import { z } from "zod";
 import {
   KernelClientMessageSchema,
@@ -16,14 +17,40 @@ import { NotebookRuntime } from "./runtime.js";
 
 const runtimes = new Map<string, NotebookRuntime>();
 
-export const registerKernelRoutes = (
-  app: FastifyInstance,
+// WebSocket connections at `${prefix}/ws/sessions/:id` using `ws` directly.
+export const createKernelUpgradeHandler = (
+  prefix: string,
   sessions: SessionManager,
   store: NotebookStore
 ) => {
-  app.get("/ws/sessions/:id", { websocket: true }, (connection, request) => {
-    void handleConnection(connection, request.params, sessions, store);
-  });
+  const wss = new WebSocketServer({ noServer: true });
+  const base = prefix.endsWith("/") ? prefix.slice(0, -1) : prefix;
+  const pattern = new RegExp(`^${base}/ws/sessions/([^/?#]+)`);
+
+  return (req: IncomingMessage, socket: Socket, head: Buffer) => {
+    const url = req.url || "";
+    const m = url.match(pattern);
+    if (!m) return false;
+    const id = decodeURIComponent(m[1]!);
+    try {
+      wss.handleUpgrade(req, socket, head, (ws) => {
+        void handleConnection(
+          ws as unknown as WebSocket,
+          { id },
+          sessions,
+          store
+        );
+      });
+    } catch (err) {
+      try {
+        socket.destroy();
+      } catch (e) {
+        void e;
+      }
+      void err;
+    }
+    return true;
+  };
 };
 
 const handleConnection = async (

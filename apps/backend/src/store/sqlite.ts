@@ -1,5 +1,6 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import initSqlJs, {
   type Database as SqlDatabase,
   type SqlJsStatic,
@@ -18,9 +19,10 @@ export class SqliteNotebookStore implements NotebookStore {
   private sqlModule!: SqlJsStatic;
 
   constructor(options: SqliteNotebookStoreOptions = {}) {
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    const apiRoot = path.resolve(here, "../..");
     this.file =
-      options.databaseFile ??
-      path.resolve(process.cwd(), "data", "nodebooks.sqlite");
+      options.databaseFile ?? path.resolve(apiRoot, "data", "nodebooks.sqlite");
     this.ready = this.initialize();
   }
 
@@ -106,8 +108,10 @@ export class SqliteNotebookStore implements NotebookStore {
   }
 
   private async initialize() {
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    const apiRoot = path.resolve(here, "../..");
     const locateFile = (file: string) =>
-      path.resolve(process.cwd(), "node_modules/sql.js/dist", file);
+      path.resolve(apiRoot, "node_modules/sql.js/dist", file);
 
     this.sqlModule = await initSqlJs({ locateFile });
 

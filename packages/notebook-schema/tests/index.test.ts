@@ -5,7 +5,7 @@ import {
   createCodeCell,
   createEmptyNotebook,
   createMarkdownCell,
-} from "./index.js";
+} from "../src/index.js";
 
 describe("notebook schema", () => {
   it("creates notebooks with sensible defaults", () => {

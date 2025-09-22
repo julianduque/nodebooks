@@ -6,7 +6,7 @@ import {
   createCodeCell,
   createEmptyNotebook,
 } from "@nodebooks/notebook-schema";
-import { SqliteNotebookStore } from "./sqlite.js";
+import { SqliteNotebookStore } from "../src/store/sqlite.js";
 
 describe("SqliteNotebookStore", () => {
   let directory: string;

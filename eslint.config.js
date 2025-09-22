@@ -4,7 +4,7 @@ import nextPlugin from "@next/eslint-plugin-next";
 
 const nextSettings = {
   next: {
-    rootDir: "apps/ui",
+    rootDir: "apps/client",
     pagesDir: [],
   },
 };
@@ -48,7 +48,7 @@ export default [
     },
   },
   {
-    files: ["apps/ui/**/*.{ts,tsx,js,jsx}"],
+    files: ["apps/client/**/*.{ts,tsx,js,jsx}"],
     plugins: {
       "@next/next": nextPlugin,
     },

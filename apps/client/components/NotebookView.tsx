@@ -43,8 +43,7 @@ import OutlinePanel from "./notebook/OutlinePanel";
 import SetupPanel from "./notebook/SetupPanel";
 import OutputView from "./notebook/OutputView";
 
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "/api";
 
 const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
   const router = useRouter();
@@ -466,8 +465,16 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
       return;
     }
 
-    const protocol = API_BASE_URL.startsWith("https") ? "wss" : "ws";
-    const wsUrl = `${API_BASE_URL.replace(/^https?/, protocol)}/ws/sessions/${sessionId}`;
+    let wsUrl: string;
+    if (/^https?:/i.test(API_BASE_URL)) {
+      const protocol = API_BASE_URL.startsWith("https") ? "wss" : "ws";
+      wsUrl = `${API_BASE_URL.replace(/^https?/, protocol)}/ws/sessions/${sessionId}`;
+    } else if (typeof window !== "undefined") {
+      const proto = window.location.protocol === "https:" ? "wss" : "ws";
+      wsUrl = `${proto}://${window.location.host}${API_BASE_URL}/ws/sessions/${sessionId}`;
+    } else {
+      wsUrl = `${API_BASE_URL}/ws/sessions/${sessionId}`;
+    }
     const socket = new WebSocket(wsUrl);
 
     socketRef.current = socket;

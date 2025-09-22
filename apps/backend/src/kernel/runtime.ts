@@ -799,7 +799,7 @@ const wrapForTopLevelAwait = (source: string): string => {
     if (snippet === "") continue;
     if (isControlStart(snippet)) continue;
     // Ignore pure closers or stray punctuation
-    if (/^[)\]\}\s;]+$/.test(snippet)) continue;
+    if (/^[)\]}\s;]+$/.test(snippet)) continue;
     chosen = { start, end };
     break;
   }
