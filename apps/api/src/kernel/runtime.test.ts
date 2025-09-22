@@ -184,4 +184,101 @@ describe("NotebookRuntime", () => {
       expect(String(plain)).toContain("notebook-cwd");
     });
   });
+
+  it("handles multi-line call expressions", async () => {
+    await withRuntime(undefined, async (runtime) => {
+      const cell = createCodeCell({ id: "cell-multiline", language: "js" });
+
+      const result = await runtime.execute({
+        cell,
+        code: [
+          'import { UiMetric } from "@nodebooks/ui";',
+          "",
+          "UiMetric(1234, { ",
+          '  label: "Requests", unit: "/min", delta: 42, helpText: "Rolling 1m" ',
+          "});",
+        ].join("\n"),
+        notebookId: "notebook-multiline",
+        env: createEnv(),
+      });
+
+      const display = result.outputs.find(isDisplayData);
+      expect(display).toBeDefined();
+      // Should render as a structured UI object
+      const data = display?.data ?? {};
+      expect(Object.keys(data).length).toBeGreaterThan(0);
+    });
+  });
+
+  it("returns value from last expression inside try/catch", async () => {
+    await withRuntime(undefined, async (runtime) => {
+      const cell = createCodeCell({ id: "cell-try-catch", language: "js" });
+
+      const result = await runtime.execute({
+        cell,
+        code: [
+          "try {",
+          "  JSON.parse('not-json');",
+          "} catch (error) {",
+          "  error.name;",
+          "}",
+        ].join("\n"),
+        notebookId: "notebook-try-catch",
+        env: createEnv(),
+      });
+
+      const display = result.outputs.find(isDisplayData);
+      expect(display).toBeDefined();
+      const message = String(display?.data?.["text/plain"]);
+      expect(message).toContain("SyntaxError");
+    });
+  });
+
+  it("supports no trailing semicolon (ASI)", async () => {
+    await withRuntime(undefined, async (runtime) => {
+      const cell = createCodeCell({ id: "cell-asi", language: "js" });
+
+      const result = await runtime.execute({
+        cell,
+        code: ["const a = 2", "a + 3"].join("\n"),
+        notebookId: "notebook-asi",
+        env: createEnv(),
+      });
+
+      const display = result.outputs.find(isDisplayData);
+      expect(display).toBeDefined();
+      const plain = display?.data?.["text/plain"];
+      expect(String(plain)).toContain("5");
+    });
+  });
+
+  it("supports dynamic import and static top imports", async () => {
+    await withRuntime(undefined, async (runtime) => {
+      const cell = createCodeCell({
+        id: "cell-dynamic-import",
+        language: "js",
+      });
+
+      const result = await runtime.execute({
+        cell,
+        code: [
+          'import { UiMetric } from "@nodebooks/ui";',
+          'const path = await import("node:path");',
+          "UiMetric(1, { label: path.basename('/x/y/z.txt') });",
+        ].join("\n"),
+        notebookId: "notebook-dynamic-import",
+        env: createEnv(),
+      });
+
+      const display = result.outputs.find(isDisplayData);
+      expect(display).toBeDefined();
+      const json = display?.data?.["application/json"] as any;
+      const plain = String(display?.data?.["text/plain"]);
+      // Either structured UI object or plain object string should reflect the label
+      if (json && typeof json === "object") {
+        expect(json).toHaveProperty("ui");
+      }
+      expect(plain).toContain("z.txt");
+    });
+  });
 });
