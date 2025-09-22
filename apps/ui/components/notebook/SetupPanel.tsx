@@ -118,6 +118,7 @@ const SetupPanel = ({
           </p>
           <Button
             type="button"
+            variant="secondary"
             size="sm"
             className="px-3 text-[11px]"
             onClick={() => {
@@ -127,7 +128,7 @@ const SetupPanel = ({
               setVarModalOpen(true);
             }}
           >
-            Add variable
+            Add Variable
           </Button>
         </div>
         <div className="mt-2">

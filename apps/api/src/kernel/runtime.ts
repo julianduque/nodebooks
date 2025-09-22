@@ -69,8 +69,54 @@ const rewriteTopLevelDeclarations = (source: string, _lang: "js" | "ts") => {
     if (!m) return null;
     const indent = m[1] ?? "";
     const name = m[3];
-    const after = rest.slice(m[0].length);
-    return `${indent}globalThis.${name} = ${after}`;
+    const afterRaw = rest.slice(m[0].length);
+    // Extract only the first expression on the line (until a semicolon that is
+    // not inside strings/brackets), so we don't swallow following statements.
+    let i = 0;
+    let inStr: false | '"' | "'" | "`" = false;
+    let depthParen = 0;
+    let depthBracket = 0;
+    let depthBrace = 0;
+    let end = -1;
+    while (i < afterRaw.length) {
+      const ch = afterRaw[i]!;
+      if (inStr) {
+        if (ch === "\\") {
+          i += 2;
+          continue;
+        }
+        if (ch === inStr) inStr = false;
+        i++;
+        continue;
+      }
+      if (ch === '"' || ch === "'" || ch === "`") {
+        inStr = ch as '"' | "'" | "`";
+        i++;
+        continue;
+      }
+      if (ch === "(") depthParen++;
+      else if (ch === ")") depthParen = Math.max(0, depthParen - 1);
+      else if (ch === "[") depthBracket++;
+      else if (ch === "]") depthBracket = Math.max(0, depthBracket - 1);
+      else if (ch === "{") depthBrace++;
+      else if (ch === "}") depthBrace = Math.max(0, depthBrace - 1);
+      if (
+        ch === ";" &&
+        depthParen === 0 &&
+        depthBracket === 0 &&
+        depthBrace === 0
+      ) {
+        end = i; // semicolon ends the expression
+        break;
+      }
+      i++;
+    }
+    const expr = (end >= 0 ? afterRaw.slice(0, end) : afterRaw).trimEnd();
+    const tail = end >= 0 ? afterRaw.slice(end + 1) : ""; // remainder after semicolon
+    const assign = `${indent}var ${name} = (globalThis.${name} = ${expr});`;
+    const remainder =
+      tail.trim().length > 0 ? `\n${indent}${tail.trimStart()}` : "";
+    return assign + remainder;
   };
 
   const replaceFunction = (line: string) => {
@@ -202,7 +248,7 @@ class RuntimeConsole {
     }
 
     const text = `${formatWithOptions(
-      { compact: false, breakLength: 80, colors: true },
+      { compact: false, breakLength: 80, colors: false },
       ...args
     )}\n`;
     this.emitter(name, text);
@@ -377,6 +423,8 @@ export class NotebookRuntime {
         format: "cjs",
         target: "es2022",
         sourcemap: false,
+        platform: "node",
+        supported: { "dynamic-import": false },
       });
 
       if (!this.sandboxDir || !this.sandboxRequire) {
@@ -595,15 +643,18 @@ const createPackagesKey = (packages: Record<string, string>) => {
   return JSON.stringify(entries);
 };
 
-// Wrap source code to support top-level await while preserving
-// the common "last expression is the result" behavior.
-// Heuristic: move the last non-empty line into a `return` inside an async IIFE.
-// If the last line does not look like an expression, it will still execute but
-// the IIFE resolves to undefined (displaying nothing), matching previous behavior.
+// Alternate wrapper that preserves side-effects and reliably returns the value
+// of the last expression statement without breaking multi-line expressions.
+//
+// Strategy:
+// - Split off top-level import declarations to keep them at file scope.
+// - Treat the remaining code as a single string and scan it to find the last
+//   top-level expression statement (depth-aware, comment/string-safe).
+// - Replace that statement with an assignment to a sentinel variable declared
+//   in the IIFE scope, then return that sentinel at the end. If no expression
+//   statement is found, just execute the body and return undefined.
 const wrapForTopLevelAwait = (source: string): string => {
   const lines = source.split(/\r?\n/);
-
-  // Extract ESM imports (single- or multi-line) and keep them at the top level
   const topImports: string[] = [];
   const rest: string[] = [];
   for (let i = 0; i < lines.length; i++) {
@@ -611,7 +662,6 @@ const wrapForTopLevelAwait = (source: string): string => {
     const t = raw.trimStart();
     if (t.startsWith("import") && !t.startsWith("import(")) {
       const block: string[] = [raw];
-      // Accumulate until a line containing a semicolon terminator
       let j = i;
       let ended = /;\s*$/.test(raw);
       while (!ended && j + 1 < lines.length) {
@@ -623,7 +673,7 @@ const wrapForTopLevelAwait = (source: string): string => {
         }
       }
       topImports.push(block.join("\n"));
-      i = j; // jump to end of block
+      i = j;
       continue;
     }
     rest.push(raw);
@@ -631,63 +681,146 @@ const wrapForTopLevelAwait = (source: string): string => {
 
   const header = topImports.length > 0 ? `${topImports.join("\n")}\n` : "";
 
-  // Helper: from a single line, take the last non-empty segment after ';'
-  const splitLastSegment = (line: string) => {
-    let i = line.length - 1;
-    // Skip trailing whitespace and semicolons
-    while (i >= 0 && /[\s;]/.test(line[i]!)) i--;
-    if (i < 0) return { left: line, right: null as string | null };
-    // Walk back to the previous ';'
-    let j = i;
-    while (j >= 0 && line[j] !== ";") j--;
-    if (j >= 0) {
-      const right = line.slice(j + 1).trim();
-      const left = line.slice(0, j + 1);
-      if (right.length > 0) return { left, right };
+  const isControlStart = (s: string) =>
+    /^(?:if|for|while|switch|try|catch|finally|with|else|class|function|const|let|var|export|import|return|throw|break|continue|case|default)\b/.test(
+      s.trimStart()
+    );
+
+  const bodyText = rest.join("\n");
+
+  // Scan bodyText to collect statements terminated by semicolons that are not
+  // inside parentheses (so we ignore `for(;;)` headers). We allow braces and
+  // brackets so expressions inside blocks are considered.
+  type Range = { start: number; end: number };
+  const statements: Range[] = [];
+  let stmtStart = 0; // coarse start (previous semicolon end)
+  let realStmtStart = 0; // refined start (after braces, etc.)
+  let i = 0;
+  let inLineComment = false;
+  let inBlockComment = false;
+  let inString: false | '"' | "'" | "`" = false;
+  let paren = 0,
+    bracket = 0,
+    brace = 0;
+
+  const commitStatement = (endExclusive: number) => {
+    const s = bodyText.slice(realStmtStart, endExclusive);
+    if (s.trim().length > 0) {
+      statements.push({ start: realStmtStart, end: endExclusive });
     }
-    return { left: "", right: line.trim() };
+    stmtStart = endExclusive;
+    realStmtStart = endExclusive;
   };
 
-  // Find a candidate statement to return, scanning from the end upwards.
-  let idx = rest.length - 1;
-  while (idx >= 0 && rest[idx]!.trim() === "") idx--;
-  if (idx < 0) {
-    return `${header}(async()=>{ })()`; // nothing to run
+  while (i < bodyText.length) {
+    const ch = bodyText[i]!;
+    const next = bodyText[i + 1];
+
+    if (inLineComment) {
+      if (ch === "\n") inLineComment = false;
+      i++;
+      continue;
+    }
+    if (inBlockComment) {
+      if (ch === "*" && next === "/") {
+        inBlockComment = false;
+        i += 2;
+        continue;
+      }
+      i++;
+      continue;
+    }
+    if (inString) {
+      if (ch === "\\") {
+        i += 2;
+        continue;
+      }
+      if ((inString === "`" && ch === "`") || ch === inString) {
+        inString = false;
+        i++;
+        continue;
+      }
+      i++;
+      continue;
+    }
+
+    // Not in string/comment
+    if (ch === "/" && next === "/") {
+      inLineComment = true;
+      i += 2;
+      continue;
+    }
+    if (ch === "/" && next === "*") {
+      inBlockComment = true;
+      i += 2;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      inString = ch as '"' | "'";
+      i++;
+      continue;
+    }
+    if (ch === "`") {
+      inString = "`";
+      i++;
+      continue;
+    }
+
+    if (ch === "(") paren++;
+    else if (ch === ")") paren = Math.max(0, paren - 1);
+    else if (ch === "[") bracket++;
+    else if (ch === "]") bracket = Math.max(0, bracket - 1);
+    else if (ch === "{") brace++;
+    else if (ch === "}") brace = Math.max(0, brace - 1);
+
+    // When we're not inside parentheses, treat braces as statement boundaries
+    if (paren === 0 && (ch === "{" || ch === "}")) {
+      realStmtStart = i + 1;
+    }
+
+    if (ch === ";" && paren === 0) {
+      commitStatement(i + 1);
+      i++;
+      continue;
+    }
+
+    i++;
   }
 
-  const isBlockClose = (s: string) => /^(}|]|\))\s*;?$/.test(s);
-  const isControl = (s: string) =>
-    /^(if|for|while|switch|try|catch|finally|with|else)\b/.test(s);
+  if (stmtStart < bodyText.length) {
+    commitStatement(bodyText.length);
+  }
 
-  // Choose the best candidate line and splice in a `return` there.
-  let chosenIndex = -1;
-  let returnExpr: string | null = null;
-  let chosenLeft: string | null = null;
-  for (let i = idx; i >= 0; i--) {
-    const t = rest[i]!.trim();
-    if (t === "" || isBlockClose(t) || isControl(t)) continue;
-    const { left, right } = splitLastSegment(rest[i]!);
-    returnExpr = right ?? null;
-    chosenLeft = left;
-    chosenIndex = i;
+  // Choose the last statement that looks like an expression statement.
+  let chosen: Range | null = null;
+  for (let k = statements.length - 1; k >= 0; k--) {
+    const { start, end } = statements[k]!;
+    const snippet = bodyText.slice(start, end).trim();
+    if (snippet === "") continue;
+    if (isControlStart(snippet)) continue;
+    // Ignore pure closers or stray punctuation
+    if (/^[)\]\}\s;]+$/.test(snippet)) continue;
+    chosen = { start, end };
     break;
   }
 
-  // If we didn't find a suitable candidate, just run in IIFE without returning.
-  if (chosenIndex === -1 || !returnExpr) {
-    const body = rest.join("\n");
+  if (!chosen) {
+    // Nothing to capture — return body as-is within the IIFE
+    const body = bodyText;
     return `${header}(async()=>{\n${body}\n})()`;
   }
 
-  const beforeLines = rest.slice(0, chosenIndex);
-  const afterLines = rest.slice(chosenIndex + 1);
-  const pieces: string[] = [];
-  if (beforeLines.join("").trim().length > 0)
-    pieces.push(beforeLines.join("\n"));
-  if (chosenLeft && chosenLeft.trim().length > 0) pieces.push(chosenLeft);
-  pieces.push(`return ${returnExpr.replace(/;\s*$/, "")}`);
-  if (afterLines.join("").trim().length > 0) pieces.push(afterLines.join("\n"));
-  const body = pieces.join("\n");
+  const resultVar = "__nodebooks_result__";
+  const start = chosen.start;
+  const end = chosen.end;
+  const stmt = bodyText.slice(start, end);
+  const expr = stmt.replace(/;\s*$/, "");
+
+  const newBodyText = `${bodyText.slice(0, start)}${resultVar} = (${expr});${bodyText.slice(end)}`;
+
+  const body = [`let ${resultVar};`, newBodyText, `return ${resultVar}`]
+    .filter(Boolean)
+    .join("\n");
   return `${header}(async()=>{\n${body}\n})()`;
 };
 
@@ -727,9 +860,7 @@ const ensureEntryModule = async (entryPath: string) => {
   }
 };
 
-// Provide a lightweight helper package '@nodebooks/ui' inside the sandbox so
-// cells can import { NBImage } from '@nodebooks/ui'. This is a CommonJS module
-// to match the compiled format of user code.
+// Provide a lightweight helper package '@nodebooks/ui' inside the sandbox
 const writeUiHelpersModule = async (sandboxDir: string) => {
   const pkgDir = join(sandboxDir, "node_modules", "@nodebooks", "ui");
   await fsPromises.mkdir(pkgDir, { recursive: true });
@@ -756,9 +887,46 @@ function UiMarkdown(markdown) { return { ui: "markdown", markdown }; }
 function UiHTML(html) { return { ui: "html", html }; }
 function UiJSON(json, opts) { return Object.assign({ ui: "json", json }, opts || {}); }
 function UiCode(code, opts) { return Object.assign({ ui: "code", code }, opts || {}); }
-// Backward-compatible aliases (will be removed in a future release)
-const NBImage = UiImage; const NBMarkdown = UiMarkdown; const NBHTML = UiHTML; const NBJSON = UiJSON; const NBCode = UiCode;
-module.exports = { UiImage, UiMarkdown, UiHTML, UiJSON, UiCode, NBImage, NBMarkdown, NBHTML, NBJSON, NBCode };
+function UiTable(rowsOrOpts, opts) {
+  if (Array.isArray(rowsOrOpts)) {
+    return Object.assign({ ui: "table", rows: rowsOrOpts }, opts || {});
+  }
+  if (rowsOrOpts && typeof rowsOrOpts === "object" && "rows" in rowsOrOpts) {
+    return Object.assign({ ui: "table" }, rowsOrOpts);
+  }
+  throw new Error("UiTable expects an array of rows or an options object with { rows }");
+}
+function UiDataSummary(opts) {
+  if (opts && typeof opts === "object") return Object.assign({ ui: "dataSummary" }, opts);
+  throw new Error("UiDataSummary expects an options object");
+}
+function UiAlert(opts) {
+  if (opts && typeof opts === "object") return Object.assign({ ui: "alert" }, opts);
+  throw new Error("UiAlert expects an options object");
+}
+function UiBadge(textOrOpts, opts) {
+  if (textOrOpts && typeof textOrOpts === "object" && "text" in textOrOpts) {
+    return Object.assign({ ui: "badge" }, textOrOpts);
+  }
+  return Object.assign({ ui: "badge", text: String(textOrOpts ?? "") }, opts || {});
+}
+function UiMetric(valueOrOpts, opts) {
+  if (valueOrOpts && typeof valueOrOpts === "object" && "value" in valueOrOpts) {
+    return Object.assign({ ui: "metric" }, valueOrOpts);
+  }
+  return Object.assign({ ui: "metric", value: valueOrOpts }, opts || {});
+}
+function UiProgress(valueOrOpts, opts) {
+  if (valueOrOpts && typeof valueOrOpts === "object") {
+    return Object.assign({ ui: "progress" }, valueOrOpts);
+  }
+  return Object.assign({ ui: "progress", value: valueOrOpts }, opts || {});
+}
+function UiSpinner(opts) {
+  if (opts && typeof opts === "object") return Object.assign({ ui: "spinner" }, opts);
+  return { ui: "spinner" };
+}
+module.exports = { UiImage, UiMarkdown, UiHTML, UiJSON, UiCode, UiTable, UiDataSummary, UiAlert, UiBadge, UiMetric, UiProgress, UiSpinner };
 `;
 
   const indexDts = `export type UiImageOptions = {
@@ -777,11 +945,36 @@ export type UiJsonOptions = { collapsed?: boolean; maxDepth?: number };
 export declare function UiJSON(json: unknown, opts?: UiJsonOptions): { ui: "json"; json: unknown } & UiJsonOptions;
 export type UiCodeOptions = { language?: string; wrap?: boolean };
 export declare function UiCode(code: string, opts?: UiCodeOptions): { ui: "code"; code: string } & UiCodeOptions;
-// Backward-compatible aliases
-export type NBImageOptions = UiImageOptions;
-export type NBJsonOptions = UiJsonOptions;
-export type NBCodeOptions = UiCodeOptions;
-export { UiImage as NBImage, UiMarkdown as NBMarkdown, UiHTML as NBHTML, UiJSON as NBJSON, UiCode as NBCode };
+export type UiTableColumn = { key: string; label?: string; align?: "left" | "center" | "right" };
+export type UiTableOptions = {
+  columns?: UiTableColumn[];
+  sort?: { key: string; direction?: "asc" | "desc" };
+  page?: { index?: number; size?: number };
+  density?: "compact" | "normal" | "spacious";
+};
+export declare function UiTable(rows: Array<Record<string, unknown>>, opts?: UiTableOptions): { ui: "table"; rows: Array<Record<string, unknown>> } & UiTableOptions;
+export declare function UiTable(opts: { ui?: "table"; rows: Array<Record<string, unknown>> } & UiTableOptions): { ui: "table"; rows: Array<Record<string, unknown>> } & UiTableOptions;
+export type UiDataSummaryOptions = {
+  title?: string;
+  schema?: Array<{ name: string; type: string; nullable?: boolean }>;
+  stats?: Record<string, { count?: number; distinct?: number; min?: number; max?: number; mean?: number; median?: number; p25?: number; p75?: number; stddev?: number; nulls?: number }>;
+  sample?: Array<Record<string, unknown>>;
+  note?: string;
+};
+export declare function UiDataSummary(opts: UiDataSummaryOptions): { ui: "dataSummary" } & UiDataSummaryOptions;
+export type UiAlertOptions = { level?: "info" | "success" | "warn" | "error"; title?: string; text?: string; html?: string };
+export declare function UiAlert(opts: UiAlertOptions): { ui: "alert" } & UiAlertOptions;
+export type UiBadgeOptions = { color?: "neutral" | "info" | "success" | "warn" | "error" | "brand" };
+export declare function UiBadge(text: string, opts?: UiBadgeOptions): { ui: "badge"; text: string } & UiBadgeOptions;
+export declare function UiBadge(opts: { ui?: "badge"; text: string } & UiBadgeOptions): { ui: "badge"; text: string } & UiBadgeOptions;
+export type UiMetricOptions = { label?: string; unit?: string; delta?: number; helpText?: string };
+export declare function UiMetric(value: string | number, opts?: UiMetricOptions): { ui: "metric"; value: string | number } & UiMetricOptions;
+export declare function UiMetric(opts: { ui?: "metric"; value: string | number } & UiMetricOptions): { ui: "metric"; value: string | number } & UiMetricOptions;
+export type UiProgressOptions = { label?: string; max?: number; indeterminate?: boolean };
+export declare function UiProgress(value: number, opts?: UiProgressOptions): { ui: "progress"; value: number } & UiProgressOptions;
+export declare function UiProgress(opts: { ui?: "progress"; value?: number; max?: number; indeterminate?: boolean }): { ui: "progress" } & UiProgressOptions & { value?: number };
+export type UiSpinnerOptions = { label?: string; size?: number | "sm" | "md" | "lg" };
+export declare function UiSpinner(opts?: UiSpinnerOptions): { ui: "spinner" } & UiSpinnerOptions;
 `;
 
   await fsPromises.writeFile(pkgJsonPath, JSON.stringify(pkgJson, null, 2));

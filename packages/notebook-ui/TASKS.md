@@ -12,8 +12,8 @@ Core
 
 Data & Tables
 
-- [ ] Table/Grid (array of objects; pagination, sorting)
-- [ ] Data Summary (schema, stats, sample rows)
+- [x] Table/Grid (array of objects; pagination, sorting)
+- [x] Data Summary (schema, stats, sample rows)
 
 Charts & Visualization
 
@@ -44,10 +44,10 @@ Text & Math
 
 Status & Metrics
 
-- [ ] Alert/Callout (info/success/warn/error)
-- [ ] Badge/Tag
-- [ ] Metric/KPI Tile
-- [ ] Progress Bar / Spinner
+- [x] Alert/Callout (info/success/warn/error)
+- [x] Badge/Tag
+- [x] Metric/KPI Tile
+- [x] Progress Bar / Spinner
 
 Utilities
 

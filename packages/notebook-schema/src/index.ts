@@ -41,12 +41,127 @@ export const UiCodeSchema = z.object({
   wrap: z.boolean().optional(),
 });
 
+// Data & Tables
+export const UiTableSchema = z.object({
+  ui: z.literal("table"),
+  // Array of records to render. Keys are column names.
+  rows: z.array(z.record(z.string(), z.unknown())),
+  // Optional explicit column order/labels
+  columns: z
+    .array(
+      z.object({
+        key: z.string(),
+        label: z.string().optional(),
+        align: z.enum(["left", "center", "right"]).optional(),
+      })
+    )
+    .optional(),
+  // Initial sorting
+  sort: z
+    .object({
+      key: z.string(),
+      direction: z.enum(["asc", "desc"]).default("asc"),
+    })
+    .optional(),
+  // Initial pagination
+  page: z
+    .object({
+      index: z.number().int().nonnegative().default(0),
+      size: z.number().int().positive().max(1000).default(20),
+    })
+    .optional(),
+  density: z.enum(["compact", "normal", "spacious"]).optional(),
+});
+
+export const UiDataSummarySchema = z.object({
+  ui: z.literal("dataSummary"),
+  title: z.string().optional(),
+  schema: z
+    .array(
+      z.object({
+        name: z.string(),
+        type: z.string(),
+        nullable: z.boolean().optional(),
+      })
+    )
+    .optional(),
+  // Stats per field (numbers are optional; render when present)
+  stats: z
+    .record(
+      z.string(),
+      z.object({
+        count: z.number().optional(),
+        distinct: z.number().optional(),
+        min: z.number().optional(),
+        max: z.number().optional(),
+        mean: z.number().optional(),
+        median: z.number().optional(),
+        p25: z.number().optional(),
+        p75: z.number().optional(),
+        stddev: z.number().optional(),
+        nulls: z.number().optional(),
+      })
+    )
+    .optional(),
+  sample: z.array(z.record(z.string(), z.unknown())).optional(),
+  note: z.string().optional(),
+});
+
+// Status & Metrics
+export const UiAlertSchema = z.object({
+  ui: z.literal("alert"),
+  // visual style
+  level: z.enum(["info", "success", "warn", "error"]).default("info"),
+  title: z.string().optional(),
+  text: z.string().optional(),
+  // optionally provide preformatted HTML (will be sanitized in renderer)
+  html: z.string().optional(),
+});
+
+export const UiBadgeSchema = z.object({
+  ui: z.literal("badge"),
+  text: z.string(),
+  color: z
+    .enum(["neutral", "info", "success", "warn", "error", "brand"])
+    .optional(),
+});
+
+export const UiMetricSchema = z.object({
+  ui: z.literal("metric"),
+  label: z.string().optional(),
+  value: z.union([z.string(), z.number()]),
+  unit: z.string().optional(),
+  delta: z.number().optional(),
+  helpText: z.string().optional(),
+});
+
+export const UiProgressSchema = z.object({
+  ui: z.literal("progress"),
+  label: z.string().optional(),
+  value: z.number().min(0).max(100).optional(),
+  max: z.number().positive().default(100).optional(),
+  indeterminate: z.boolean().optional(),
+});
+
+export const UiSpinnerSchema = z.object({
+  ui: z.literal("spinner"),
+  label: z.string().optional(),
+  size: z.union([z.number().positive(), z.enum(["sm", "md", "lg"])]).optional(),
+});
+
 export const UiDisplaySchema = z.discriminatedUnion("ui", [
   UiImageSchema,
   UiMarkdownSchema,
   UiHtmlSchema,
   UiJsonSchema,
   UiCodeSchema,
+  UiTableSchema,
+  UiDataSummarySchema,
+  UiAlertSchema,
+  UiBadgeSchema,
+  UiMetricSchema,
+  UiProgressSchema,
+  UiSpinnerSchema,
 ]);
 export type UiDisplay = z.infer<typeof UiDisplaySchema>;
 export type UiImage = z.infer<typeof UiImageSchema>;
@@ -54,6 +169,13 @@ export type UiMarkdown = z.infer<typeof UiMarkdownSchema>;
 export type UiHtml = z.infer<typeof UiHtmlSchema>;
 export type UiJson = z.infer<typeof UiJsonSchema>;
 export type UiCode = z.infer<typeof UiCodeSchema>;
+export type UiTable = z.infer<typeof UiTableSchema>;
+export type UiDataSummary = z.infer<typeof UiDataSummarySchema>;
+export type UiAlert = z.infer<typeof UiAlertSchema>;
+export type UiBadge = z.infer<typeof UiBadgeSchema>;
+export type UiMetric = z.infer<typeof UiMetricSchema>;
+export type UiProgress = z.infer<typeof UiProgressSchema>;
+export type UiSpinner = z.infer<typeof UiSpinnerSchema>;
 
 const createId = () => {
   if (

@@ -4,8 +4,8 @@ These snippets are meant to be pasted directly into a code cell. Return the help
 
 Import helpers from `@nodebooks/ui` or return the literal display object.
 
-- Helpers: `UiImage`, `UiMarkdown`, `UiHTML`, `UiJSON`, `UiCode`
-- Literal objects: `{ ui: "image" | "markdown" | "html" | "json" | "code", ... }`
+- Helpers: `UiImage`, `UiMarkdown`, `UiHTML`, `UiJSON`, `UiCode`, `UiTable`, `UiDataSummary`
+- Literal objects: `{ ui: "image" | "markdown" | "html" | "json" | "code" | "table" | "dataSummary" | "alert" | "badge" | "metric" | "progress" | "spinner", ... }`
 
 Note: For async work (like fetching an image and converting to base64), wrap in an async IIFE and return the result.
 
@@ -151,6 +151,135 @@ Literal
 
 ```ts
 ({ ui: "code", code: "let x: number = 42;", language: "ts" });
+```
+
+## Table / Grid
+
+Simple table with sorting and pagination
+
+```ts
+import { UiTable } from "@nodebooks/ui";
+const rows = Array.from({ length: 57 }, (_, i) => ({
+  id: i + 1,
+  name: `Item ${i + 1}`,
+  value: Math.round(Math.random() * 1000) / 10,
+  flag: i % 3 === 0,
+}));
+UiTable(rows, {
+  sort: { key: "id", direction: "asc" },
+  page: { size: 10 },
+  density: "normal",
+});
+```
+
+Explicit columns with labels and alignment
+
+```ts
+import { UiTable } from "@nodebooks/ui";
+UiTable(
+  [
+    { a: "alpha", b: 3.14159, c: true },
+    { a: "beta", b: 2.71828, c: false },
+  ],
+  {
+    columns: [
+      { key: "a", label: "Name" },
+      { key: "b", label: "Score", align: "right" },
+      { key: "c", label: "Flag", align: "center" },
+    ],
+  }
+);
+```
+
+## Data Summary
+
+Summarize a dataset: schema, stats, sample rows
+
+```ts
+import { UiDataSummary } from "@nodebooks/ui";
+UiDataSummary({
+  title: "Users Dataset",
+  schema: [
+    { name: "id", type: "integer", nullable: false },
+    { name: "name", type: "string" },
+    { name: "age", type: "number" },
+    { name: "active", type: "boolean" },
+  ],
+  stats: {
+    id: { count: 1000, distinct: 1000, min: 1, max: 1000 },
+    age: { count: 950, min: 18, max: 93, mean: 41.2, median: 40 },
+    active: { count: 1000, distinct: 2 },
+  },
+  sample: [
+    { id: 1, name: "Alice", age: 33, active: true },
+    { id: 2, name: "Bob", age: 51, active: false },
+  ],
+  note: "Stats computed on 1,000 rows.",
+});
+```
+
+## Status & Metrics
+
+### Alert / Callout
+
+```ts
+import { UiAlert } from "@nodebooks/ui";
+UiAlert({
+  level: "success",
+  title: "Installed",
+  text: "Dependencies are ready.",
+});
+```
+
+HTML content (sanitized):
+
+```ts
+import { UiAlert } from "@nodebooks/ui";
+UiAlert({
+  level: "warn",
+  title: "Check",
+  html: "<em>Be careful</em> with settings.",
+});
+```
+
+### Badge / Tag
+
+```ts
+import { UiBadge } from "@nodebooks/ui";
+UiBadge("beta", { color: "brand" });
+```
+
+### Metric / KPI Tile
+
+```ts
+import { UiMetric } from "@nodebooks/ui";
+UiMetric(1234, {
+  label: "Requests",
+  unit: "/min",
+  delta: 42,
+  helpText: "Rolling 1m",
+});
+```
+
+### Progress Bar / Spinner
+
+```ts
+import { UiProgress, UiSpinner } from "@nodebooks/ui";
+UiProgress(64, { label: "Processing" });
+```
+
+Indeterminate:
+
+```ts
+import { UiProgress } from "@nodebooks/ui";
+UiProgress({ indeterminate: true, label: "Loading" });
+```
+
+Spinner:
+
+```ts
+import { UiSpinner } from "@nodebooks/ui";
+UiSpinner({ label: "Fetching", size: "lg" });
 ```
 
 ## Tips
