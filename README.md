@@ -58,6 +58,11 @@ pnpm start
 - `EMBED_NEXT` – When `false`, disables serving the UI from Fastify (use separate Next server in dev).
 - `NEXT_KEEP_CLIENT_CWD` – Keep CWD pinned to the client root for PostCSS/Tailwind resolution (default `true`).
 - `NODEBOOKS_SQLITE_PATH` – Path to the SQLite file for notebooks storage (defaults to `apps/backend/data/nodebooks.sqlite`).
+- `NODEBOOKS_PERSISTENCE` – Notebook persistence driver (`sqlite` default). Supported values:
+  - `sqlite` – Persist notebooks to the bundled `sql.js` database file.
+  - `postgres` – Use PostgreSQL via `DATABASE_URL`.
+  - `in-memory` – Ephemeral storage useful for local smoke tests.
+- `DATABASE_URL` – PostgreSQL connection string used when `NODEBOOKS_PERSISTENCE=postgres`.
 - `KERNEL_WS_HEARTBEAT_MS` – Server→client WebSocket ping interval in ms to keep
   connections alive behind proxies with idle timeouts (default `25000`).
 

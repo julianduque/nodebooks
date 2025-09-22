@@ -1165,7 +1165,7 @@ const createProcessProxy = (
       deleteProperty(_t, prop: string | symbol) {
         if (typeof prop !== "string") return false;
         const env = getEnv();
-         
+
         delete env[prop];
         return true;
       },
