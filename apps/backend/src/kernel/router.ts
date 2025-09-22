@@ -17,6 +17,15 @@ import { NotebookRuntime } from "./runtime.js";
 
 const runtimes = new Map<string, NotebookRuntime>();
 
+// Heartbeat interval in ms to keep WebSocket connections alive behind proxies
+// like Heroku's router (55s idle timeout). Default to 25s, overridable via env.
+const HEARTBEAT_INTERVAL_MS = (() => {
+  const raw = process.env.KERNEL_WS_HEARTBEAT_MS;
+  const parsed = raw ? Number.parseInt(raw, 10) : 25_000;
+  // Clamp to a reasonable minimum (10s) and maximum (50s)
+  return Math.min(Math.max(parsed || 25_000, 10_000), 50_000);
+})();
+
 // WebSocket connections at `${prefix}/ws/sessions/:id` using `ws` directly.
 export const createKernelUpgradeHandler = (
   prefix: string,
@@ -95,6 +104,40 @@ const handleConnection = async (
 
   const runtime = ensureRuntime(session.id);
 
+  // --- WebSocket heartbeat (server -> client ping, client -> server pong) ---
+  // Browsers automatically reply to ping frames with a pong. This maintains
+  // activity on the connection so intermediaries (e.g., Heroku router) do not
+  // close it for idleness.
+  const ws = connection as WebSocket & { isAlive?: boolean };
+  ws.isAlive = true;
+  ws.on("pong", () => {
+    ws.isAlive = true;
+  });
+  const hb = setInterval(() => {
+    // Stop if the socket is no longer open
+    if (ws.readyState !== WebSocket.OPEN) {
+      clearInterval(hb);
+      return;
+    }
+    // If we didn't get a pong since last ping, terminate
+    if (ws.isAlive === false) {
+      try {
+        ws.terminate();
+      } catch (err) {
+        void err;
+      }
+      clearInterval(hb);
+      return;
+    }
+    // Mark as pending and send ping
+    ws.isAlive = false;
+    try {
+      ws.ping();
+    } catch (err) {
+      void err;
+    }
+  }, HEARTBEAT_INTERVAL_MS);
+
   connection.on("message", async (raw: RawData) => {
     const parsed = parseClientMessage(raw);
     if (!parsed.success) {
@@ -135,6 +178,7 @@ const handleConnection = async (
   });
 
   connection.on("close", () => {
+    clearInterval(hb);
     runtimes.delete(session.id);
     void sessions.closeSession(session.id);
   });

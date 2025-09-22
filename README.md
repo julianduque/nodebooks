@@ -58,6 +58,8 @@ pnpm start
 - `EMBED_NEXT` – When `false`, disables serving the UI from Fastify (use separate Next server in dev).
 - `NEXT_KEEP_CLIENT_CWD` – Keep CWD pinned to the client root for PostCSS/Tailwind resolution (default `true`).
 - `NODEBOOKS_SQLITE_PATH` – Path to the SQLite file for notebooks storage (defaults to `apps/backend/data/nodebooks.sqlite`).
+- `KERNEL_WS_HEARTBEAT_MS` – Server→client WebSocket ping interval in ms to keep
+  connections alive behind proxies with idle timeouts (default `25000`).
 
 ## Testing & Quality
 
