@@ -59,6 +59,7 @@ pnpm start
 - `NEXT_KEEP_CLIENT_CWD` – Keep CWD pinned to the client root for PostCSS/Tailwind resolution (default `true`).
 - `NODEBOOKS_SQLITE_PATH` – Path to the SQLite file for notebooks storage (defaults to `apps/backend/data/nodebooks.sqlite`).
 - `NODEBOOKS_PERSISTENCE` – Notebook persistence driver (`sqlite` default). Supported values:
+- `NODEBOOKS_KERNEL_TIMEOUT_MS` – Kernel execution timeout in ms (default `10000`).
   - `sqlite` – Persist notebooks to the bundled `sql.js` database file.
   - `postgres` – Use PostgreSQL via `DATABASE_URL`.
   - `in-memory` – Ephemeral storage useful for local smoke tests.

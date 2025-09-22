@@ -15,7 +15,7 @@ const AddCellMenu = ({
   return (
     <div
       className={clsx(
-        "flex items-center gap-1 px-1 py-1 text-sm text-slate-600 shadow-sm",
+        "mt-1 mb-2 flex items-center gap-1 px-1 py-1 text-sm text-slate-600",
         className
       )}
     >

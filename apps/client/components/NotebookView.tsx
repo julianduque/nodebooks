@@ -1013,7 +1013,8 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
             )}
             {/* dependency form moved to Setup sidebar */}
 
-            <div className="space-y-4">
+            {/* Tighter vertical rhythm between cells */}
+            <div className="space-y-2">
               {notebook.cells.map((cell, index) => (
                 <CellCard
                   key={cell.id}
