@@ -57,66 +57,150 @@ const rewriteTopLevelDeclarations = (source: string, _lang: "js" | "ts") => {
   let inString: false | '"' | "'" | "`" = false;
   const result: string[] = [];
 
-  const replaceVar = (line: string) => {
-    // handle export prefix
+  // Collect a top-level variable initializer across multiple lines until the
+  // terminating semicolon that is not inside (), [], {} or strings/comments.
+  const replaceVarMultiline = (
+    startLineIdx: number
+  ): { text: string; consumed: number } | null => {
+    const line = lines[startLineIdx] ?? "";
     const exportRe = /^\s*export\s+/;
     const exportPrefix = exportRe.test(line) ? line.match(exportRe)![0] : "";
     const rest = exportPrefix ? line.slice(exportPrefix.length) : line;
-    // const/let/var with optional type annotation
     const varRe =
       /^(\s*)(const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::[^=;]+)?\s*=\s*/;
     const m = rest.match(varRe);
     if (!m) return null;
     const indent = m[1] ?? "";
     const name = m[3];
-    const afterRaw = rest.slice(m[0].length);
-    // Extract only the first expression on the line (until a semicolon that is
-    // not inside strings/brackets), so we don't swallow following statements.
-    let i = 0;
+    // Start with the remainder of the first line after the initializer '='
+    const chunks: string[] = [rest.slice(m[0].length)];
+
+    let iLine = startLineIdx;
+    let iChar = 0;
     let inStr: false | '"' | "'" | "`" = false;
+    let inLineComment = false;
+    let inBlkComment = false;
     let depthParen = 0;
     let depthBracket = 0;
     let depthBrace = 0;
-    let end = -1;
-    while (i < afterRaw.length) {
-      const ch = afterRaw[i]!;
-      if (inStr) {
-        if (ch === "\\") {
-          i += 2;
+    let found = false;
+    let tail = "";
+
+    // We already consumed the prefix on the first line, continue scanning from there
+    let remainder = chunks[0] ?? "";
+    while (true) {
+      const text = remainder;
+      iChar = 0;
+      while (iChar < text.length) {
+        const ch = text[iChar]!;
+        const next = text[iChar + 1];
+        if (inLineComment) {
+          // comment to EOL
+          break;
+        }
+        if (inBlkComment) {
+          if (ch === "*" && next === "/") {
+            inBlkComment = false;
+            iChar += 2;
+            continue;
+          }
+          iChar++;
           continue;
         }
-        if (ch === inStr) inStr = false;
-        i++;
-        continue;
+        if (inStr) {
+          if (ch === "\\") {
+            iChar += 2;
+            continue;
+          }
+          if ((inStr === "`" && ch === "`") || ch === inStr) {
+            inStr = false;
+            iChar++;
+            continue;
+          }
+          iChar++;
+          continue;
+        }
+        if (ch === "/" && next === "/") {
+          inLineComment = true;
+          iChar += 2;
+          continue;
+        }
+        if (ch === "/" && next === "*") {
+          inBlkComment = true;
+          iChar += 2;
+          continue;
+        }
+        if (ch === '"' || ch === "'") {
+          inStr = ch as '"' | "'";
+          iChar++;
+          continue;
+        }
+        if (ch === "`") {
+          inStr = "`";
+          iChar++;
+          continue;
+        }
+        if (ch === "(") depthParen++;
+        else if (ch === ")") depthParen = Math.max(0, depthParen - 1);
+        else if (ch === "[") depthBracket++;
+        else if (ch === "]") depthBracket = Math.max(0, depthBracket - 1);
+        else if (ch === "{") depthBrace++;
+        else if (ch === "}") depthBrace = Math.max(0, depthBrace - 1);
+
+        if (
+          ch === ";" &&
+          depthParen === 0 &&
+          depthBracket === 0 &&
+          depthBrace === 0
+        ) {
+          // Split expr on this semicolon
+          const before = text.slice(0, iChar);
+          const after = text.slice(iChar + 1);
+          // Replace the current chunk with the part before the semicolon
+          chunks[chunks.length - 1] = before;
+          tail = after; // remainder after ; on same line
+          found = true;
+          break;
+        }
+        iChar++;
       }
-      if (ch === '"' || ch === "'" || ch === "`") {
-        inStr = ch as '"' | "'" | "`";
-        i++;
-        continue;
-      }
-      if (ch === "(") depthParen++;
-      else if (ch === ")") depthParen = Math.max(0, depthParen - 1);
-      else if (ch === "[") depthBracket++;
-      else if (ch === "]") depthBracket = Math.max(0, depthBracket - 1);
-      else if (ch === "{") depthBrace++;
-      else if (ch === "}") depthBrace = Math.max(0, depthBrace - 1);
+      if (found) break;
+      // Consider end-of-line as a terminator via ASI when not inside any
+      // grouping and not in string/comment.
       if (
-        ch === ";" &&
+        !inStr &&
+        !inBlkComment &&
+        !inLineComment &&
         depthParen === 0 &&
         depthBracket === 0 &&
-        depthBrace === 0
+        depthBrace === 0 &&
+        // Only permit ASI termination if we've actually consumed
+        // some expression content after the '=' across chunks so far.
+        chunks.join("").trim().length > 0
       ) {
-        end = i; // semicolon ends the expression
+        found = true; // terminate at end of this line
         break;
       }
-      i++;
+      // Move to next line, append newline + full line
+      iLine++;
+      if (iLine >= lines.length) {
+        // No terminating semicolon; treat end-of-file as end
+        break;
+      }
+      const nextLine = lines[iLine] ?? "";
+      const nextChunk = "\n" + nextLine;
+      chunks.push(nextChunk);
+      remainder = nextChunk;
+      inLineComment = false;
+      // inStr / inBlkComment carry across lines
     }
-    const expr = (end >= 0 ? afterRaw.slice(0, end) : afterRaw).trimEnd();
-    const tail = end >= 0 ? afterRaw.slice(end + 1) : ""; // remainder after semicolon
+
+    const expr = chunks.join("").trimEnd();
     const assign = `${indent}var ${name} = (globalThis.${name} = ${expr});`;
-    const remainder =
-      tail.trim().length > 0 ? `\n${indent}${tail.trimStart()}` : "";
-    return assign + remainder;
+    const remainderText =
+      tail && tail.trim().length > 0 ? `\n${indent}${tail.trimStart()}` : "";
+    const consumed = iLine - startLineIdx;
+    return { text: assign + remainderText, consumed };
   };
 
   const replaceFunction = (line: string) => {
@@ -191,9 +275,10 @@ const rewriteTopLevelDeclarations = (source: string, _lang: "js" | "ts") => {
     }
 
     if (depth === 0 && !inBlockComment && !inString) {
-      const replacedVar = replaceVar(line);
+      const replacedVar = replaceVarMultiline(i);
       if (replacedVar !== null) {
-        result.push(replacedVar);
+        result.push(replacedVar.text);
+        i += replacedVar.consumed; // skip consumed following lines
         continue;
       }
       const replacedFn = replaceFunction(line);
@@ -418,6 +503,10 @@ export class NotebookRuntime {
 
       const rewritten = rewriteTopLevelDeclarations(code, cell.language);
       const wrapped = wrapForTopLevelAwait(rewritten);
+      if (process.env.NB_DEBUG === "1") {
+        this.console.proxy.log("[debug] rewritten code:\n" + rewritten);
+        this.console.proxy.log("[debug] wrapped code:\n" + wrapped);
+      }
       const compiled = await transform(wrapped, {
         loader: cell.language === "ts" ? "ts" : "js",
         format: "cjs",
