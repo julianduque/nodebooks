@@ -408,6 +408,8 @@ export class NotebookRuntime {
   private prepareQueue: Promise<void> = Promise.resolve();
   private currentNotebookId: string | null = null;
   private currentEnvKey: string | null = null;
+  // Per-runtime view of environment variables exposed to user code via process.env
+  private exposedEnv: Record<string, string> = {};
 
   constructor(options: NotebookRuntimeOptions = {}) {
     this.workspaceRoot = options.workspaceRoot ?? DEFAULT_WORKSPACE_ROOT;
@@ -416,7 +418,8 @@ export class NotebookRuntime {
     fs.mkdirSync(this.workspaceRoot, { recursive: true });
 
     this.processProxy = createProcessProxy(
-      () => this.sandboxDir ?? this.workspaceRoot
+      () => this.sandboxDir ?? this.workspaceRoot,
+      () => this.exposedEnv
     );
 
     const placeholderRequire = createPlaceholderRequire();
@@ -479,24 +482,16 @@ export class NotebookRuntime {
       outputs.push(stream);
       onStream?.(stream);
     });
-
-    // Encourage third‑party libs to emit ANSI colors even without a real TTY
-    const prevForceColor = process.env.FORCE_COLOR;
-    const prevNoColor = process.env.NO_COLOR;
-    const prevTerm = process.env.TERM;
-    if (prevForceColor === undefined) process.env.FORCE_COLOR = "3";
-    if (prevNoColor !== undefined) delete process.env.NO_COLOR;
-    if (!prevTerm) process.env.TERM = "xterm-256color";
-
-    // Apply user-defined environment variables for the duration of execution
-    const userEnvEntries = Object.entries(env.variables ?? {}).filter(
-      ([name]) => name.trim().length > 0
-    );
-    const prevUserEnv: Record<string, string | undefined> = {};
-    for (const [name, value] of userEnvEntries) {
-      prevUserEnv[name] = process.env[name];
-      process.env[name] = String(value);
+    // Build the per-notebook environment view exposed to user code via process.env
+    const nextEnv: Record<string, string> = {};
+    for (const [k, v] of Object.entries(env.variables ?? {})) {
+      const key = String(k).trim();
+      if (!key) continue;
+      nextEnv[key] = String(v);
     }
+    // Provide non-sensitive defaults for better UX in console coloring
+    if (nextEnv.FORCE_COLOR === undefined) nextEnv.FORCE_COLOR = "1";
+    this.exposedEnv = nextEnv;
 
     try {
       await this.ensureEnvironment(notebookId, env);
@@ -568,20 +563,6 @@ export class NotebookRuntime {
         },
       } satisfies ExecuteResult;
     } finally {
-      // Restore environment mutations
-      if (prevForceColor === undefined) delete process.env.FORCE_COLOR;
-      else process.env.FORCE_COLOR = prevForceColor;
-      if (prevNoColor !== undefined) process.env.NO_COLOR = prevNoColor;
-      else delete process.env.NO_COLOR;
-      if (!prevTerm) delete process.env.TERM;
-      else process.env.TERM = prevTerm;
-
-      // Restore user-defined env variables
-      for (const [name] of userEnvEntries) {
-        const prev = prevUserEnv[name];
-        if (prev === undefined) delete process.env[name];
-        else process.env[name] = prev;
-      }
       this.console.setEmitter(null);
     }
   }
@@ -696,7 +677,11 @@ export class NotebookRuntime {
 
   private assignSandboxBindings(sandboxDir: string) {
     const sandboxFs = createSandboxFs(sandboxDir);
-    const sandboxRequire = createSandboxRequire(sandboxDir, sandboxFs);
+    const sandboxRequire = createSandboxRequire(
+      sandboxDir,
+      sandboxFs,
+      this.processProxy
+    );
 
     this.sandboxDir = sandboxDir;
     this.sandboxFs = sandboxFs;
@@ -1102,7 +1087,8 @@ const createPlaceholderRequire = (): NodeJS.Require => {
 
 const createSandboxRequire = (
   root: string,
-  fsModule: typeof fs
+  fsModule: typeof fs,
+  processProxy: NodeJS.Process
 ): NodeJS.Require => {
   const entry = join(root, "__runtime__.cjs");
   const base = createRequire(entry);
@@ -1113,6 +1099,9 @@ const createSandboxRequire = (
     }
     if (specifier === "fs/promises" || specifier === "node:fs/promises") {
       return fsModule.promises;
+    }
+    if (specifier === "process" || specifier === "node:process") {
+      return processProxy;
     }
     if (specifier === "child_process" || specifier === "node:child_process") {
       throw new Error(
@@ -1136,7 +1125,10 @@ const createSandboxRequire = (
   return sandboxRequire;
 };
 
-const createProcessProxy = (getCwd: () => string): NodeJS.Process => {
+const createProcessProxy = (
+  getCwd: () => string,
+  getEnv: () => Record<string, string>
+): NodeJS.Process => {
   const ttyLike = <T extends NodeJS.WriteStream>(stream: T): T => {
     // Present a TTY-like stream to libraries that check isTTY
     return new Proxy(stream, {
@@ -1150,6 +1142,49 @@ const createProcessProxy = (getCwd: () => string): NodeJS.Process => {
       },
     });
   };
+
+  // A proxy for process.env that only exposes the provided env object.
+  const createEnvProxy = () =>
+    new Proxy(Object.create(null) as Record<string, string>, {
+      get(_t, prop: string | symbol) {
+        if (typeof prop !== "string") return undefined;
+        const env = getEnv();
+        return env[prop];
+      },
+      set(_t, prop: string | symbol, value) {
+        if (typeof prop !== "string") return false;
+        const env = getEnv();
+        env[prop] = String(value);
+        return true;
+      },
+      has(_t, prop: string | symbol) {
+        if (typeof prop !== "string") return false;
+        const env = getEnv();
+        return Object.prototype.hasOwnProperty.call(env, prop);
+      },
+      deleteProperty(_t, prop: string | symbol) {
+        if (typeof prop !== "string") return false;
+        const env = getEnv();
+         
+        delete env[prop];
+        return true;
+      },
+      ownKeys() {
+        const env = getEnv();
+        return Reflect.ownKeys(env);
+      },
+      getOwnPropertyDescriptor(_t, prop: string | symbol) {
+        if (typeof prop !== "string") return undefined;
+        const env = getEnv();
+        if (!Object.prototype.hasOwnProperty.call(env, prop)) return undefined;
+        return {
+          configurable: true,
+          enumerable: true,
+          writable: true,
+          value: env[prop],
+        };
+      },
+    });
 
   return new Proxy(process, {
     get(target, prop, receiver) {
@@ -1178,8 +1213,7 @@ const createProcessProxy = (getCwd: () => string): NodeJS.Process => {
         return ttyLike(target.stderr as NodeJS.WriteStream);
       }
       if (prop === "env") {
-        // Force color support for common color libraries
-        return { ...target.env, FORCE_COLOR: target.env.FORCE_COLOR ?? "1" };
+        return createEnvProxy();
       }
 
       const value = Reflect.get(target, prop, receiver);
