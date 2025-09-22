@@ -43,7 +43,7 @@ const AddCellMenu = ({
   return (
     <div
       className={clsx(
-        "flex items-center gap-1 text-xs text-slate-600 shadow-sm",
+        "mt-1 flex items-center gap-1 text-xs text-slate-600 shadow-sm",
         className
       )}
     >
@@ -207,8 +207,9 @@ const CellCard = ({
         />
       )}
 
-      <div className="flex justify-center pt-2 opacity-0 transition pointer-events-none group-hover/cell:opacity-100 group-hover/cell:pointer-events-auto group-focus-within/cell:opacity-100 group-focus-within/cell:pointer-events-auto">
-        <AddCellMenu onAdd={onAddBelow} className="px-1 py-1text-[11px]" />
+      {/* Collapse the inline add menu when idle so it doesn't add gap */}
+      <div className="flex h-1 flex-1 mb-1 mt-1 justify-center overflow-hidden opacity-0 transition pointer-events-none group-hover/cell:h-10 group-focus-within/cell:h-10 group-hover/cell:opacity-100 group-focus-within/cell:opacity-100 group-hover/cell:pointer-events-auto group-focus-within/cell:pointer-events-auto">
+        <AddCellMenu onAdd={onAddBelow} className="text-[11px]" />
       </div>
     </article>
   );

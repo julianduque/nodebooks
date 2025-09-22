@@ -20,7 +20,7 @@ import type {
 } from "@nodebooks/notebook-schema";
 import { UiDisplaySchema, NODEBOOKS_UI_MIME } from "@nodebooks/notebook-schema";
 
-const DEFAULT_TIMEOUT_MS = 10_000;
+const DEFAULT_TIMEOUT_MS = process.env.NODEBOOKS_KERNEL_TIMEOUT_MS ?? 10_000;
 
 interface NotebookRuntimeOptions {
   workspaceRoot?: string;
