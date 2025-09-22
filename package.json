@@ -14,7 +14,8 @@
     "lint": "pnpm -r lint",
     "test": "pnpm -r test",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "start": "pnpm --filter @nodebooks/server start"
   },
   "devDependencies": {
     "@eslint/js": "^9.36.0",

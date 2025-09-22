@@ -1,90 +1,80 @@
 # NodeBooks
 
-NodeBooks is an experimental JS/TS notebook environment that pairs a Fastify API with a Next.js UI. The current MVP supports editing Markdown and code cells, executing TypeScript or JavaScript against a sandboxed runtime, and streaming outputs back to the browser in real time.
+NodeBooks is an experimental JS/TS notebook environment that pairs a Fastify API with a Next.js UI. It supports editing Markdown and code cells, executing TypeScript/JavaScript, and streaming outputs to the browser in real time.
 
-## Project layout
+## Project Layout
 
 ```
 nodebooks/
 ├── apps/
-│   ├── backend/          # Fastify 5 API server with REST + WebSocket kernel bridge
-│   └── client/           # Next.js 15 client with Monaco-powered notebook UI
+│   ├── backend/           # @nodebooks/server – Fastify 5 API + optional embedded Next.js
+│   └── client/            # @nodebooks/client – Next.js 15 UI (Monaco-powered editor)
 ├── packages/
-│   └── notebook-schema/  # Shared schema + kernel protocol helpers
-├── Dockerfile            # Local development container (pnpm dev inside)
-├── package.json          # pnpm workspace configuration
+│   ├── notebook-schema/   # Shared Zod models + kernel protocol (built to dist/, exported via package.exports)
+│   └── notebook-ui/       # Reusable React UI pieces for notebook displays
+├── package.json           # pnpm workspace config and root scripts
 ├── pnpm-workspace.yaml
 └── tsconfig.base.json
 ```
 
-## Getting started
+## Requirements
 
-Install dependencies with pnpm (v10+).
+- Node 20+
+- pnpm 10 (Corepack-enabled Node images work out of the box)
 
-Single-port dev (Fastify serves Next.js):
+## Install
 
 ```bash
 pnpm install
-pnpm --filter @nodebooks/api dev
 ```
 
-- App: http://localhost:4000 (Fastify + Next.js dev)
+## Development
 
-Legacy multi-process dev (separate ports):
+- Single-port dev (Fastify serves the Next.js UI):
+  - `pnpm dev`
+  - App: http://localhost:4000
+
+- API-only + separate Next.js dev (two terminals):
+  - Terminal 1 (API): `pnpm api:dev` (Fastify on http://localhost:4000)
+  - Terminal 2 (UI): `pnpm ui:dev` (Next.js on http://localhost:3000)
+  - The UI dev script is preconfigured with `NEXT_PUBLIC_API_BASE_URL=http://localhost:4000/api`.
+
+## Production
+
+Build all workspaces, then start the server in production mode:
 
 ```bash
-pnpm dev
+pnpm -w build
+pnpm start
 ```
 
-- API: http://localhost:4000
-- UI: http://localhost:3000
+- Server listens on `HOST` (default `0.0.0.0`) and `PORT` (default `4000`).
+- The backend serves the built Next.js UI by default (`EMBED_NEXT=true`).
 
-The UI now fetches notebooks from the API, shows a sidebar of available notebooks, persists edits automatically, and opens a WebSocket session per notebook. Executing a code cell streams console output and final results from the Node-based runtime.
+### Environment Variables
 
-The API stores notebook documents in a SQLite database located at `./data/nodebooks.sqlite` by default. Set the `NODEBOOKS_SQLITE_PATH` environment variable to point to a different file if needed.
+- `PORT` – Port to bind (default `4000`).
+- `HOST` – Host to bind (default `0.0.0.0`).
+- `EMBED_NEXT` – When `false`, disables serving the UI from Fastify (use separate Next server in dev).
+- `NEXT_KEEP_CLIENT_CWD` – Keep CWD pinned to the client root for PostCSS/Tailwind resolution (default `true`).
+- `NODEBOOKS_SQLITE_PATH` – Path to the SQLite file for notebooks storage (defaults to `apps/backend/data/nodebooks.sqlite`).
 
-### Running tests & quality checks
+## Testing & Quality
 
 ```bash
-pnpm lint           # ESLint (root config across all workspaces)
-pnpm test           # Vitest across all workspaces
-pnpm format:check   # Prettier check (no writes)
+pnpm lint           # ESLint across workspaces
+pnpm test           # Vitest across workspaces
+pnpm format         # Prettier write
+pnpm format:check   # Prettier verify only
 ```
 
-These commands run across all workspaces. Unit tests cover the shared schema helpers and the kernel runtime execution engine. The project uses Vitest 3 with globals enabled.
+- Backend and schema tests live alongside code under `src/**/*.test.ts`.
+- UI tests live under `apps/client/tests/` (JSDOM).
 
-To verify dependency freshness run:
+## Notes
 
-```bash
-pnpm outdated
-```
-
-### Formatting
-
-Prettier enforces code style (2-space indent, double quotes). Run:
-
-```bash
-pnpm format         # Write formatting changes
-pnpm format:check   # Verify formatting without writes
-```
-
-Configuration lives in `.prettierrc`; generated/build artifacts and `apps/backend/data` are ignored via `.prettierignore`.
-
-### Docker workflow
-
-A production-oriented Dockerfile is included. Build the image and run a single server that serves both API and UI on one port:
-
-```bash
-docker build -t nodebooks .
-docker run --rm -it -p 4000:4000 nodebooks
-```
-
-### Next steps
-
-- Harden the runtime sandbox (resource limits, module allow lists)
-- Introduce Postgres persistence for shared/cloud deployments
-- Implement interrupt/restart flows and package installation hooks
-- Expand the UI with richer output renderers and collaboration primitives
+- Cross-workspace imports use the `@nodebooks/*` aliases.
+- The shared `@nodebooks/notebook-schema` package builds to `dist/` and is consumed as compiled ESM at runtime.
 
 ## License
 
