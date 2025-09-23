@@ -54,7 +54,7 @@ notebook:
           10
         );
 
-        export const api = axios.create({
+        const api = axios.create({
           baseURL: process.env.API_BASE_URL ?? "https://api.example.com",
           timeout,
           headers: {
@@ -65,13 +65,13 @@ notebook:
           },
         });
 
-        export const StatusSchema = z.object({
+        const StatusSchema = z.object({
           status: z.string(),
           uptime: z.number().nonnegative(),
           version: z.string().optional(),
         });
 
-        export async function checkStatus() {
+        async function checkStatus() {
           const response = await api.get("/status");
           const payload = StatusSchema.parse(response.data);
           console.log("Service status:", payload.status);
@@ -87,13 +87,13 @@ notebook:
           description: string;
         }
 
-        export const smokePlan: EndpointSpec[] = [
+        const smokePlan: EndpointSpec[] = [
           { method: "GET", path: "/status", description: "Health check" },
           { method: "GET", path: "/users", description: "List users" },
           { method: "POST", path: "/users", description: "Create user" },
         ];
 
-        export async function runSmokePlan() {
+        async function runSmokePlan() {
           for (const step of smokePlan) {
             const response = await api.request({
               method: step.method,
@@ -104,34 +104,3 @@ notebook:
         }
 
         console.log("Invoke runSmokePlan() or build richer test flows.");
-      outputs:
-        - type: display_data
-          data:
-            'application/vnd.nodebooks.ui+json':
-              ui: alert
-              level: info
-              title: Configure your API key
-              text: >-
-                Set `API_BASE_URL` and optionally `AUTH_TOKEN` in the notebook env
-                before running the smoke plan.
-        - type: display_data
-          data:
-            'application/vnd.nodebooks.ui+json':
-              ui: table
-              columns:
-                - key: method
-                  label: Method
-                - key: path
-                  label: Path
-                - key: description
-                  label: Description
-              rows:
-                - method: GET
-                  path: /status
-                  description: Health check
-                - method: GET
-                  path: /users
-                  description: List users
-                - method: POST
-                  path: /users
-                  description: Create user

@@ -16,7 +16,7 @@ import {
 } from "@nodebooks/notebook-schema";
 
 const TemplateEnvSchema = z.object({
-  runtime: z.enum(["node", "bun"]).optional(),
+  runtime: z.enum(["node"]).optional(),
   version: z.string().optional(),
   packages: z.record(z.string(), z.string()).optional(),
   variables: z.record(z.string(), z.string()).optional(),
@@ -91,7 +91,10 @@ const TEMPLATE_DIR = process.env.NODEBOOKS_TEMPLATE_DIR
 const registry = new Map<string, NotebookTemplateDefinition>();
 
 class TemplateParseError extends Error {
-  constructor(message: string, readonly filePath: string) {
+  constructor(
+    message: string,
+    readonly filePath: string
+  ) {
     super(message);
     this.name = "TemplateParseError";
   }

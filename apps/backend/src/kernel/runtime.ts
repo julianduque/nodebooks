@@ -221,18 +221,14 @@ const rewriteTopLevelDeclarations = (source: string, _lang: "js" | "ts") => {
   };
 
   const replaceFunction = (line: string) => {
-    const exportRe = /^\s*export\s+/;
-    const exportPrefix = exportRe.test(line) ? line.match(exportRe)![0] : "";
-    const rest = exportPrefix ? line.slice(exportPrefix.length) : line;
-    const fnRe = /^(\s*)function\s+([A-Za-z_$][\w$]*)\s*\(/;
-    const m = rest.match(fnRe);
-    if (!m) return null;
-    const indent = m[1] ?? "";
-    const name = m[2];
-    return line.replace(
-      new RegExp(`^${indent}(?:export\\s+)?function\\s+${name}\\s*\\(`),
-      `${indent}globalThis.${name} = function ${name}(`
-    );
+    const fnRe =
+      /^(\s*)(?:export\s+)?(?:default\s+)?(?:(async)\s+)?function(\s*\*?)\s+([A-Za-z_$][\w$]*)\s*(\()/;
+    if (!fnRe.test(line)) return null;
+    return line.replace(fnRe, (_, indent, asyncKeyword, star, name, paren) => {
+      const asyncPrefix = asyncKeyword ? "async " : "";
+      const starSuffix = star ?? "";
+      return `${indent}globalThis.${name} = ${asyncPrefix}function${starSuffix} ${name}${paren}`;
+    });
   };
 
   const replaceClass = (line: string) => {
@@ -252,6 +248,26 @@ const rewriteTopLevelDeclarations = (source: string, _lang: "js" | "ts") => {
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
+
+    if (depth === 0 && !inBlockComment && !inString) {
+      const replacedVar = replaceVarMultiline(i);
+      if (replacedVar !== null) {
+        result.push(replacedVar.text);
+        i += replacedVar.consumed; // skip consumed following lines
+        continue;
+      }
+      const replacedFn = replaceFunction(line);
+      if (replacedFn !== null) {
+        result.push(replacedFn);
+        continue;
+      }
+      const replacedCls = replaceClass(line);
+      if (replacedCls !== null) {
+        result.push(replacedCls);
+        continue;
+      }
+    }
+
     let j = 0;
     while (j < line.length) {
       const ch = line[j];
@@ -289,25 +305,6 @@ const rewriteTopLevelDeclarations = (source: string, _lang: "js" | "ts") => {
         }
       }
       j++;
-    }
-
-    if (depth === 0 && !inBlockComment && !inString) {
-      const replacedVar = replaceVarMultiline(i);
-      if (replacedVar !== null) {
-        result.push(replacedVar.text);
-        i += replacedVar.consumed; // skip consumed following lines
-        continue;
-      }
-      const replacedFn = replaceFunction(line);
-      if (replacedFn !== null) {
-        result.push(replacedFn);
-        continue;
-      }
-      const replacedCls = replaceClass(line);
-      if (replacedCls !== null) {
-        result.push(replacedCls);
-        continue;
-      }
     }
 
     result.push(line);
