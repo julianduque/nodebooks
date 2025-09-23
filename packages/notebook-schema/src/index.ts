@@ -3,6 +3,33 @@ import { z } from "zod";
 // Vendor MIME type for structured UI displays
 export const NODEBOOKS_UI_MIME = "application/vnd.nodebooks.ui+json" as const;
 
+const FALLBACK_NODE_VERSION = "20.x" as const;
+const FALLBACK_GENERIC_RUNTIME_VERSION = "latest" as const;
+
+/**
+ * Best-effort detection of the local Node.js runtime version. When executed in
+ * a non-Node environment (e.g. the browser), the fallback semantic version is
+ * returned instead.
+ */
+export const detectNodeRuntimeVersion = (): string => {
+  try {
+    const maybeProcess =
+      typeof globalThis === "object" && globalThis
+        ? (globalThis as { process?: { versions?: { node?: unknown } } })
+            .process
+        : undefined;
+    const version =
+      typeof maybeProcess?.versions?.node === "string"
+        ? maybeProcess.versions.node
+        : undefined;
+    return typeof version === "string" && version.trim().length > 0
+      ? version
+      : FALLBACK_NODE_VERSION;
+  } catch {
+    return FALLBACK_NODE_VERSION;
+  }
+};
+
 // UI Display schemas (rendered specially by the frontend)
 export const UiImageSchema = z.object({
   ui: z.literal("image"),
@@ -255,7 +282,7 @@ export const NotebookCellSchema = z.discriminatedUnion("type", [
 
 export const NotebookEnvSchema = z.object({
   runtime: z.enum(["node", "bun"]).default("node"),
-  version: z.string().default("20.x"),
+  version: z.string().default(() => detectNodeRuntimeVersion()),
   packages: z.record(z.string(), z.string()).default({}),
   // Key-value environment variables available to code cells via process.env
   variables: z.record(z.string(), z.string()).default({}),
@@ -281,6 +308,29 @@ export type DisplayDataOutput = z.infer<typeof DisplayDataSchema>;
 export type ErrorOutput = z.infer<typeof ErrorOutputSchema>;
 export type OutputExecution = z.infer<typeof OutputExecutionSchema>;
 
+export const normalizeNotebookEnvVersion = <
+  T extends { runtime: NotebookEnv["runtime"]; version?: string },
+>(
+  env: T
+): T & { version: string } => {
+  const rawVersion = typeof env.version === "string" ? env.version.trim() : "";
+  if (env.runtime === "node") {
+    const normalized =
+      rawVersion && rawVersion !== FALLBACK_NODE_VERSION
+        ? rawVersion
+        : detectNodeRuntimeVersion();
+    return { ...env, version: normalized };
+  }
+  if (rawVersion) {
+    return { ...env, version: rawVersion };
+  }
+  return { ...env, version: FALLBACK_GENERIC_RUNTIME_VERSION };
+};
+
+export const ensureNotebookRuntimeVersion = (notebook: Notebook): Notebook => {
+  return { ...notebook, env: normalizeNotebookEnvVersion(notebook.env) };
+};
+
 export const createEmptyNotebook = (partial?: Partial<Notebook>): Notebook => {
   const now = new Date().toISOString();
   const base: Notebook = {
@@ -291,8 +341,8 @@ export const createEmptyNotebook = (partial?: Partial<Notebook>): Notebook => {
     createdAt: partial?.createdAt ?? now,
     updatedAt: partial?.updatedAt ?? now,
   };
-
-  return NotebookSchema.parse({ ...base, ...partial });
+  const parsed = NotebookSchema.parse({ ...base, ...partial });
+  return ensureNotebookRuntimeVersion(parsed);
 };
 
 export const createCodeCell = (partial?: Partial<CodeCell>): CodeCell => {

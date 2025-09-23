@@ -4,10 +4,12 @@ import {
   createCodeCell,
   createEmptyNotebook,
   createMarkdownCell,
+  ensureNotebookRuntimeVersion,
   NotebookCellSchema,
   NotebookEnvSchema,
   NotebookSchema,
 } from "@nodebooks/notebook-schema";
+import type { Notebook } from "@nodebooks/notebook-schema";
 import type { NotebookStore } from "../types.js";
 
 const NotebookMutationSchema = z.object({
@@ -23,13 +25,17 @@ const NotebookCreateSchema = NotebookMutationSchema.extend({
     .optional(),
 });
 
+const formatNotebook = (notebook: Notebook) => {
+  return ensureNotebookRuntimeVersion(notebook);
+};
+
 export const registerNotebookRoutes = (
   app: FastifyInstance,
   store: NotebookStore
 ) => {
   app.get("/notebooks", async () => {
     return {
-      data: await store.all(),
+      data: (await store.all()).map(formatNotebook),
     };
   });
 
@@ -41,7 +47,7 @@ export const registerNotebookRoutes = (
       return { error: "Notebook not found" };
     }
 
-    return { data: notebook };
+    return { data: formatNotebook(notebook) };
   });
 
   app.post("/notebooks", async (request, reply) => {
@@ -80,16 +86,16 @@ export const registerNotebookRoutes = (
       }
     }
 
-    const notebook = await store.save(
-      NotebookSchema.parse({
-        ...base,
-        env: body.env ?? base.env,
-        cells,
-      })
-    );
+    const parsed = NotebookSchema.parse({
+      ...base,
+      env: body.env ? { ...base.env, ...body.env } : base.env,
+      cells,
+    });
+
+    const notebook = await store.save(formatNotebook(parsed));
 
     reply.code(201);
-    return { data: notebook };
+    return { data: formatNotebook(notebook) };
   });
 
   app.put("/notebooks/:id", async (request, reply) => {
@@ -102,14 +108,16 @@ export const registerNotebookRoutes = (
 
     const body = NotebookMutationSchema.parse(request.body ?? {});
 
-    const updated = await store.save({
-      ...notebook,
-      ...body,
-      env: body.env ?? notebook.env,
-      cells: body.cells ?? notebook.cells,
-    });
+    const updated = await store.save(
+      formatNotebook({
+        ...notebook,
+        ...body,
+        env: body.env ?? notebook.env,
+        cells: body.cells ?? notebook.cells,
+      })
+    );
 
-    return { data: updated };
+    return { data: formatNotebook(updated) };
   });
 
   app.delete("/notebooks/:id", async (request, reply) => {
@@ -120,6 +128,6 @@ export const registerNotebookRoutes = (
       return { error: "Notebook not found" };
     }
 
-    return { data: deleted };
+    return { data: deleted ? formatNotebook(deleted) : deleted };
   });
 };

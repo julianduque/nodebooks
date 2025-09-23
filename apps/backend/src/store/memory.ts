@@ -1,5 +1,6 @@
 import {
   createEmptyNotebook,
+  ensureNotebookRuntimeVersion,
   NotebookSchema,
   type Notebook,
 } from "@nodebooks/notebook-schema";
@@ -17,15 +18,19 @@ export class InMemoryNotebookStore implements NotebookStore {
 
   constructor(initialNotebooks: Notebook[] = []) {
     initialNotebooks.forEach((notebook) => {
-      const parsed = NotebookSchema.parse(notebook);
+      const parsed = ensureNotebookRuntimeVersion(
+        NotebookSchema.parse(notebook)
+      );
       this.notebooks.set(parsed.id, parsed);
     });
 
     if (this.notebooks.size === 0) {
-      const sample = createEmptyNotebook({
-        name: "Welcome to NodeBooks",
-        cells: [],
-      });
+      const sample = ensureNotebookRuntimeVersion(
+        createEmptyNotebook({
+          name: "Welcome to NodeBooks",
+          cells: [],
+        })
+      );
       this.notebooks.set(sample.id, sample);
     }
   }
@@ -39,10 +44,12 @@ export class InMemoryNotebookStore implements NotebookStore {
   }
 
   async save(notebook: Notebook): Promise<Notebook> {
-    const parsed = NotebookSchema.parse({
-      ...notebook,
-      updatedAt: new Date().toISOString(),
-    });
+    const parsed = ensureNotebookRuntimeVersion(
+      NotebookSchema.parse({
+        ...notebook,
+        updatedAt: new Date().toISOString(),
+      })
+    );
     this.notebooks.set(parsed.id, parsed);
     return parsed;
   }
