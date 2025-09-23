@@ -38,7 +38,7 @@ import type {
 
 const DEFAULT_TIMEOUT_MS = process.env.NODEBOOKS_KERNEL_TIMEOUT_MS ?? 10_000;
 
-interface NotebookRuntimeOptions {
+export interface NotebookRuntimeOptions {
   workspaceRoot?: string;
   installDependencies?: (
     cwd: string,
@@ -46,7 +46,7 @@ interface NotebookRuntimeOptions {
   ) => Promise<void>;
 }
 
-interface ExecuteOptions {
+export interface ExecuteOptions {
   cell: CodeCell;
   code: string;
   notebookId: string;
@@ -56,7 +56,7 @@ interface ExecuteOptions {
   timeoutMs?: number;
 }
 
-interface ExecuteResult {
+export interface ExecuteResult {
   outputs: NotebookOutput[];
   execution: OutputExecution;
 }
@@ -190,13 +190,44 @@ const rewriteTopLevelDeclarations = (source: string, _lang: "js" | "ts") => {
         !inLineComment &&
         depthParen === 0 &&
         depthBracket === 0 &&
-        depthBrace === 0 &&
-        // Only permit ASI termination if we've actually consumed
-        // some expression content after the '=' across chunks so far.
-        chunks.join("").trim().length > 0
+        depthBrace === 0
       ) {
-        found = true; // terminate at end of this line
-        break;
+        const accumulated = chunks.join("").trim();
+        if (accumulated.length > 0) {
+          const nextLine = lines[iLine + 1] ?? "";
+          const trimmedNext = nextLine.trimStart();
+          const isCommentNext =
+            trimmedNext.startsWith("//") || trimmedNext.startsWith("/*");
+          const firstChar = trimmedNext[0] ?? "";
+          const continuesExpression =
+            !isCommentNext &&
+            trimmedNext.length > 0 &&
+            (firstChar === "." ||
+              firstChar === "[" ||
+              firstChar === "(" ||
+              firstChar === "+" ||
+              firstChar === "-" ||
+              firstChar === "*" ||
+              firstChar === "/" ||
+              firstChar === "%" ||
+              firstChar === "&" ||
+              firstChar === "|" ||
+              firstChar === "^" ||
+              firstChar === "?" ||
+              firstChar === ":" ||
+              firstChar === "," ||
+              firstChar === "!" ||
+              firstChar === "=" ||
+              firstChar === "<" ||
+              firstChar === ">" ||
+              trimmedNext.startsWith("??") ||
+              trimmedNext.startsWith("?.") ||
+              trimmedNext.startsWith("**"));
+          if (!continuesExpression) {
+            found = true; // terminate at end of this line
+            break;
+          }
+        }
       }
       // Move to next line, append newline + full line
       iLine++;
