@@ -1,5 +1,9 @@
 import { Pool } from "pg";
-import { NotebookSchema, type Notebook } from "@nodebooks/notebook-schema";
+import {
+  ensureNotebookRuntimeVersion,
+  NotebookSchema,
+  type Notebook,
+} from "@nodebooks/notebook-schema";
 import type { NotebookStore } from "../types.js";
 
 export interface PostgresNotebookStoreOptions {
@@ -96,10 +100,12 @@ export class PostgresNotebookStore implements NotebookStore {
 
   async save(notebook: Notebook): Promise<Notebook> {
     await this.ready;
-    const parsed = NotebookSchema.parse({
-      ...notebook,
-      updatedAt: new Date().toISOString(),
-    });
+    const parsed = ensureNotebookRuntimeVersion(
+      NotebookSchema.parse({
+        ...notebook,
+        updatedAt: new Date().toISOString(),
+      })
+    );
 
     await this.pool.query(
       `INSERT INTO notebooks (id, name, data, created_at, updated_at)
@@ -151,6 +157,6 @@ export class PostgresNotebookStore implements NotebookStore {
 
   private deserialize(raw: unknown): Notebook {
     const value = typeof raw === "string" ? JSON.parse(raw) : raw;
-    return NotebookSchema.parse(value);
+    return ensureNotebookRuntimeVersion(NotebookSchema.parse(value));
   }
 }

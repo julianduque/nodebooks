@@ -191,15 +191,19 @@ const AppShell = ({
             })}
           </nav>
         </div>
-        <div className={cn("px-2 pb-4", collapsed && "px-1")}>
+        <div
+          className={cn("px-2 pb-4", collapsed && "px-1 flex justify-center")}
+        >
           <Button
             className={cn(
-              "w-full gap-2",
-              collapsed ? "justify-center h-9" : "justify-center h-9"
+              collapsed ? "h-9 w-9 p-0" : "h-9 w-full justify-center gap-2"
             )}
+            size={collapsed ? "icon" : "md"}
             variant="secondary"
             type="button"
             onClick={onNewNotebook}
+            aria-label="Create new notebook"
+            title="Create new notebook"
           >
             <Plus className="h-4 w-4" />
             {!collapsed && <span className="text-sm">New Notebook</span>}

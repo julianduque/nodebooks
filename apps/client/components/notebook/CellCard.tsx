@@ -19,7 +19,10 @@ import MarkdownCellView from "./MarkdownCellView";
 
 interface CellCardProps {
   cell: NotebookCell;
-  onChange: (updater: (cell: NotebookCell) => NotebookCell) => void;
+  onChange: (
+    updater: (cell: NotebookCell) => NotebookCell,
+    options?: { persist?: boolean; touch?: boolean }
+  ) => void;
   onRun: () => void;
   onDelete: () => void;
   onAddBelow: (type: NotebookCell["type"]) => void;
@@ -139,19 +142,21 @@ const CellCard = ({
             variant="ghost"
             size="icon"
             onClick={() =>
-              onChange((current) => {
-                if (current.type !== "markdown") return current;
-                type U = { ui?: { edit?: boolean } };
-                const ui = (current.metadata as U).ui ?? {};
-                const next = {
-                  ...current,
-                  metadata: {
-                    ...current.metadata,
-                    ui: { ...ui, edit: !ui.edit },
-                  },
-                } as NotebookCell;
-                return next;
-              })
+              onChange(
+                (current) => {
+                  if (current.type !== "markdown") return current;
+                  type U = { ui?: { edit?: boolean } };
+                  const ui = (current.metadata as U).ui ?? {};
+                  return {
+                    ...current,
+                    metadata: {
+                      ...current.metadata,
+                      ui: { ...ui, edit: !ui.edit },
+                    },
+                  } as NotebookCell;
+                },
+                mdEditing ? { persist: true } : undefined
+              )
             }
             aria-label="Toggle edit markdown"
             title="Toggle edit markdown"

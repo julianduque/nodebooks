@@ -1,6 +1,10 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { createCodeCell, NotebookSchema } from "@nodebooks/notebook-schema";
+import {
+  createCodeCell,
+  ensureNotebookRuntimeVersion,
+  NotebookSchema,
+} from "@nodebooks/notebook-schema";
 import type { NotebookStore } from "../types.js";
 import { NotebookRuntime } from "../kernel/runtime.js";
 
@@ -52,10 +56,12 @@ export const registerDependencyRoutes = (
     const previous = notebook.env.packages;
     const nextPackages = { ...previous, [body.name]: resolved };
     const updated = await store.save(
-      NotebookSchema.parse({
-        ...notebook,
-        env: { ...notebook.env, packages: nextPackages },
-      })
+      ensureNotebookRuntimeVersion(
+        NotebookSchema.parse({
+          ...notebook,
+          env: { ...notebook.env, packages: nextPackages },
+        })
+      )
     );
 
     // Trigger install immediately using a throwaway runtime instance
@@ -71,10 +77,12 @@ export const registerDependencyRoutes = (
     } catch (error) {
       // Roll back env change on failure
       await store.save(
-        NotebookSchema.parse({
-          ...notebook,
-          env: { ...notebook.env, packages: previous },
-        })
+        ensureNotebookRuntimeVersion(
+          NotebookSchema.parse({
+            ...notebook,
+            env: { ...notebook.env, packages: previous },
+          })
+        )
       );
       reply.code(500);
       const message =
@@ -108,10 +116,12 @@ export const registerDependencyRoutes = (
     delete nextPackages[params.name];
 
     const updated = await store.save(
-      NotebookSchema.parse({
-        ...notebook,
-        env: { ...notebook.env, packages: nextPackages },
-      })
+      ensureNotebookRuntimeVersion(
+        NotebookSchema.parse({
+          ...notebook,
+          env: { ...notebook.env, packages: nextPackages },
+        })
+      )
     );
 
     try {
@@ -126,10 +136,12 @@ export const registerDependencyRoutes = (
     } catch (error) {
       // Roll back on failure
       await store.save(
-        NotebookSchema.parse({
-          ...notebook,
-          env: { ...notebook.env, packages: previous },
-        })
+        ensureNotebookRuntimeVersion(
+          NotebookSchema.parse({
+            ...notebook,
+            env: { ...notebook.env, packages: previous },
+          })
+        )
       );
       reply.code(500);
       const message =

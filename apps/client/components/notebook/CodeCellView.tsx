@@ -10,7 +10,10 @@ import OutputView from "./OutputView";
 
 interface CodeCellViewProps {
   cell: Extract<NotebookCell, { type: "code" }>;
-  onChange: (updater: (cell: NotebookCell) => NotebookCell) => void;
+  onChange: (
+    updater: (cell: NotebookCell) => NotebookCell,
+    options?: { persist?: boolean; touch?: boolean }
+  ) => void;
   onRun: () => void;
   isRunning: boolean;
   editorKey: string;

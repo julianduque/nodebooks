@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from "react";
 import clsx from "clsx";
 import AppShell from "./AppShell";
 import { Button } from "./ui/button";
@@ -12,6 +19,7 @@ import {
   Pencil,
   PlayCircle,
   RefreshCw,
+  RotateCcw,
   Save,
   Share2,
   Trash2,
@@ -69,6 +77,12 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
   const [depBusy, setDepBusy] = useState(false);
   const [depError, setDepError] = useState<string | null>(null);
   const [depOutputs, setDepOutputs] = useState<NotebookOutput[]>([]);
+  const [socketGeneration, bumpSocketGeneration] = useReducer(
+    (current: number) => current + 1,
+    0
+  );
+  const [confirmClearOutputsOpen, setConfirmClearOutputsOpen] = useState(false);
+  const [confirmRestartOpen, setConfirmRestartOpen] = useState(false);
   // Request id to guard against stale async updates (ref-only)
   const depReqRef = useRef(0);
   const depAbortRef = useRef<AbortController | null>(null);
@@ -92,6 +106,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
   const sessionRef = useRef<NotebookSessionSummary | null>(null);
   const renameInputRef = useRef<HTMLInputElement | null>(null);
   const prevNotebookIdRef = useRef<string | null>(null);
+  const notebookRef = useRef<Notebook | null>(null);
   // Counter for "In [n]" execution labels
   const runCounterRef = useRef<number>(1);
   // Track which cell ids are pending an execution completion to avoid
@@ -116,11 +131,24 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
   useEffect(() => {
     if (notebook) {
       setRenameDraft(notebook.name);
+      notebookRef.current = notebook;
     } else {
       setRenameDraft("");
+      notebookRef.current = null;
     }
     setIsRenaming(false);
   }, [notebook]);
+
+  useEffect(() => {
+    if (typeof document === "undefined") {
+      return;
+    }
+    if (!notebook?.name) {
+      document.title = "NodeBooks";
+      return;
+    }
+    document.title = `${notebook.name} · NodeBooks`;
+  }, [notebook?.name]);
 
   useEffect(() => {
     if (!notebook) return;
@@ -202,6 +230,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         if (options.persist !== false && next !== prev) {
           setDirty(true);
         }
+        notebookRef.current = next;
         // list summaries are handled in route pages
         return next;
       });
@@ -209,11 +238,60 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     []
   );
 
+  const saveNotebookNow = useCallback(async () => {
+    const current = notebookRef.current;
+    if (!current) {
+      return;
+    }
+    try {
+      const response = await fetch(`${API_BASE_URL}/notebooks/${current.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: current.name,
+          env: current.env,
+          cells: current.cells,
+        }),
+      });
+      if (!response.ok) {
+        throw new Error(`Failed to save notebook (status ${response.status})`);
+      }
+      const payload = await response.json();
+      const saved: Notebook | undefined = payload?.data;
+      if (saved) {
+        setNotebook(saved);
+        setDirty(false);
+        setError(null);
+        notebookRef.current = saved;
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save notebook");
+    }
+  }, []);
+
+  const scheduleAutoSave = useCallback(
+    ({
+      delay = 300,
+      markDirty = false,
+    }: { delay?: number; markDirty?: boolean } = {}) => {
+      if (markDirty) {
+        setDirty(true);
+      }
+      clearPendingSave();
+      const timer = setTimeout(() => {
+        saveTimerRef.current = null;
+        void saveNotebookNow();
+      }, delay);
+      saveTimerRef.current = timer;
+    },
+    [clearPendingSave, saveNotebookNow]
+  );
+
   const updateNotebookCell = useCallback(
     (
       id: string,
       updater: (cell: NotebookCell) => NotebookCell,
-      options?: { persist?: boolean; touch?: boolean }
+      options: { persist?: boolean; touch?: boolean } = {}
     ) => {
       updateNotebook(
         (current) => ({
@@ -224,8 +302,12 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         }),
         options
       );
+
+      if (options.persist) {
+        scheduleAutoSave({ markDirty: true });
+      }
     },
-    [updateNotebook]
+    [updateNotebook, scheduleAutoSave]
   );
 
   const handleServerMessage = useCallback(
@@ -277,6 +359,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
           },
           { persist: false }
         );
+        scheduleAutoSave({ markDirty: true });
         return;
       }
       if (message.type === "stream") {
@@ -353,37 +436,8 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         );
       }
     },
-    [updateNotebookCell]
+    [updateNotebookCell, scheduleAutoSave]
   );
-
-  const saveNotebookNow = useCallback(async () => {
-    if (!notebook) {
-      return;
-    }
-    try {
-      const response = await fetch(`${API_BASE_URL}/notebooks/${notebook.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: notebook.name,
-          env: notebook.env,
-          cells: notebook.cells,
-        }),
-      });
-      if (!response.ok) {
-        throw new Error(`Failed to save notebook (status ${response.status})`);
-      }
-      const payload = await response.json();
-      const saved: Notebook | undefined = payload?.data;
-      if (saved) {
-        setNotebook(saved);
-        setDirty(false);
-        setError(null);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save notebook");
-    }
-  }, [notebook]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -533,7 +587,9 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     };
 
     socket.onclose = () => {
-      socketRef.current = null;
+      if (socketRef.current === socket) {
+        socketRef.current = null;
+      }
       setSocketReady(false);
     };
 
@@ -547,35 +603,22 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     };
 
     return () => {
-      socket.close(1000, "session change");
+      if (socketRef.current === socket) {
+        socketRef.current = null;
+      }
+      try {
+        socket.close(1000, "session change");
+      } catch {
+        // ignore
+      }
     };
-  }, [sessionId, handleServerMessage]);
+  }, [sessionId, socketGeneration, handleServerMessage]);
 
   useEffect(() => {
     return () => {
       closeActiveSession("component unmounted");
     };
   }, [closeActiveSession]);
-
-  useEffect(() => {
-    if (!notebook || !dirty) {
-      return;
-    }
-
-    clearPendingSave();
-
-    const timer = setTimeout(() => {
-      void saveNotebookNow();
-    }, 600);
-
-    saveTimerRef.current = timer;
-    return () => {
-      clearTimeout(timer);
-      if (saveTimerRef.current === timer) {
-        saveTimerRef.current = null;
-      }
-    };
-  }, [notebook, dirty, clearPendingSave, saveNotebookNow]);
 
   // Notebook selection/navigation handled by router pages
 
@@ -607,8 +650,12 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
   );
 
   const handleCellChange = useCallback(
-    (id: string, updater: (cell: NotebookCell) => NotebookCell) => {
-      updateNotebookCell(id, updater);
+    (
+      id: string,
+      updater: (cell: NotebookCell) => NotebookCell,
+      options?: { persist?: boolean; touch?: boolean }
+    ) => {
+      updateNotebookCell(id, updater, options);
     },
     [updateNotebookCell]
   );
@@ -628,8 +675,9 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         }
         return { ...current, cells };
       });
+      scheduleAutoSave();
     },
-    [updateNotebook]
+    [updateNotebook, scheduleAutoSave]
   );
 
   const handleDeleteCell = useCallback(
@@ -638,8 +686,9 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         ...current,
         cells: current.cells.filter((cell) => cell.id !== id),
       }));
+      scheduleAutoSave({ markDirty: true });
     },
-    [updateNotebook]
+    [updateNotebook, scheduleAutoSave]
   );
 
   const handleMoveCell = useCallback(
@@ -898,6 +947,15 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     }
   }, [closeActiveSession, notebook, updateNotebook]);
 
+  const handleReconnectKernel = useCallback(() => {
+    if (!sessionId) {
+      return;
+    }
+    setError(null);
+    setSocketReady(false);
+    bumpSocketGeneration();
+  }, [sessionId, bumpSocketGeneration]);
+
   const handleClearAllOutputs = useCallback(() => {
     updateNotebook((current) => ({
       ...current,
@@ -933,8 +991,9 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
 
   const handleSaveNow = useCallback(() => {
+    clearPendingSave();
     void saveNotebookNow();
-  }, [saveNotebookNow]);
+  }, [clearPendingSave, saveNotebookNow]);
 
   const handleShare = useCallback(() => {
     if (!notebook || typeof window === "undefined") {
@@ -1134,7 +1193,9 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
                   editorKey={`${cell.id}:${index}`}
                   active={activeCellId === cell.id}
                   onActivate={() => setActiveCellId(cell.id)}
-                  onChange={(updater) => handleCellChange(cell.id, updater)}
+                  onChange={(updater, options) =>
+                    handleCellChange(cell.id, updater, options)
+                  }
                   onDelete={() => handleDeleteCell(cell.id)}
                   onRun={() => handleRunCell(cell.id)}
                   onMove={(direction) => handleMoveCell(cell.id, direction)}
@@ -1216,10 +1277,24 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
 
   const topbarRight = useMemo(() => {
     if (!notebook) return null;
+    const runtimeName =
+      notebook.env.runtime === "node"
+        ? "Node.js"
+        : notebook.env.runtime === "bun"
+          ? "Bun"
+          : notebook.env.runtime;
+    const versionLabel = notebook.env.version
+      ? notebook.env.version.startsWith("v")
+        ? notebook.env.version
+        : `v${notebook.env.version}`
+      : "unknown";
     return (
       <div className="flex items-center gap-2">
-        <Badge variant="secondary" className="uppercase tracking-[0.2em]">
-          {notebook.env.runtime.toUpperCase()} {notebook.env.version}
+        <Badge
+          variant="secondary"
+          className="text-xs font-semibold md:text-[11px]"
+        >
+          {runtimeName} {versionLabel}
         </Badge>
         <span className="hidden items-center gap-2 text-[11px] text-slate-500 md:flex">
           <span className="flex items-center gap-1">
@@ -1244,7 +1319,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         <Button
           variant="ghost"
           size="icon"
-          onClick={handleClearAllOutputs}
+          onClick={() => setConfirmClearOutputsOpen(true)}
           aria-label="Clear all outputs"
           title="Clear all outputs"
         >
@@ -1253,11 +1328,21 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         <Button
           variant="ghost"
           size="icon"
-          onClick={handleRestartKernel}
+          onClick={handleReconnectKernel}
+          aria-label="Reconnect kernel"
+          title="Reconnect kernel"
+          disabled={!sessionId}
+        >
+          <RefreshCw className="h-4 w-4" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => setConfirmRestartOpen(true)}
           aria-label="Restart kernel"
           title="Restart kernel"
         >
-          <RefreshCw className="h-4 w-4" />
+          <RotateCcw className="h-4 w-4" />
         </Button>
         <Button
           variant="secondary"
@@ -1314,12 +1399,12 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     notebook,
     socketReady,
     dirty,
-    handleClearAllOutputs,
-    handleRestartKernel,
+    handleReconnectKernel,
     handleRunAll,
     handleSaveNow,
     shareStatus,
     handleShare,
+    sessionId,
   ]);
 
   const secondaryHeader = useMemo(() => {
@@ -1408,6 +1493,29 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
       headerRight={topbarRight}
     >
       {editorView}
+      <ConfirmDialog
+        open={confirmClearOutputsOpen}
+        title="Clear all outputs?"
+        description="This removes every cell's outputs without touching the source."
+        confirmLabel="Clear outputs"
+        onCancel={() => setConfirmClearOutputsOpen(false)}
+        onConfirm={() => {
+          handleClearAllOutputs();
+          setConfirmClearOutputsOpen(false);
+        }}
+      />
+      <ConfirmDialog
+        open={confirmRestartOpen}
+        title="Restart kernel?"
+        description="The runtime will restart without deleting your notebook cells, but in-memory context resets."
+        confirmLabel="Restart kernel"
+        danger
+        onCancel={() => setConfirmRestartOpen(false)}
+        onConfirm={async () => {
+          await handleRestartKernel();
+          setConfirmRestartOpen(false);
+        }}
+      />
       <ConfirmDialog
         open={confirmDeleteOpen}
         title="Delete notebook?"

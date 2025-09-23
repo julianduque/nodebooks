@@ -16,6 +16,22 @@ Use `pnpm@10` (declared in `package.json`) to install dependencies across the mo
 
 TypeScript with ES modules is the default; keep files as `.ts`/`.tsx`. Favor 2-space indentation and double quotes to match existing code. Prettier is configured at the repo root (`.prettierrc`) with `.prettierignore` excluding build output and `apps/backend/data`; run `pnpm format` before committing. Import types using `import type` (ESLint enforces `@typescript-eslint/consistent-type-imports`). Name React components in `PascalCase`, utility modules in `camelCase`, and tests as `*.test.ts[x]`.
 
+## React useEffect Guidelines
+
+**Before using `useEffect`, read:** [You might not need useEffect](https://react.dev/learn/you-might-not-need-an-effect).
+
+Common cases where `useEffect` is NOT needed:
+
+- Transforming data for rendering (use variables or useMemo instead)
+- Handling user events (use event handlers instead)
+- Resetting state when props change (use key prop or calculate during render)
+- Updating state based on props/state changes (calculate during render)
+
+Only use `useEffect` for:
+
+- Synchronizing with external systems (APIs, DOM, third-party libraries)
+- Cleanup that must happen when the component unmounts
+
 ## Testing Guidelines
 
 Vitest is configured per workspace (Node environment for backend and schema, JSDOM for the UI). Place backend and schema tests alongside code in `src/**/*.test.ts`; UI smoke and component tests live under `apps/client/tests/`. Run focused suites with `pnpm --filter <workspace> test`. When adding logic, extend coverage by asserting error paths and WebSocket interactions; prefer deterministic fixtures over the bundled SQLite file.

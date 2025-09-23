@@ -9,7 +9,10 @@ import type { NotebookCell } from "@nodebooks/notebook-schema";
 
 interface MarkdownCellViewProps {
   cell: Extract<NotebookCell, { type: "markdown" }>;
-  onChange: (updater: (cell: NotebookCell) => NotebookCell) => void;
+  onChange: (
+    updater: (cell: NotebookCell) => NotebookCell,
+    options?: { persist?: boolean; touch?: boolean }
+  ) => void;
   editorKey: string;
 }
 
@@ -38,17 +41,20 @@ const MarkdownCellView = ({
 
   const setEdit = useCallback(
     (edit: boolean) => {
-      onChange((current) => {
-        if (current.type !== "markdown") return current;
-        const next: NotebookCell = {
-          ...current,
-          metadata: {
-            ...current.metadata,
-            ui: { ...((current.metadata as MarkdownUIMeta).ui ?? {}), edit },
-          },
-        };
-        return next;
-      });
+      onChange(
+        (current) => {
+          if (current.type !== "markdown") return current;
+          const next: NotebookCell = {
+            ...current,
+            metadata: {
+              ...current.metadata,
+              ui: { ...((current.metadata as MarkdownUIMeta).ui ?? {}), edit },
+            },
+          };
+          return next;
+        },
+        edit ? undefined : { persist: true }
+      );
     },
     [onChange]
   );
@@ -61,6 +67,14 @@ const MarkdownCellView = ({
         keybindings: [monaco.KeyMod.Shift | monaco.KeyCode.Enter],
         run: () => {
           editor.trigger("keyboard", "editor.action.formatDocument", undefined);
+          const nextValue = editor.getValue();
+          onChange(
+            (current) =>
+              current.type === "markdown"
+                ? { ...current, source: nextValue ?? "" }
+                : current,
+            { persist: true }
+          );
           setEdit(false);
         },
       });
@@ -113,7 +127,7 @@ const MarkdownCellView = ({
         window.removeEventListener("resize", onResize);
       };
     },
-    [setEdit]
+    [onChange, setEdit]
   );
 
   return (
@@ -130,7 +144,11 @@ const MarkdownCellView = ({
             value={cell.source}
             onMount={handleMount}
             onChange={(value) =>
-              onChange(() => ({ ...cell, source: value ?? "" }))
+              onChange((current) =>
+                current.type === "markdown"
+                  ? { ...current, source: value ?? "" }
+                  : current
+              )
             }
             options={{
               minimap: { enabled: false },

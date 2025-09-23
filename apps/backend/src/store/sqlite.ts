@@ -5,7 +5,11 @@ import initSqlJs, {
   type Database as SqlDatabase,
   type SqlJsStatic,
 } from "sql.js";
-import { NotebookSchema, type Notebook } from "@nodebooks/notebook-schema";
+import {
+  ensureNotebookRuntimeVersion,
+  NotebookSchema,
+  type Notebook,
+} from "@nodebooks/notebook-schema";
 import type { NotebookStore } from "../types.js";
 
 export interface SqliteNotebookStoreOptions {
@@ -65,10 +69,12 @@ export class SqliteNotebookStore implements NotebookStore {
 
   async save(notebook: Notebook): Promise<Notebook> {
     await this.ready;
-    const parsed = NotebookSchema.parse({
-      ...notebook,
-      updatedAt: new Date().toISOString(),
-    });
+    const parsed = ensureNotebookRuntimeVersion(
+      NotebookSchema.parse({
+        ...notebook,
+        updatedAt: new Date().toISOString(),
+      })
+    );
 
     const statement = this.db.prepare(
       `INSERT INTO notebooks (id, name, data, created_at, updated_at)
@@ -154,7 +160,7 @@ export class SqliteNotebookStore implements NotebookStore {
 
   private deserialize(raw: string): Notebook {
     const data = JSON.parse(raw);
-    return NotebookSchema.parse(data);
+    return ensureNotebookRuntimeVersion(NotebookSchema.parse(data));
   }
 
   private async fileExists(target: string) {
