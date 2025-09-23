@@ -6,7 +6,7 @@ import {
   NotebookSchema,
 } from "@nodebooks/notebook-schema";
 import type { NotebookStore } from "../types.js";
-import { NotebookRuntime } from "../kernel/runtime.js";
+import { NotebookRuntime } from "@nodebooks/runtime-node";
 
 const encodePackagePath = (name: string) => {
   // Encode each path component while preserving slashes

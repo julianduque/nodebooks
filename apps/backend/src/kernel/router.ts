@@ -13,7 +13,7 @@ import type {
   SessionManager,
   NotebookSession,
 } from "../types.js";
-import { NotebookRuntime } from "./runtime.js";
+import { NotebookRuntime } from "@nodebooks/runtime-node";
 
 const runtimes = new Map<string, NotebookRuntime>();
 
