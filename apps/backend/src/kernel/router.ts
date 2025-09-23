@@ -14,6 +14,11 @@ import type {
   NotebookSession,
 } from "../types.js";
 import { NotebookRuntime } from "@nodebooks/runtime-node";
+import {
+  PASSWORD_COOKIE_NAME,
+  isTokenValid,
+  parseCookieHeader,
+} from "../auth/password.js";
 
 const runtimes = new Map<string, NotebookRuntime>();
 
@@ -27,19 +32,43 @@ const HEARTBEAT_INTERVAL_MS = (() => {
 })();
 
 // WebSocket connections at `${prefix}/ws/sessions/:id` using `ws` directly.
+interface KernelUpgradeOptions {
+  passwordToken?: string | null;
+}
+
 export const createKernelUpgradeHandler = (
   prefix: string,
   sessions: SessionManager,
-  store: NotebookStore
+  store: NotebookStore,
+  options: KernelUpgradeOptions = {}
 ) => {
   const wss = new WebSocketServer({ noServer: true });
   const base = prefix.endsWith("/") ? prefix.slice(0, -1) : prefix;
   const pattern = new RegExp(`^${base}/ws/sessions/([^/?#]+)`);
+  const { passwordToken } = options;
 
   return (req: IncomingMessage, socket: Socket, head: Buffer) => {
     const url = req.url || "";
     const m = url.match(pattern);
     if (!m) return false;
+    if (passwordToken) {
+      const cookies = parseCookieHeader(req.headers.cookie);
+      if (!isTokenValid(cookies[PASSWORD_COOKIE_NAME], passwordToken)) {
+        try {
+          socket.write(
+            "HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n"
+          );
+        } catch (writeError) {
+          void writeError;
+        }
+        try {
+          socket.destroy();
+        } catch (destroyError) {
+          void destroyError;
+        }
+        return true;
+      }
+    }
     const id = decodeURIComponent(m[1]!);
     try {
       wss.handleUpgrade(req, socket, head, (ws) => {

@@ -11,7 +11,9 @@ nodebooks/
 │   └── client/            # @nodebooks/client – Next.js 15 UI (Monaco-powered editor)
 ├── packages/
 │   ├── notebook-schema/   # Shared Zod models + kernel protocol (built to dist/, exported via package.exports)
+│   ├── runtime-node/      # Runtime environment for notebook execution (built to dist/, exported via package.exports)
 │   └── notebook-ui/       # Reusable React UI pieces for notebook displays
+├── content/               # Templates and notebooks
 ├── package.json           # pnpm workspace config and root scripts
 ├── pnpm-workspace.yaml
 └── tsconfig.base.json
@@ -55,8 +57,7 @@ pnpm start
 
 - `PORT` – Port to bind (default `4000`).
 - `HOST` – Host to bind (default `0.0.0.0`).
-- `EMBED_NEXT` – When `false`, disables serving the UI from Fastify (use separate Next server in dev).
-- `NEXT_KEEP_CLIENT_CWD` – Keep CWD pinned to the client root for PostCSS/Tailwind resolution (default `true`).
+- `NODEBOOKS_PASSWORD` – Password to protect the server (default `null`).
 - `NODEBOOKS_SQLITE_PATH` – Path to the SQLite file for notebooks storage (defaults to `apps/backend/data/nodebooks.sqlite`).
 - `NODEBOOKS_PERSISTENCE` – Notebook persistence driver (`sqlite` default). Supported values:
 - `NODEBOOKS_KERNEL_TIMEOUT_MS` – Kernel execution timeout in ms (default `10000`).
@@ -66,6 +67,8 @@ pnpm start
 - `DATABASE_URL` – PostgreSQL connection string used when `NODEBOOKS_PERSISTENCE=postgres`.
 - `KERNEL_WS_HEARTBEAT_MS` – Server→client WebSocket ping interval in ms to keep
   connections alive behind proxies with idle timeouts (default `25000`).
+- `EMBED_NEXT` – When `false`, disables serving the UI from Fastify (use separate Next server in dev).
+- `NEXT_KEEP_CLIENT_CWD` – Keep CWD pinned to the client root for PostCSS/Tailwind resolution (default `true`).
 
 ## Testing & Quality
 
