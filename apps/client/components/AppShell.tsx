@@ -197,7 +197,7 @@ const AppShell = ({
               "w-full gap-2",
               collapsed ? "justify-center h-9" : "justify-center h-9"
             )}
-            variant="outline"
+            variant="secondary"
             type="button"
             onClick={onNewNotebook}
           >

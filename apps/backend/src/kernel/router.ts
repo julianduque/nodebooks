@@ -305,11 +305,22 @@ const handleExecuteRequest = async ({
     onStream: (stream) => {
       sendMessage(connection, { ...stream, cellId: cell.id });
     },
+    onDisplay: (display) => {
+      // Stream UI displays as they are emitted
+      sendMessage(connection, { ...display, cellId: cell.id });
+    },
   });
 
   for (const output of result.outputs) {
+    // Streams and streamed displays are already sent live; skip here
     if (output.type === "stream") {
       continue;
+    }
+    if (output.type === "display_data") {
+      const streamedFlag = output.metadata?.["streamed"];
+      if (typeof streamedFlag === "boolean" && streamedFlag) {
+        continue;
+      }
     }
     sendMessage(connection, { ...output, cellId: cell.id });
   }

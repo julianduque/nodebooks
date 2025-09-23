@@ -5,7 +5,7 @@ import type { OnMount } from "@monaco-editor/react";
 import MonacoEditor from "./MonacoEditorClient";
 import type { NotebookCell } from "@nodebooks/notebook-schema";
 import { Badge } from "../ui/badge";
-import { Loader2 } from "lucide-react";
+import { Loader2, Zap } from "lucide-react";
 import OutputView from "./OutputView";
 
 interface CodeCellViewProps {
@@ -119,12 +119,29 @@ const CodeCellView = ({
     (cell.metadata as { display?: { hideEditor?: boolean } })?.display
       ?.hideEditor
   );
+  const execCount = ((cell.metadata as { display?: { execCount?: number } })
+    ?.display?.execCount ?? null) as number | null;
   const title =
     (cell.metadata as { display?: { title?: string } })?.display?.title ??
     undefined;
 
   return (
     <div className="relative rounded-2xl bg-slate-950 text-slate-100 shadow-lg ring-1 ring-slate-900/60">
+      <div className="pointer-events-none absolute left-1 top-1 z-10 flex items-center gap-2">
+        {isRunning ? (
+          <span className="inline-flex items-center gap-1 rounded-full bg-amber-400/20 px-2 py-0.5 text-[10px] font-semibold text-amber-200">
+            <span className="h-2 w-2 animate-pulse rounded-full bg-amber-400" />
+            Running
+          </span>
+        ) : execCount !== null ? (
+          <span
+            className="inline-flex items-center gap-1 rounded-full bg-slate-800/70 px-2 py-0.5 text-[10px] font-semibold text-slate-200"
+            title={`Last run #${execCount}`}
+          >
+            <Zap className="h-3 w-3 text-emerald-400" /> {execCount}
+          </span>
+        ) : null}
+      </div>
       <div className="absolute right-3 top-3 z-10 flex items-center gap-2">
         {title ? (
           <Badge variant="outline" className="px-2 py-0.5 text-[10px]">

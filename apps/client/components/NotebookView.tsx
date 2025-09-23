@@ -11,6 +11,7 @@ import {
   Loader2,
   Pencil,
   PlayCircle,
+  RefreshCw,
   Save,
   Share2,
   Trash2,
@@ -91,6 +92,11 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
   const sessionRef = useRef<NotebookSessionSummary | null>(null);
   const renameInputRef = useRef<HTMLInputElement | null>(null);
   const prevNotebookIdRef = useRef<string | null>(null);
+  // Counter for "In [n]" execution labels
+  const runCounterRef = useRef<number>(1);
+  // Track which cell ids are pending an execution completion to avoid
+  // double-increment when messages duplicate (e.g., dev StrictMode, reconnects)
+  const runPendingRef = useRef<Set<string>>(new Set());
 
   const notebookId = notebook?.id;
   const sessionId = session?.id;
@@ -121,6 +127,22 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     if (prevNotebookIdRef.current !== notebook.id) {
       setSidebarView("outline");
       prevNotebookIdRef.current = notebook.id;
+      // Initialize execution counter based on existing cells
+      try {
+        const max = Math.max(
+          0,
+          ...notebook.cells
+            .filter((c) => c.type === "code")
+            .map((c) => {
+              const n = (c.metadata as { display?: { execCount?: number } })
+                ?.display?.execCount;
+              return typeof n === "number" && Number.isFinite(n) ? n : 0;
+            })
+        );
+        runCounterRef.current = max + 1;
+      } catch {
+        runCounterRef.current = 1;
+      }
     }
   }, [notebook?.id, notebook]);
 
@@ -228,8 +250,24 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
               return cell;
             }
             const ended = Date.now();
+            const prevDisplay = ((
+              cell.metadata as { display?: Record<string, unknown> }
+            ).display ?? {}) as Record<string, unknown>;
+            const hadPending = runPendingRef.current.delete(message.cellId);
+            let execCount = (prevDisplay as { execCount?: number }).execCount;
+            if (typeof execCount !== "number") {
+              // Ensure we always show a value; only increment the global counter
+              // when we know this completion corresponds to a local start.
+              execCount = hadPending
+                ? runCounterRef.current++
+                : runCounterRef.current;
+            }
             return {
               ...cell,
+              metadata: {
+                ...cell.metadata,
+                display: { ...prevDisplay, execCount },
+              },
               execution: {
                 started: ended - message.execTimeMs,
                 ended,
@@ -261,6 +299,12 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         return;
       }
       if (message.type === "error") {
+        // An execution errored; clear any pending record for that cell id
+        if (message.cellId) {
+          try {
+            runPendingRef.current.delete(message.cellId);
+          } catch {}
+        }
         updateNotebookCell(
           message.cellId,
           (cell) => {
@@ -637,6 +681,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
       }
 
       setRunningCellId(id);
+      runPendingRef.current.add(id);
       updateNotebookCell(
         id,
         (current) => {
@@ -783,12 +828,75 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     if (!notebook) {
       return;
     }
+    // Render markdown cells (exit edit mode)
+    updateNotebook(
+      (current) => ({
+        ...current,
+        cells: current.cells.map((cell) => {
+          if (cell.type !== "markdown") return cell;
+          const ui = ((cell.metadata as { ui?: { edit?: boolean } }).ui ??
+            {}) as {
+            edit?: boolean;
+          };
+          return {
+            ...cell,
+            metadata: { ...cell.metadata, ui: { ...ui, edit: false } },
+          };
+        }),
+      }),
+      { persist: false }
+    );
+
     notebook.cells.forEach((cell) => {
       if (cell.type === "code") {
         handleRunCell(cell.id);
       }
     });
-  }, [notebook, handleRunCell]);
+  }, [notebook, handleRunCell, updateNotebook]);
+
+  const handleRestartKernel = useCallback(async () => {
+    setRunningCellId(null);
+    runCounterRef.current = 1;
+    runPendingRef.current.clear();
+    // Clear all cell outputs/exec metadata so the UI reflects a fresh kernel
+    updateNotebook((current) => ({
+      ...current,
+      cells: current.cells.map((cell) => {
+        if (cell.type !== "code") return cell;
+        const display = ((
+          cell.metadata as { display?: Record<string, unknown> }
+        ).display ?? {}) as Record<string, unknown>;
+        // Remove execCount from the visual metadata on restart
+        const restDisplay = { ...(display as Record<string, unknown>) };
+        delete (restDisplay as Record<string, unknown>).execCount;
+        return {
+          ...cell,
+          outputs: [],
+          execution: undefined,
+          metadata: { ...cell.metadata, display: { ...restDisplay } },
+        };
+      }),
+    }));
+    try {
+      closeActiveSession("user restart");
+      if (!notebook) return;
+      const response = await fetch(
+        `${API_BASE_URL}/notebooks/${notebook.id}/sessions`,
+        { method: "POST" }
+      );
+      if (!response.ok) {
+        throw new Error(
+          `Failed to start new session (status ${response.status})`
+        );
+      }
+      const payload = await response.json();
+      setSession(payload.data);
+      sessionRef.current = payload.data;
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to restart kernel");
+    }
+  }, [closeActiveSession, notebook, updateNotebook]);
 
   const handleClearAllOutputs = useCallback(() => {
     updateNotebook((current) => ({
@@ -1138,8 +1246,18 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
           size="icon"
           onClick={handleClearAllOutputs}
           aria-label="Clear all outputs"
+          title="Clear all outputs"
         >
           <Eraser className="h-4 w-4" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={handleRestartKernel}
+          aria-label="Restart kernel"
+          title="Restart kernel"
+        >
+          <RefreshCw className="h-4 w-4" />
         </Button>
         <Button
           variant="secondary"
@@ -1147,6 +1265,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
           onClick={handleRunAll}
           disabled={!socketReady}
           aria-label="Run all cells"
+          title="Run all cells"
         >
           <PlayCircle className="h-4 w-4" />
         </Button>
@@ -1156,6 +1275,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
           onClick={handleSaveNow}
           disabled={!dirty}
           aria-label="Save notebook"
+          title={dirty ? "Save notebook" : "Saved"}
         >
           {dirty ? (
             <Save className="h-4 w-4" />
@@ -1170,6 +1290,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
           aria-label={
             shareStatus === "copied" ? "Notebook link copied" : "Share notebook"
           }
+          title="Share notebook link"
         >
           {shareStatus === "copied" ? (
             <Check className="h-4 w-4 text-emerald-500" />
@@ -1183,6 +1304,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
           className="text-rose-600 hover:text-rose-700"
           onClick={() => setConfirmDeleteOpen(true)}
           aria-label="Delete notebook"
+          title="Delete notebook"
         >
           <Trash2 className="h-4 w-4" />
         </Button>
@@ -1193,6 +1315,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     socketReady,
     dirty,
     handleClearAllOutputs,
+    handleRestartKernel,
     handleRunAll,
     handleSaveNow,
     shareStatus,

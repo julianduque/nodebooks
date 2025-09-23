@@ -5,6 +5,7 @@ const config: Config = {
     "./app/**/*.{ts,tsx}",
     "./components/**/*.{ts,tsx}",
     "./pages/**/*.{ts,tsx}",
+    "../../packages/notebook-ui/src/**/*.{ts,tsx}",
   ],
   theme: {
     extend: {

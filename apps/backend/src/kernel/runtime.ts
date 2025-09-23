@@ -11,14 +11,30 @@ import { transform } from "esbuild";
 
 const execFileAsync = promisify(execFile);
 const DEFAULT_WORKSPACE_ROOT = join(tmpdir(), "nodebooks-runtime");
+// Hook used to stream UI display values from the sandboxed '@nodebooks/ui'
+// helper back to the host while a cell is running.
+type UiDisplayHook = ((value: unknown) => void) | null;
 import type {
   CodeCell,
   NotebookEnv,
   NotebookOutput,
   StreamOutput,
   OutputExecution,
+  DisplayDataOutput,
 } from "@nodebooks/notebook-schema";
 import { UiDisplaySchema, NODEBOOKS_UI_MIME } from "@nodebooks/notebook-schema";
+import type {
+  UiImage,
+  UiJson,
+  UiCode,
+  UiTable,
+  UiDataSummary,
+  UiAlert,
+  UiBadge,
+  UiMetric,
+  UiProgress,
+  UiSpinner,
+} from "@nodebooks/notebook-schema";
 
 const DEFAULT_TIMEOUT_MS = process.env.NODEBOOKS_KERNEL_TIMEOUT_MS ?? 10_000;
 
@@ -36,6 +52,7 @@ interface ExecuteOptions {
   notebookId: string;
   env: NotebookEnv;
   onStream?: (output: StreamOutput) => void;
+  onDisplay?: (output: DisplayDataOutput) => void;
   timeoutMs?: number;
 }
 
@@ -362,6 +379,16 @@ const toDisplayData = (value: unknown) => {
     return outputs;
   }
 
+  // If UI helpers already emitted this object during execution, skip
+  // adding it again as the final display value to avoid duplication.
+  if (
+    value &&
+    typeof value === "object" &&
+    (value as Record<string, unknown>).__nb_ui_emitted === true
+  ) {
+    return outputs;
+  }
+
   const plain = inspect(value, { depth: 4, colors: false });
 
   const data: Record<string, unknown> = {
@@ -471,6 +498,7 @@ export class NotebookRuntime {
     notebookId,
     env,
     onStream,
+    onDisplay,
     timeoutMs,
   }: ExecuteOptions): Promise<ExecuteResult> {
     const outputs: NotebookOutput[] = [];
@@ -523,11 +551,45 @@ export class NotebookRuntime {
       (this.context as Record<string, unknown>).__dirname = dirname(filename);
       (module as Record<string, unknown>).require = this.sandboxRequire;
 
+      // Provide a display hook so UI helpers can push outputs mid-cell
+      // Provide a display hook for streaming UI from helpers
+      const streamDisplay = (value: unknown) => {
+        try {
+          const ds = toDisplayData(value);
+          for (const d of ds) {
+            if (d.type === "display_data") {
+              (d as DisplayDataOutput).metadata = {
+                ...((d as DisplayDataOutput).metadata ?? {}),
+                streamed: true,
+              };
+              try {
+                onDisplay?.(d as DisplayDataOutput);
+              } catch (err) {
+                void err;
+              }
+            }
+            outputs.push(d);
+          }
+        } catch (err) {
+          void err;
+        }
+      };
+      (this.context as Record<string, unknown>).__nodebooks_display =
+        streamDisplay;
+      // Also set the hook for our intercepted '@nodebooks/ui' module
+      (
+        this.sandboxRequire as unknown as {
+          setUiDisplayHook?: (fn: UiDisplayHook) => void;
+        }
+      ).setUiDisplayHook?.(streamDisplay);
+
       const script = new vm.Script(compiled.code, {
         filename,
       });
 
-      let result = script.runInContext(this.context, { timeout: Number(timeout) });
+      let result = script.runInContext(this.context, {
+        timeout: Number(timeout),
+      });
       if (result && typeof (result as Promise<unknown>).then === "function") {
         result = await withTimeout(result as Promise<unknown>, Number(timeout));
       }
@@ -564,6 +626,13 @@ export class NotebookRuntime {
       } satisfies ExecuteResult;
     } finally {
       this.console.setEmitter(null);
+      // Clean up display hook
+      delete (this.context as Record<string, unknown>).__nodebooks_display;
+      (
+        this.sandboxRequire as unknown as {
+          setUiDisplayHook?: (fn: UiDisplayHook) => void;
+        }
+      ).setUiDisplayHook?.(null);
     }
   }
 
@@ -951,54 +1020,61 @@ const writeUiHelpersModule = async (sandboxDir: string) => {
   };
 
   const indexJs = `"use strict";
+function __nb_emit(obj){
+  try {
+    const f = globalThis && (globalThis).___unused ? null : (globalThis.__nodebooks_display);
+    if (typeof f === "function") { f(obj); try { if (obj && typeof obj === "object") { obj.__nb_ui_emitted = true; } } catch {}
+    }
+  } catch {}
+}
 function UiImage(srcOrOpts, opts) {
   if (srcOrOpts && typeof srcOrOpts === "object" && !Array.isArray(srcOrOpts) && "src" in srcOrOpts) {
-    return Object.assign({ ui: "image" }, srcOrOpts);
+    const o = Object.assign({ ui: "image" }, srcOrOpts); __nb_emit(o); return o;
   }
-  return Object.assign({ ui: "image", src: srcOrOpts }, opts || {});
+  const o = Object.assign({ ui: "image", src: srcOrOpts }, opts || {}); __nb_emit(o); return o;
 }
-function UiMarkdown(markdown) { return { ui: "markdown", markdown }; }
-function UiHTML(html) { return { ui: "html", html }; }
-function UiJSON(json, opts) { return Object.assign({ ui: "json", json }, opts || {}); }
-function UiCode(code, opts) { return Object.assign({ ui: "code", code }, opts || {}); }
+function UiMarkdown(markdown) { const o = { ui: "markdown", markdown }; __nb_emit(o); return o; }
+function UiHTML(html) { const o = { ui: "html", html }; __nb_emit(o); return o; }
+function UiJSON(json, opts) { const o = Object.assign({ ui: "json", json }, opts || {}); __nb_emit(o); return o; }
+function UiCode(code, opts) { const o = Object.assign({ ui: "code", code }, opts || {}); __nb_emit(o); return o; }
 function UiTable(rowsOrOpts, opts) {
   if (Array.isArray(rowsOrOpts)) {
-    return Object.assign({ ui: "table", rows: rowsOrOpts }, opts || {});
+    const o = Object.assign({ ui: "table", rows: rowsOrOpts }, opts || {}); __nb_emit(o); return o;
   }
   if (rowsOrOpts && typeof rowsOrOpts === "object" && "rows" in rowsOrOpts) {
-    return Object.assign({ ui: "table" }, rowsOrOpts);
+    const o = Object.assign({ ui: "table" }, rowsOrOpts); __nb_emit(o); return o;
   }
   throw new Error("UiTable expects an array of rows or an options object with { rows }");
 }
 function UiDataSummary(opts) {
-  if (opts && typeof opts === "object") return Object.assign({ ui: "dataSummary" }, opts);
+  if (opts && typeof opts === "object") { const o = Object.assign({ ui: "dataSummary" }, opts); __nb_emit(o); return o; }
   throw new Error("UiDataSummary expects an options object");
 }
 function UiAlert(opts) {
-  if (opts && typeof opts === "object") return Object.assign({ ui: "alert" }, opts);
+  if (opts && typeof opts === "object") { const o = Object.assign({ ui: "alert" }, opts); __nb_emit(o); return o; }
   throw new Error("UiAlert expects an options object");
 }
 function UiBadge(textOrOpts, opts) {
   if (textOrOpts && typeof textOrOpts === "object" && "text" in textOrOpts) {
-    return Object.assign({ ui: "badge" }, textOrOpts);
+    const o = Object.assign({ ui: "badge" }, textOrOpts); __nb_emit(o); return o;
   }
-  return Object.assign({ ui: "badge", text: String(textOrOpts ?? "") }, opts || {});
+  const o = Object.assign({ ui: "badge", text: String(textOrOpts ?? "") }, opts || {}); __nb_emit(o); return o;
 }
 function UiMetric(valueOrOpts, opts) {
   if (valueOrOpts && typeof valueOrOpts === "object" && "value" in valueOrOpts) {
-    return Object.assign({ ui: "metric" }, valueOrOpts);
+    const o = Object.assign({ ui: "metric" }, valueOrOpts); __nb_emit(o); return o;
   }
-  return Object.assign({ ui: "metric", value: valueOrOpts }, opts || {});
+  const o = Object.assign({ ui: "metric", value: valueOrOpts }, opts || {}); __nb_emit(o); return o;
 }
 function UiProgress(valueOrOpts, opts) {
   if (valueOrOpts && typeof valueOrOpts === "object") {
-    return Object.assign({ ui: "progress" }, valueOrOpts);
+    const o = Object.assign({ ui: "progress" }, valueOrOpts); __nb_emit(o); return o;
   }
-  return Object.assign({ ui: "progress", value: valueOrOpts }, opts || {});
+  const o = Object.assign({ ui: "progress", value: valueOrOpts }, opts || {}); __nb_emit(o); return o;
 }
 function UiSpinner(opts) {
-  if (opts && typeof opts === "object") return Object.assign({ ui: "spinner" }, opts);
-  return { ui: "spinner" };
+  if (opts && typeof opts === "object") { const o = Object.assign({ ui: "spinner" }, opts); __nb_emit(o); return o; }
+  const o = { ui: "spinner" }; __nb_emit(o); return o;
 }
 module.exports = { UiImage, UiMarkdown, UiHTML, UiJSON, UiCode, UiTable, UiDataSummary, UiAlert, UiBadge, UiMetric, UiProgress, UiSpinner };
 `;
@@ -1085,15 +1161,153 @@ const createPlaceholderRequire = (): NodeJS.Require => {
   return placeholder;
 };
 
+// Option types derived from the shared schema to avoid duplication
+type UiImageOptions = Omit<UiImage, "ui" | "src">;
+type UiJsonOptions = Omit<UiJson, "ui" | "json">;
+type UiCodeOptions = Omit<UiCode, "ui" | "code">;
+type UiTableOptions = Omit<UiTable, "ui" | "rows">;
+type UiDataSummaryOptions = Omit<UiDataSummary, "ui">;
+type UiAlertOptions = Omit<UiAlert, "ui">;
+type UiBadgeOptions = Omit<UiBadge, "ui" | "text">;
+type UiMetricOptions = Omit<UiMetric, "ui" | "value">;
+type UiProgressOptions = Omit<UiProgress, "ui" | "value">;
+type UiSpinnerOptions = Omit<UiSpinner, "ui">;
+
 const createSandboxRequire = (
   root: string,
   fsModule: typeof fs,
   processProxy: NodeJS.Process
-): NodeJS.Require => {
+): NodeJS.Require & { setUiDisplayHook: (fn: UiDisplayHook) => void } => {
   const entry = join(root, "__runtime__.cjs");
   const base = createRequire(entry);
+  let uiDisplayHook: UiDisplayHook = null;
 
   const sandboxRequire = ((specifier: string) => {
+    // Intercept our virtual UI helper package to inject a live display hook
+    if (specifier === "@nodebooks/ui") {
+      const emit = (obj: unknown) => {
+        try {
+          uiDisplayHook?.(obj);
+        } catch {
+          /* noop */
+        }
+      };
+      const tag = <T>(o: T) => {
+        try {
+          if (o && typeof o === "object") {
+            (o as Record<string, unknown>).__nb_ui_emitted = true;
+          }
+        } catch (err) {
+          void err;
+        }
+        return o;
+      };
+      return {
+        UiImage: (
+          srcOrOpts: string | ({ src: string } & UiImageOptions),
+          opts?: UiImageOptions
+        ) => {
+          const o =
+            srcOrOpts &&
+            typeof srcOrOpts === "object" &&
+            !Array.isArray(srcOrOpts) &&
+            "src" in srcOrOpts
+              ? { ui: "image", ...srcOrOpts }
+              : { ui: "image", src: srcOrOpts, ...(opts || {}) };
+          emit(o);
+          return tag(o);
+        },
+        UiMarkdown: (markdown: string) => {
+          const o = { ui: "markdown", markdown };
+          emit(o);
+          return tag(o);
+        },
+        UiHTML: (html: string) => {
+          const o = { ui: "html", html };
+          emit(o);
+          return tag(o);
+        },
+        UiJSON: (json: unknown, opts?: UiJsonOptions) => {
+          const o = { ui: "json", json, ...(opts || {}) };
+          emit(o);
+          return tag(o);
+        },
+        UiCode: (code: string, opts?: UiCodeOptions) => {
+          const o = { ui: "code", code, ...(opts || {}) };
+          emit(o);
+          return tag(o);
+        },
+        UiTable: (
+          rowsOrOpts:
+            | Array<Record<string, unknown>>
+            | ({ rows: Array<Record<string, unknown>> } & UiTableOptions),
+          opts?: UiTableOptions
+        ) => {
+          const o = Array.isArray(rowsOrOpts)
+            ? { ui: "table", rows: rowsOrOpts, ...(opts || {}) }
+            : { ui: "table", ...(rowsOrOpts || {}) };
+          emit(o);
+          return tag(o);
+        },
+        UiDataSummary: (opts: UiDataSummaryOptions) => {
+          const o = { ui: "dataSummary", ...(opts || {}) };
+          emit(o);
+          return tag(o);
+        },
+        UiAlert: (opts: UiAlertOptions) => {
+          const o = { ui: "alert", ...(opts || {}) };
+          emit(o);
+          return tag(o);
+        },
+        UiBadge: (
+          textOrOpts: string | ({ text: string } & UiBadgeOptions),
+          opts?: UiBadgeOptions
+        ) => {
+          const o =
+            textOrOpts && typeof textOrOpts === "object" && "text" in textOrOpts
+              ? { ui: "badge", ...textOrOpts }
+              : {
+                  ui: "badge",
+                  text: String(textOrOpts ?? ""),
+                  ...(opts || {}),
+                };
+          emit(o);
+          return tag(o);
+        },
+        UiMetric: (
+          valueOrOpts:
+            | string
+            | number
+            | ({ value: string | number } & UiMetricOptions),
+          opts?: UiMetricOptions
+        ) => {
+          const o =
+            valueOrOpts &&
+            typeof valueOrOpts === "object" &&
+            "value" in valueOrOpts
+              ? { ui: "metric", ...valueOrOpts }
+              : { ui: "metric", value: valueOrOpts, ...(opts || {}) };
+          emit(o);
+          return tag(o);
+        },
+        UiProgress: (
+          valueOrOpts: number | (UiProgressOptions & { value?: number }),
+          opts?: UiProgressOptions
+        ) => {
+          const o =
+            valueOrOpts && typeof valueOrOpts === "object"
+              ? { ui: "progress", ...valueOrOpts }
+              : { ui: "progress", value: valueOrOpts, ...(opts || {}) };
+          emit(o);
+          return tag(o);
+        },
+        UiSpinner: (opts?: UiSpinnerOptions) => {
+          const o = { ui: "spinner", ...(opts || {}) };
+          emit(o);
+          return tag(o);
+        },
+      } as unknown;
+    }
     if (specifier === "fs" || specifier === "node:fs") {
       return fsModule;
     }
@@ -1109,7 +1323,9 @@ const createSandboxRequire = (
       );
     }
     return base(specifier);
-  }) as unknown as NodeJS.Require;
+  }) as unknown as NodeJS.Require & {
+    setUiDisplayHook?: (fn: UiDisplayHook) => void;
+  };
 
   const resolveFn = ((request: string, options?: unknown) => {
     return base.resolve(request, options as never);
@@ -1118,11 +1334,21 @@ const createSandboxRequire = (
     resolveFn.paths = base.resolve.paths.bind(base.resolve);
   }
 
-  sandboxRequire.resolve = resolveFn;
+  sandboxRequire.resolve = resolveFn as NodeJS.Require["resolve"];
   sandboxRequire.cache = base.cache;
   sandboxRequire.main = base.main;
   sandboxRequire.extensions = base.extensions;
-  return sandboxRequire;
+  // Allow runtime to set the UI hook for streaming
+  (
+    sandboxRequire as unknown as {
+      setUiDisplayHook: (fn: UiDisplayHook) => void;
+    }
+  ).setUiDisplayHook = (fn: UiDisplayHook) => {
+    uiDisplayHook = fn ?? null;
+  };
+  return sandboxRequire as NodeJS.Require & {
+    setUiDisplayHook: (fn: UiDisplayHook) => void;
+  };
 };
 
 const createProcessProxy = (

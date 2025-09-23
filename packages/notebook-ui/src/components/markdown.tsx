@@ -8,6 +8,9 @@ export const Markdown: React.FC<MarkdownProps> = ({ markdown, className }) => {
   const html = marked.parse(markdown ?? "");
   const safe = DOMPurify.sanitize(String(html), { ADD_ATTR: ["style"] });
   return (
-    <div className={className} dangerouslySetInnerHTML={{ __html: safe }} />
+    <div
+      className={(className ? className + " " : "") + "markdown-preview"}
+      dangerouslySetInnerHTML={{ __html: safe }}
+    />
   );
 };

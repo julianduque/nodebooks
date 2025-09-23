@@ -110,6 +110,7 @@ const CellCard = ({
               onClick={onRun}
               disabled={isRunning || !canRun}
               aria-label="Run cell"
+              title="Run cell (Shift+Enter)"
             >
               {isRunning ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -128,6 +129,7 @@ const CellCard = ({
                 )
               }
               aria-label="Clear outputs"
+              title="Clear outputs"
             >
               <Eraser className="h-4 w-4" />
             </Button>
@@ -152,6 +154,7 @@ const CellCard = ({
               })
             }
             aria-label="Toggle edit markdown"
+            title="Toggle edit markdown"
           >
             {mdEditing ? (
               <Check className="h-4 w-4" />
@@ -166,6 +169,7 @@ const CellCard = ({
             size="icon"
             onClick={() => onMove("up")}
             aria-label="Move cell up"
+            title="Move cell up"
           >
             <ArrowUp className="h-4 w-4" />
           </Button>
@@ -176,6 +180,7 @@ const CellCard = ({
             size="icon"
             onClick={() => onMove("down")}
             aria-label="Move cell down"
+            title="Move cell down"
           >
             <ArrowDown className="h-4 w-4" />
           </Button>
@@ -186,6 +191,7 @@ const CellCard = ({
           className="text-rose-600 hover:text-rose-600"
           onClick={onDelete}
           aria-label="Delete cell"
+          title="Delete cell"
         >
           <Trash2 className="h-4 w-4" />
         </Button>

@@ -65,9 +65,9 @@ export const TableGrid: React.FC<TableGridProps> = ({
 
   return (
     <div className={className}>
-      <div className="overflow-auto rounded border border-slate-700">
+      <div className="overflow-auto rounded border border-slate-200 bg-white">
         <table className="min-w-full border-collapse">
-          <thead className="bg-slate-800">
+          <thead className="bg-slate-50">
             <tr>
               {cols.map(
                 (c: {
@@ -77,7 +77,7 @@ export const TableGrid: React.FC<TableGridProps> = ({
                 }) => (
                   <th
                     key={c.key}
-                    className={`text-left text-slate-200 text-sm font-semibold ${cellPad} border-b border-slate-700 select-none cursor-pointer`}
+                    className={`text-left text-slate-700 text-sm font-semibold ${cellPad} border-b border-slate-200 select-none cursor-pointer`}
                     onClick={() => onHeaderClick(c.key)}
                   >
                     <span>{c.label ?? c.key}</span>
@@ -93,10 +93,7 @@ export const TableGrid: React.FC<TableGridProps> = ({
           </thead>
           <tbody>
             {pageRows.map((r, i) => (
-              <tr
-                key={i}
-                className={i % 2 === 0 ? "bg-slate-900/40" : "bg-slate-900/20"}
-              >
+              <tr key={i} className={i % 2 === 0 ? "bg-white" : "bg-slate-50"}>
                 {cols.map(
                   (c: {
                     key: string;
@@ -108,7 +105,7 @@ export const TableGrid: React.FC<TableGridProps> = ({
                     return (
                       <td
                         key={c.key}
-                        className={`${cellPad} text-slate-100 text-sm border-b border-slate-800 align-top ${
+                        className={`${cellPad} text-slate-700 text-sm border-b border-slate-200 align-top ${
                           align === "right"
                             ? "text-right"
                             : align === "center"
@@ -126,7 +123,7 @@ export const TableGrid: React.FC<TableGridProps> = ({
             {pageRows.length === 0 && (
               <tr>
                 <td
-                  className={`${cellPad} text-slate-400 text-sm`}
+                  className={`${cellPad} text-slate-500 text-sm`}
                   colSpan={cols.length}
                 >
                   No rows
@@ -136,12 +133,12 @@ export const TableGrid: React.FC<TableGridProps> = ({
           </tbody>
         </table>
       </div>
-      <div className="mt-2 flex items-center justify-between text-sm text-slate-200">
+      <div className="mt-2 flex items-center justify-between text-sm text-slate-700">
         <div className="space-x-2">
           <button
             type="button"
             onClick={() => setPageIndex((p) => Math.max(0, p - 1))}
-            className="rounded border border-slate-600 bg-slate-700 px-2 py-1 disabled:opacity-50"
+            className="rounded border border-slate-300 bg-slate-100 px-2 py-1 disabled:opacity-50"
             disabled={clampedIndex <= 0}
           >
             Prev
@@ -149,7 +146,7 @@ export const TableGrid: React.FC<TableGridProps> = ({
           <button
             type="button"
             onClick={() => setPageIndex((p) => Math.min(maxPage, p + 1))}
-            className="rounded border border-slate-600 bg-slate-700 px-2 py-1 disabled:opacity-50"
+            className="rounded border border-slate-300 bg-slate-100 px-2 py-1 disabled:opacity-50"
             disabled={clampedIndex >= maxPage}
           >
             Next
@@ -162,7 +159,7 @@ export const TableGrid: React.FC<TableGridProps> = ({
           <label className="inline-flex items-center space-x-1">
             <span>Rows:</span>
             <select
-              className="rounded border border-slate-600 bg-slate-800 px-2 py-1"
+              className="rounded border border-slate-300 bg-white px-2 py-1"
               value={pageSize}
               onChange={(e) => {
                 const size = Number(e.target.value) || 20;
@@ -177,7 +174,7 @@ export const TableGrid: React.FC<TableGridProps> = ({
               ))}
             </select>
           </label>
-          <span className="text-slate-400">{total} total</span>
+          <span className="text-slate-500">{total} total</span>
         </div>
       </div>
     </div>

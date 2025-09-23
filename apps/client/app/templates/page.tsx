@@ -18,7 +18,7 @@ const TEMPLATES = [
     description: "Preconfigured requests and helpers for REST endpoints.",
     templateId: "starter",
     badge: "Template",
-    badgeClass: "bg-emerald-100 text-emerald-700",
+    badgeClass: "bg-emerald-300",
   },
   {
     id: "data-viz",
@@ -26,7 +26,7 @@ const TEMPLATES = [
     description: "Plot data with TypeScript and popular charting libs.",
     templateId: "typescript",
     badge: "Template",
-    badgeClass: "bg-sky-100 text-sky-700",
+    badgeClass: "bg-sky-300",
   },
   {
     id: "llm-agents",
@@ -34,7 +34,7 @@ const TEMPLATES = [
     description: "Start orchestrating AI prompts and tool invocations.",
     templateId: "typescript",
     badge: "Template",
-    badgeClass: "bg-purple-100 text-purple-700",
+    badgeClass: "bg-purple-300",
   },
   {
     id: "web-scraping",
@@ -42,7 +42,7 @@ const TEMPLATES = [
     description: "Kick off scraping flows with Puppeteer snippets.",
     templateId: "blank",
     badge: "Template",
-    badgeClass: "bg-amber-100 text-amber-700",
+    badgeClass: "bg-amber-300",
   },
 ];
 
@@ -83,6 +83,7 @@ export default function TemplatesPage() {
               </div>
               <Button
                 size="sm"
+                variant="secondary"
                 className="gap-2"
                 onClick={() => createFrom(t.templateId)}
               >
