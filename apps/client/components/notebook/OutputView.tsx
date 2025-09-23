@@ -88,7 +88,7 @@ const OutputView = ({ output }: { output: NotebookOutput }) => {
     const parsed = UiDisplaySchema.safeParse(raw);
     if (parsed.success) {
       return (
-        <div className="rounded-lg border border-slate-700 bg-slate-800/90 p-3">
+        <div className="rounded-lg border border-slate-200 bg-white p-3 text-slate-800">
           <UiRenderer display={parsed.data} />
         </div>
       );
@@ -96,8 +96,8 @@ const OutputView = ({ output }: { output: NotebookOutput }) => {
 
     // Fallback to raw data
     return (
-      <div className="rounded-lg border border-slate-700 bg-slate-800/90 p-3">
-        <pre className="whitespace-pre-wrap text-xs text-slate-100">
+      <div className="rounded-lg border border-slate-200 bg-white p-3 text-slate-800">
+        <pre className="whitespace-pre-wrap text-xs">
           {JSON.stringify(output.data, null, 2)}
         </pre>
       </div>

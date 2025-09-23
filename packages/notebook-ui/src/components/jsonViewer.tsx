@@ -12,28 +12,28 @@ const Toggle: React.FC<{ open: boolean; onClick: () => void }> = ({
   <button
     onClick={onClick}
     type="button"
-    className="select-none rounded border border-slate-600 bg-slate-700 px-1 text-xs text-slate-100 hover:bg-slate-600"
+    className="select-none rounded border border-slate-300 bg-slate-100 px-1 text-xs text-slate-700 hover:bg-slate-200"
   >
     {open ? "−" : "+"}
   </button>
 );
 
 const Key: React.FC<{ name: string }> = ({ name }) => (
-  <span className="text-emerald-300">{name}</span>
+  <span className="text-emerald-700">{name}</span>
 );
 
 const Value: React.FC<{ value: unknown }> = ({ value }) => {
   const t = typeof value;
-  if (value === null) return <span className="text-fuchsia-300">null</span>;
+  if (value === null) return <span className="text-fuchsia-700">null</span>;
   if (t === "string")
-    return <span className="text-amber-200">"{String(value)}"</span>;
+    return <span className="text-amber-700">"{String(value)}"</span>;
   if (t === "number")
-    return <span className="text-sky-300">{String(value)}</span>;
+    return <span className="text-sky-700">{String(value)}</span>;
   if (t === "boolean")
-    return <span className="text-pink-300">{String(value)}</span>;
+    return <span className="text-pink-700">{String(value)}</span>;
   if (t === "undefined")
-    return <span className="text-slate-400">undefined</span>;
-  return <span className="text-slate-200">{String(value)}</span>;
+    return <span className="text-slate-500">undefined</span>;
+  return <span className="text-slate-700">{String(value)}</span>;
 };
 
 const Entry: React.FC<{
@@ -72,9 +72,9 @@ const Entry: React.FC<{
           )}
           <Toggle open={open} onClick={() => setOpen((s) => !s)} />{" "}
           {open ? (
-            <span className="text-slate-300">[</span>
+            <span className="text-slate-500">[</span>
           ) : (
-            <span className="text-slate-400">[...{arr.length}]</span>
+            <span className="text-slate-500">[...{arr.length}]</span>
           )}
         </div>
         {open &&
@@ -90,7 +90,7 @@ const Entry: React.FC<{
           ))}
         {open && (
           <div className="leading-6" style={indentStyle}>
-            <span className="text-slate-300">]</span>
+            <span className="text-slate-500">]</span>
           </div>
         )}
       </>
@@ -108,9 +108,9 @@ const Entry: React.FC<{
         )}
         <Toggle open={open} onClick={() => setOpen((s) => !s)} />{" "}
         {open ? (
-          <span className="text-slate-300">{"{"}</span>
+          <span className="text-slate-500">{"{"}</span>
         ) : (
-          <span className="text-slate-400">{"{…}"}</span>
+          <span className="text-slate-500">{"{…}"}</span>
         )}
       </div>
       {open &&
@@ -126,7 +126,7 @@ const Entry: React.FC<{
         ))}
       {open && (
         <div className="leading-6" style={indentStyle}>
-          <span className="text-slate-300">{"}"}</span>
+          <span className="text-slate-500">{"}"}</span>
         </div>
       )}
     </>

@@ -21,7 +21,7 @@ export const Spinner: React.FC<SpinnerProps> = ({
         width={px}
         height={px}
         viewBox="0 0 24 24"
-        className="animate-spin text-slate-300"
+        className="animate-spin text-slate-500"
       >
         <circle
           className="opacity-25"
@@ -38,7 +38,7 @@ export const Spinner: React.FC<SpinnerProps> = ({
           d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
         />
       </svg>
-      {label && <span className="text-xs text-slate-300">{label}</span>}
+      {label && <span className="text-xs text-slate-600">{label}</span>}
     </div>
   );
 };

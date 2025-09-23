@@ -12,7 +12,7 @@ export const CodeBlock: React.FC<CodeBlockProps> = ({
     <pre
       className={
         (className ?? "") +
-        " whitespace-pre bg-slate-900 text-slate-100 rounded p-3 overflow-auto"
+        " whitespace-pre bg-slate-100 text-slate-800 rounded border border-slate-200 p-3 overflow-auto"
       }
       style={{ whiteSpace: wrap ? "pre-wrap" : "pre" }}
     >

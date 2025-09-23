@@ -7,17 +7,17 @@ type DataSummaryProps = UiDataSummary & { className?: string };
 const renderStat = (label: string, value: unknown) => {
   if (typeof value === "number") {
     return (
-      <div className="rounded border border-slate-700 bg-slate-800/60 px-2 py-1">
-        <div className="text-slate-400">{label}</div>
-        <div className="text-sky-300">{value}</div>
+      <div className="rounded border border-slate-200 bg-white px-2 py-1">
+        <div className="text-slate-500">{label}</div>
+        <div className="text-sky-700">{value}</div>
       </div>
     );
   }
   if (typeof value === "string") {
     return (
-      <div className="rounded border border-slate-700 bg-slate-800/60 px-2 py-1">
-        <div className="text-slate-400">{label}</div>
-        <div className="text-slate-200">{value}</div>
+      <div className="rounded border border-slate-200 bg-white px-2 py-1">
+        <div className="text-slate-500">{label}</div>
+        <div className="text-slate-700">{value}</div>
       </div>
     );
   }
@@ -36,39 +36,39 @@ export const DataSummary: React.FC<DataSummaryProps> = ({
   return (
     <div className={className}>
       {title && (
-        <h3 className="mb-2 text-lg font-semibold text-slate-100">{title}</h3>
+        <h3 className="mb-2 text-lg font-semibold text-slate-800">{title}</h3>
       )}
       <div className="grid gap-4 md:grid-cols-2">
-        <div className="rounded border border-slate-700 bg-slate-900/30">
-          <div className="border-b border-slate-700 px-3 py-2 text-sm font-semibold text-slate-200">
+        <div className="rounded border border-slate-200 bg-white">
+          <div className="border-b border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700">
             Schema
           </div>
           <div className="max-h-64 overflow-auto p-2">
             {schema && schema.length > 0 ? (
               <table className="min-w-full border-collapse">
                 <thead>
-                  <tr className="bg-slate-800">
-                    <th className="px-3 py-2 text-left text-xs font-semibold text-slate-300">
+                  <tr className="bg-slate-50">
+                    <th className="px-3 py-2 text-left text-xs font-semibold text-slate-700">
                       Name
                     </th>
-                    <th className="px-3 py-2 text-left text-xs font-semibold text-slate-300">
+                    <th className="px-3 py-2 text-left text-xs font-semibold text-slate-700">
                       Type
                     </th>
-                    <th className="px-3 py-2 text-left text-xs font-semibold text-slate-300">
+                    <th className="px-3 py-2 text-left text-xs font-semibold text-slate-700">
                       Nullable
                     </th>
                   </tr>
                 </thead>
                 <tbody>
                   {schema.map((f) => (
-                    <tr key={f.name} className="odd:bg-slate-900/30">
-                      <td className="px-3 py-2 text-sm text-emerald-300">
+                    <tr key={f.name} className="odd:bg-slate-50">
+                      <td className="px-3 py-2 text-sm text-emerald-700">
                         {f.name}
                       </td>
-                      <td className="px-3 py-2 text-sm text-sky-300">
+                      <td className="px-3 py-2 text-sm text-sky-700">
                         {f.type}
                       </td>
-                      <td className="px-3 py-2 text-sm text-slate-200">
+                      <td className="px-3 py-2 text-sm text-slate-700">
                         {String(f.nullable ?? true)}
                       </td>
                     </tr>
@@ -76,15 +76,15 @@ export const DataSummary: React.FC<DataSummaryProps> = ({
                 </tbody>
               </table>
             ) : (
-              <div className="px-3 py-2 text-sm text-slate-400">
+              <div className="px-3 py-2 text-sm text-slate-500">
                 No schema provided
               </div>
             )}
           </div>
         </div>
 
-        <div className="rounded border border-slate-700 bg-slate-900/30">
-          <div className="border-b border-slate-700 px-3 py-2 text-sm font-semibold text-slate-200">
+        <div className="rounded border border-slate-200 bg-white">
+          <div className="border-b border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700">
             Field Stats
           </div>
           <div className="max-h-64 overflow-auto p-2">
@@ -93,12 +93,12 @@ export const DataSummary: React.FC<DataSummaryProps> = ({
                 {Object.entries(stats).map(([name, s]) => (
                   <div
                     key={name}
-                    className="rounded border border-slate-700 bg-slate-900/50"
+                    className="rounded border border-slate-200 bg-white"
                   >
-                    <div className="border-b border-slate-700 px-3 py-1 text-sm font-semibold text-slate-200">
+                    <div className="border-b border-slate-200 px-3 py-1 text-sm font-semibold text-slate-700">
                       {name}
                     </div>
-                    <div className="grid grid-cols-2 gap-2 p-2 text-xs text-slate-200 md:grid-cols-3">
+                    <div className="grid grid-cols-2 gap-2 p-2 text-xs text-slate-700 md:grid-cols-3">
                       {renderStat("count", s.count)}
                       {renderStat("distinct", s.distinct)}
                       {renderStat("nulls", s.nulls)}
@@ -114,7 +114,7 @@ export const DataSummary: React.FC<DataSummaryProps> = ({
                 ))}
               </div>
             ) : (
-              <div className="px-3 py-2 text-sm text-slate-400">
+              <div className="px-3 py-2 text-sm text-slate-500">
                 No stats provided
               </div>
             )}
@@ -122,14 +122,14 @@ export const DataSummary: React.FC<DataSummaryProps> = ({
         </div>
       </div>
 
-      <div className="mt-4 rounded border border-slate-700 bg-slate-900/30">
-        <div className="border-b border-slate-700 px-3 py-2 text-sm font-semibold text-slate-200">
+      <div className="mt-4 rounded border border-slate-200 bg-white">
+        <div className="border-b border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700">
           Sample Rows
         </div>
         <div className="max-h-64 overflow-auto">
           {sample && sample.length > 0 ? (
             <table className="min-w-full border-collapse">
-              <thead className="bg-slate-800">
+              <thead className="bg-slate-50">
                 <tr>
                   {sampleCols.map(
                     (c: {
@@ -139,7 +139,7 @@ export const DataSummary: React.FC<DataSummaryProps> = ({
                     }) => (
                       <th
                         key={c.key}
-                        className="px-3 py-2 text-left text-xs font-semibold text-slate-300"
+                        className="px-3 py-2 text-left text-xs font-semibold text-slate-700"
                       >
                         {c.label ?? c.key}
                       </th>
@@ -149,7 +149,7 @@ export const DataSummary: React.FC<DataSummaryProps> = ({
               </thead>
               <tbody>
                 {sample.map((r, i) => (
-                  <tr key={i} className="odd:bg-slate-900/30">
+                  <tr key={i} className="odd:bg-slate-50">
                     {sampleCols.map(
                       (c: {
                         key: string;
@@ -158,7 +158,7 @@ export const DataSummary: React.FC<DataSummaryProps> = ({
                       }) => (
                         <td
                           key={c.key}
-                          className="px-3 py-2 text-sm text-slate-100"
+                          className="px-3 py-2 text-sm text-slate-700"
                         >
                           {renderCellValue(
                             (r as Record<string, unknown>)[c.key]
@@ -171,7 +171,7 @@ export const DataSummary: React.FC<DataSummaryProps> = ({
               </tbody>
             </table>
           ) : (
-            <div className="px-3 py-2 text-sm text-slate-400">
+            <div className="px-3 py-2 text-sm text-slate-500">
               No sample rows
             </div>
           )}
@@ -179,8 +179,8 @@ export const DataSummary: React.FC<DataSummaryProps> = ({
       </div>
 
       {note && (
-        <p className="mt-3 text-sm text-slate-300">
-          <span className="font-semibold text-slate-200">Note:</span> {note}
+        <p className="mt-3 text-sm text-slate-600">
+          <span className="font-semibold text-slate-800">Note:</span> {note}
         </p>
       )}
     </div>

@@ -23,7 +23,7 @@ export const MetricTile: React.FC<MetricProps> = ({
     deltaNum === undefined ? "" : deltaNum > 0 ? "▲" : deltaNum < 0 ? "▼" : "→";
   return (
     <div
-      className={`rounded-lg border border-slate-700 bg-slate-900/30 p-3 ${className ?? ""}`}
+      className={`rounded-lg border border-slate-200 bg-white p-3 ${className ?? ""}`}
     >
       {label && (
         <div className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
@@ -31,10 +31,10 @@ export const MetricTile: React.FC<MetricProps> = ({
         </div>
       )}
       <div className="mt-1 flex items-baseline gap-2">
-        <div className="text-3xl font-bold text-slate-100">
+        <div className="text-3xl font-bold text-slate-800">
           {String(value)}
           {unit ? (
-            <span className="ml-1 text-base text-slate-300">{unit}</span>
+            <span className="ml-1 text-base text-slate-500">{unit}</span>
           ) : null}
         </div>
         {deltaNum !== undefined && (
@@ -44,7 +44,7 @@ export const MetricTile: React.FC<MetricProps> = ({
         )}
       </div>
       {helpText && (
-        <div className="mt-1 text-xs text-slate-400">{helpText}</div>
+        <div className="mt-1 text-xs text-slate-600">{helpText}</div>
       )}
     </div>
   );
