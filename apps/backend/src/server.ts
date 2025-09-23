@@ -1,10 +1,13 @@
 import Fastify from "fastify";
+import type { FastifyReply, FastifyRequest } from "fastify";
 import cors from "@fastify/cors";
+import fastifyCookie from "@fastify/cookie";
 import next from "next";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Socket } from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { z } from "zod";
 import {
   InMemoryNotebookStore,
   InMemorySessionManager,
@@ -17,6 +20,11 @@ import { registerDependencyRoutes } from "./routes/dependencies.js";
 import { registerSessionRoutes } from "./routes/sessions.js";
 import { registerTemplateRoutes } from "./routes/templates.js";
 import { createKernelUpgradeHandler } from "./kernel/router.js";
+import {
+  PASSWORD_COOKIE_NAME,
+  derivePasswordToken,
+  isTokenValid,
+} from "./auth/password.js";
 
 export interface CreateServerOptions {
   logger?: boolean;
@@ -28,12 +36,116 @@ export const createServer = async ({
   const isDev = process.env.NODE_ENV !== "production";
   const app = Fastify({ logger, pluginTimeout: isDev ? 120_000 : undefined });
 
+  await app.register(fastifyCookie);
   await app.register(cors, {
     origin: true,
     methods: ["OPTIONS", "GET", "POST", "PUT", "PATCH", "DELETE"],
     allowedHeaders: ["Content-Type", "Accept", "Authorization"],
   });
   // Do not register @fastify/websocket to avoid conflicting with Next HMR
+
+  const configuredPassword = process.env.NODEBOOKS_PASSWORD;
+  const passwordToken = configuredPassword
+    ? derivePasswordToken(configuredPassword)
+    : null;
+
+  const cookieOptions = {
+    path: "/",
+    httpOnly: true,
+    sameSite: "lax" as const,
+    secure: !isDev,
+  };
+
+  const shouldBypassAuth = (request: FastifyRequest) => {
+    if (!passwordToken) {
+      return true;
+    }
+    if (request.method === "OPTIONS") {
+      return true;
+    }
+    const url = request.raw.url ?? "/";
+    if (url.startsWith("/auth/login")) {
+      return true;
+    }
+    if (url.startsWith("/login")) {
+      return true;
+    }
+    if (url.startsWith("/health")) {
+      return true;
+    }
+    if (url.startsWith("/_next/")) {
+      if (url.startsWith("/_next/data")) {
+        return url.includes("/login");
+      }
+      return true;
+    }
+    if (url.startsWith("/favicon")) {
+      return true;
+    }
+    if (url.startsWith("/icon")) {
+      return true;
+    }
+    if (url.startsWith("/assets/")) {
+      return true;
+    }
+    if (request.headers.upgrade === "websocket") {
+      return true;
+    }
+    return false;
+  };
+
+  const sendUnauthorized = (request: FastifyRequest, reply: FastifyReply) => {
+    const url = request.raw.url ?? "/";
+    const wantsJson =
+      request.method !== "GET" ||
+      url.startsWith("/api") ||
+      (request.headers.accept ?? "").includes("application/json") ||
+      request.headers["x-requested-with"] === "XMLHttpRequest";
+
+    if (wantsJson) {
+      void reply.code(401).send({ error: "Unauthorized" });
+      return reply;
+    }
+
+    void reply.redirect("/login", 302);
+    return reply;
+  };
+
+  if (passwordToken) {
+    app.log.info("Password protection enabled");
+    app.addHook("onRequest", async (request, reply) => {
+      if (shouldBypassAuth(request)) {
+        return;
+      }
+
+      const token = request.cookies[PASSWORD_COOKIE_NAME];
+      if (isTokenValid(token, passwordToken)) {
+        return;
+      }
+
+      return sendUnauthorized(request, reply);
+    });
+
+    app.post("/auth/login", async (request, reply) => {
+      const body = z
+        .object({ password: z.string().min(1) })
+        .safeParse(request.body);
+      if (!body.success) {
+        void reply.code(400).send({ error: "Password is required" });
+        return;
+      }
+
+      if (
+        !isTokenValid(derivePasswordToken(body.data.password), passwordToken)
+      ) {
+        void reply.code(401).send({ error: "Incorrect password" });
+        return;
+      }
+
+      reply.setCookie(PASSWORD_COOKIE_NAME, passwordToken, cookieOptions);
+      void reply.code(204).send();
+    });
+  }
 
   // Mount Next.js (apps/client) using Next's handler so UI is served by Fastify
   const embedNext =
@@ -150,7 +262,12 @@ export const createServer = async ({
   }
 
   // Central upgrade handler: Next HMR and Kernel WS
-  const kernelUpgrade = createKernelUpgradeHandler("/api", sessions, store);
+  const kernelUpgrade = createKernelUpgradeHandler(
+    "/api",
+    sessions,
+    store,
+    passwordToken ? { passwordToken } : {}
+  );
   app.server.on(
     "upgrade",
     (req: IncomingMessage, socket: Socket, head: Buffer) => {
