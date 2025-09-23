@@ -1,0 +1,137 @@
+id: api-testing
+title: API Testing Notebook
+description: >-
+  Preconfigure axios, Zod validation, and helper scaffolding to exercise REST
+  endpoints with repeatable smoke tests.
+badge:
+  text: API Suite
+  tone: emerald
+tags:
+  - api
+  - testing
+  - zod
+order: 20
+notebook:
+  name: API Testing Playbook
+  env:
+    runtime: node
+    version: "20.x"
+    packages:
+      axios: "^1.7.7"
+      zod: "^3.23.8"
+    variables:
+      API_BASE_URL: https://api.example.com
+      AUTH_TOKEN: ""
+      DEFAULT_TIMEOUT_MS: "15000"
+  cells:
+    - type: markdown
+      source: |-
+        # API testing quickstart
+
+        This template bootstraps an HTTP client, response validators, and a
+        repeatable smoke test harness. Configure the environment variables and
+        expand the request catalog to cover your service surface area.
+    - type: markdown
+      source: |-
+        ## Environment
+
+        - `API_BASE_URL`: default base URL for all requests
+        - `AUTH_TOKEN`: optional bearer token injected into the Authorization header
+        - `DEFAULT_TIMEOUT_MS`: request timeout in milliseconds (stringified number)
+
+        Packages are pre-installed:
+
+        - [`axios`](https://www.npmjs.com/package/axios) for HTTP requests
+        - [`zod`](https://www.npmjs.com/package/zod) for schema validation
+    - type: code
+      language: ts
+      source: |-
+        import axios from "axios";
+        import { z } from "zod";
+
+        const timeout = Number.parseInt(
+          process.env.DEFAULT_TIMEOUT_MS ?? "15000",
+          10
+        );
+
+        export const api = axios.create({
+          baseURL: process.env.API_BASE_URL ?? "https://api.example.com",
+          timeout,
+          headers: {
+            "Content-Type": "application/json",
+            ...(process.env.AUTH_TOKEN
+              ? { Authorization: `Bearer ${process.env.AUTH_TOKEN}` }
+              : {}),
+          },
+        });
+
+        export const StatusSchema = z.object({
+          status: z.string(),
+          uptime: z.number().nonnegative(),
+          version: z.string().optional(),
+        });
+
+        export async function checkStatus() {
+          const response = await api.get("/status");
+          const payload = StatusSchema.parse(response.data);
+          console.log("Service status:", payload.status);
+          console.log("Uptime (s):", payload.uptime);
+          return payload;
+        }
+    - type: code
+      language: ts
+      source: |-
+        interface EndpointSpec {
+          method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+          path: string;
+          description: string;
+        }
+
+        export const smokePlan: EndpointSpec[] = [
+          { method: "GET", path: "/status", description: "Health check" },
+          { method: "GET", path: "/users", description: "List users" },
+          { method: "POST", path: "/users", description: "Create user" },
+        ];
+
+        export async function runSmokePlan() {
+          for (const step of smokePlan) {
+            const response = await api.request({
+              method: step.method,
+              url: step.path,
+            });
+            console.log(step.path, response.status);
+          }
+        }
+
+        console.log("Invoke runSmokePlan() or build richer test flows.");
+      outputs:
+        - type: display_data
+          data:
+            'application/vnd.nodebooks.ui+json':
+              ui: alert
+              level: info
+              title: Configure your API key
+              text: >-
+                Set `API_BASE_URL` and optionally `AUTH_TOKEN` in the notebook env
+                before running the smoke plan.
+        - type: display_data
+          data:
+            'application/vnd.nodebooks.ui+json':
+              ui: table
+              columns:
+                - key: method
+                  label: Method
+                - key: path
+                  label: Path
+                - key: description
+                  label: Description
+              rows:
+                - method: GET
+                  path: /status
+                  description: Health check
+                - method: GET
+                  path: /users
+                  description: List users
+                - method: POST
+                  path: /users
+                  description: Create user

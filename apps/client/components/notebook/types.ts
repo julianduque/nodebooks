@@ -1,3 +1,5 @@
+import type { NotebookTemplateId as SchemaNotebookTemplateId } from "@nodebooks/notebook-schema";
+
 export interface NotebookSessionSummary {
   id: string;
   notebookId: string;
@@ -5,7 +7,7 @@ export interface NotebookSessionSummary {
   status: "open" | "closed";
 }
 
-export type NotebookTemplateId = "starter" | "typescript" | "blank";
+export type NotebookTemplateId = SchemaNotebookTemplateId;
 
 export interface OutlineItem {
   id: string;
