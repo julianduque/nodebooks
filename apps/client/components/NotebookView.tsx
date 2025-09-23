@@ -1278,11 +1278,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
   const topbarRight = useMemo(() => {
     if (!notebook) return null;
     const runtimeName =
-      notebook.env.runtime === "node"
-        ? "Node.js"
-        : notebook.env.runtime === "bun"
-          ? "Bun"
-          : notebook.env.runtime;
+      notebook.env.runtime === "node" ? "Node.js" : notebook.env.runtime;
     const versionLabel = notebook.env.version
       ? notebook.env.version.startsWith("v")
         ? notebook.env.version

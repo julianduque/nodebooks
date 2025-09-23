@@ -61,26 +61,3 @@ notebook:
         };
 
         console.log("Starter template components ready:", checklist);
-      outputs:
-        - type: display_data
-          data:
-            'application/vnd.nodebooks.ui+json':
-              ui: alert
-              level: success
-              title: Starter template ready
-              text: Run the cells to see live outputs and tweak values on the fly.
-        - type: display_data
-          data:
-            'application/vnd.nodebooks.ui+json':
-              ui: metric
-              label: Sample packages
-              value: 2
-              unit: deps
-              delta: 2
-        - type: display_data
-          data:
-            'application/vnd.nodebooks.ui+json':
-              ui: progress
-              label: Notebook readiness
-              value: 70
-              max: 100

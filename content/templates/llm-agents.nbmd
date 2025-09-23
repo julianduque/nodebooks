@@ -18,7 +18,8 @@ notebook:
     version: "20.x"
     packages:
       openai: "^4.73.0"
-      zod: "^3.23.8"
+      zod: "^3.24.0"
+      zod-to-json-schema: "^3.24.0"
     variables:
       OPENAI_API_KEY: sk-your-openai-key
       OPENAI_MODEL: gpt-4o-mini
@@ -42,6 +43,7 @@ notebook:
       source: |-
         import OpenAI from "openai";
         import { z } from "zod";
+        import { zodToJsonSchema } from "zod-to-json-schema";
 
         const client = new OpenAI({
           apiKey: process.env.OPENAI_API_KEY ?? "sk-your-openai-key",
@@ -55,16 +57,14 @@ notebook:
 
         export const toolDefinitions = [
           {
+            name: "lookupWeather",
             type: "function" as const,
-            function: {
-              name: "lookupWeather",
-              description: "Retrieve the current weather for a given location.",
-              parameters: WeatherArgs.toJSON(),
-            },
+            description: "Retrieve the current weather for a given location.",
+            parameters: zodToJsonSchema(WeatherArgs, "weather")?.definitions?.weather,
           },
         ];
 
-        export async function runAgent(prompt: string) {
+        async function runAgent(prompt: string) {
           const response = await client.responses.create({
             model,
             input: prompt,
@@ -91,40 +91,18 @@ notebook:
           },
         };
 
-        export async function handleToolCalls(response: any) {
-          const toolCalls = response.output?.flatMap?.((item: any) => item.tool_calls ?? []) ?? [];
+        async function handleToolCalls(response: any) {
+          const toolCalls = response.output?.filter?.((item: any) => item.type == 'function_call') ?? [];
           for (const call of toolCalls) {
-            const name = call?.function?.name as string | undefined;
+            const name = call?.name as string | undefined;
             if (!name || !(name in toolRegistry)) continue;
             const executor = toolRegistry[name];
-            const args = call?.function?.arguments ?? "{}";
+            const args = call?.arguments ?? "{}";
             const parsed = JSON.parse(typeof args === "string" ? args : JSON.stringify(args));
             const result = await executor(parsed);
             console.log(`Tool ${name} result:`, result);
           }
         }
 
-        console.log("Call handleToolCalls(await runAgent(…)) to complete the loop.");
-      outputs:
-        - type: display_data
-          data:
-            'application/vnd.nodebooks.ui+json':
-              ui: alert
-              level: warn
-              title: Add your API key
-              text: Set `OPENAI_API_KEY` in the notebook environment before invoking the agent.
-        - type: display_data
-          data:
-            'application/vnd.nodebooks.ui+json':
-              ui: badge
-              text: OpenAI SDK wired
-              color: brand
-        - type: display_data
-          data:
-            'application/vnd.nodebooks.ui+json':
-              ui: json
-              json:
-                tool: lookupWeather
-                arguments:
-                  location: Berlin
-              collapsed: true
+        const response = await runAgent("Whats the weather in SF?");
+        await handleToolCalls(response);

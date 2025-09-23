@@ -140,8 +140,7 @@ export default function TemplatesPage() {
       <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {templates.map((template) => {
           const badgeClass =
-            BADGE_TONE_CLASSES[template.badge.tone] ??
-            BADGE_TONE_CLASSES.slate;
+            BADGE_TONE_CLASSES[template.badge.tone] ?? BADGE_TONE_CLASSES.slate;
           return (
             <Card
               key={template.id}
@@ -190,8 +189,10 @@ export default function TemplatesPage() {
   }, [loading, error, templates, createFrom]);
 
   return (
-    <AppShell title="Templates" onNewNotebook={() => createFrom("starter")}> 
-      <h1 className="text-3xl font-semibold text-slate-900">Template Gallery</h1>
+    <AppShell title="Templates" onNewNotebook={() => createFrom("starter")}>
+      <h1 className="text-3xl font-semibold text-slate-900">
+        Template Gallery
+      </h1>
       <p className="mt-2 text-slate-500">
         Jump into curated setups for common workflows.
       </p>

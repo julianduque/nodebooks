@@ -281,7 +281,7 @@ export const NotebookCellSchema = z.discriminatedUnion("type", [
 ]);
 
 export const NotebookEnvSchema = z.object({
-  runtime: z.enum(["node", "bun"]).default("node"),
+  runtime: z.enum(["node"]).default("node"),
   version: z.string().default(() => detectNodeRuntimeVersion()),
   packages: z.record(z.string(), z.string()).default({}),
   // Key-value environment variables available to code cells via process.env
