@@ -439,3 +439,15 @@ export type KernelInterruptRequest = z.infer<
   typeof KernelInterruptRequestSchema
 >;
 export type KernelClientMessage = z.infer<typeof KernelClientMessageSchema>;
+
+export {
+  NotebookTemplateSummarySchema,
+  NotebookTemplateBadgeSchema,
+  TemplateBadgeToneSchema,
+} from "./templates.js";
+export type {
+  NotebookTemplateSummary,
+  NotebookTemplateBadge,
+  TemplateBadgeTone,
+  NotebookTemplateId,
+} from "./templates.js";

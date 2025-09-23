@@ -1,0 +1,130 @@
+id: llm-agents
+title: LLM Agents Notebook
+description: >-
+  Wire up the OpenAI JavaScript SDK with tool-calling scaffolding, structured
+  validators, and environment variables for orchestrating agent flows.
+badge:
+  text: LLM Agents
+  tone: purple
+tags:
+  - ai
+  - agents
+  - openai
+order: 40
+notebook:
+  name: LLM Agent Playground
+  env:
+    runtime: node
+    version: "20.x"
+    packages:
+      openai: "^4.73.0"
+      zod: "^3.23.8"
+    variables:
+      OPENAI_API_KEY: sk-your-openai-key
+      OPENAI_MODEL: gpt-4o-mini
+  cells:
+    - type: markdown
+      source: |-
+        # Build tool-aware agents
+
+        This template bootstraps the OpenAI JavaScript SDK, demonstrates tool
+        registration, and sketches a loop for handling tool calls. Add your own
+        integrations to connect LLM responses with external systems.
+    - type: markdown
+      source: |-
+        ## Setup checklist
+
+        - Set `OPENAI_API_KEY` to a valid key (kept local in the notebook env).
+        - Optionally adjust `OPENAI_MODEL` for different capabilities.
+        - Extend the `toolRegistry` map with domain-specific utilities.
+    - type: code
+      language: ts
+      source: |-
+        import OpenAI from "openai";
+        import { z } from "zod";
+
+        const client = new OpenAI({
+          apiKey: process.env.OPENAI_API_KEY ?? "sk-your-openai-key",
+        });
+
+        const model = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
+
+        const WeatherArgs = z.object({
+          location: z.string().min(2, "Location is required"),
+        });
+
+        export const toolDefinitions = [
+          {
+            type: "function" as const,
+            function: {
+              name: "lookupWeather",
+              description: "Retrieve the current weather for a given location.",
+              parameters: WeatherArgs.toJSON(),
+            },
+          },
+        ];
+
+        export async function runAgent(prompt: string) {
+          const response = await client.responses.create({
+            model,
+            input: prompt,
+            tools: toolDefinitions,
+          });
+
+          console.log(response.output_text);
+          return response;
+        }
+    - type: code
+      language: ts
+      source: |-
+        type ToolExecutor = (args: unknown) => Promise<string> | string;
+
+        const toolRegistry: Record<string, ToolExecutor> = {
+          lookupWeather: async (rawArgs) => {
+            const parsed = WeatherArgs.safeParse(rawArgs);
+            if (!parsed.success) {
+              throw new Error(parsed.error.message);
+            }
+            const { location } = parsed.data;
+            // Replace with a real weather provider integration.
+            return `Weather for ${location}: sunny with a gentle breeze.`;
+          },
+        };
+
+        export async function handleToolCalls(response: any) {
+          const toolCalls = response.output?.flatMap?.((item: any) => item.tool_calls ?? []) ?? [];
+          for (const call of toolCalls) {
+            const name = call?.function?.name as string | undefined;
+            if (!name || !(name in toolRegistry)) continue;
+            const executor = toolRegistry[name];
+            const args = call?.function?.arguments ?? "{}";
+            const parsed = JSON.parse(typeof args === "string" ? args : JSON.stringify(args));
+            const result = await executor(parsed);
+            console.log(`Tool ${name} result:`, result);
+          }
+        }
+
+        console.log("Call handleToolCalls(await runAgent(…)) to complete the loop.");
+      outputs:
+        - type: display_data
+          data:
+            'application/vnd.nodebooks.ui+json':
+              ui: alert
+              level: warn
+              title: Add your API key
+              text: Set `OPENAI_API_KEY` in the notebook environment before invoking the agent.
+        - type: display_data
+          data:
+            'application/vnd.nodebooks.ui+json':
+              ui: badge
+              text: OpenAI SDK wired
+              color: brand
+        - type: display_data
+          data:
+            'application/vnd.nodebooks.ui+json':
+              ui: json
+              json:
+                tool: lookupWeather
+                arguments:
+                  location: Berlin
+              collapsed: true

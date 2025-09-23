@@ -1,0 +1,141 @@
+id: data-visualization
+title: Data Visualization Notebook
+description: >-
+  Shape datasets, compute quick summaries, and sketch chart specs with
+  Observable Plot and D3 utilities.
+badge:
+  text: Data Viz
+  tone: sky
+tags:
+  - analytics
+  - visualization
+  - plot
+order: 30
+notebook:
+  name: Data Visualization Studio
+  env:
+    runtime: node
+    version: "20.x"
+    packages:
+      '@observablehq/plot': "^0.10.0"
+      d3-array: "^3.2.4"
+    variables:
+      DATA_SOURCE_URL: ""
+      CHART_TITLE: Monthly Revenue Snapshot
+  cells:
+    - type: markdown
+      source: |-
+        # Visual analytics starter
+
+        Load a dataset, explore its structure, and design charts without leaving
+        the notebook. Observable Plot and D3 array helpers are available for data
+        munging and visualization experiments.
+    - type: markdown
+      source: |-
+        ## How to use this template
+
+        1. Point `DATA_SOURCE_URL` to a CSV or JSON endpoint (optional).
+        2. Explore the `data` array and adapt the provided chart spec.
+        3. Render custom outputs or export the Plot specification to the UI runtime.
+
+        Dependencies:
+
+        - [`@observablehq/plot`](https://observablehq.github.io/plot/)
+        - [`d3-array`](https://github.com/d3/d3-array)
+    - type: code
+      language: ts
+      source: |-
+        import { mean } from "d3-array";
+
+        interface DataPoint {
+          month: string;
+          revenue: number;
+        }
+
+        const fallback: DataPoint[] = [
+          { month: "Jan", revenue: 120 },
+          { month: "Feb", revenue: 180 },
+          { month: "Mar", revenue: 150 },
+          { month: "Apr", revenue: 210 },
+          { month: "May", revenue: 240 },
+          { month: "Jun", revenue: 260 },
+        ];
+
+        let data: DataPoint[] = fallback;
+
+        if (process.env.DATA_SOURCE_URL) {
+          const response = await fetch(process.env.DATA_SOURCE_URL);
+          if (response.ok) {
+            const incoming = await response.json();
+            if (Array.isArray(incoming)) {
+              data = incoming as DataPoint[];
+            }
+          }
+        }
+
+        export { data };
+        console.log("Loaded records:", data.length);
+        console.log("Average revenue:", mean(data, (d) => d.revenue));
+    - type: code
+      language: ts
+      source: |-
+        import * as Plot from "@observablehq/plot";
+
+        const plot = Plot.plot({
+          title: process.env.CHART_TITLE ?? "Monthly revenue snapshot",
+          height: 320,
+          marginLeft: 60,
+          y: { grid: true, label: "Revenue ($k)" },
+          x: { label: "Month" },
+          color: { legend: false },
+          marks: [
+            Plot.barY(data, {
+              x: "month",
+              y: "revenue",
+              fill: "steelblue",
+            }),
+            Plot.ruleY([0]),
+          ],
+        });
+
+        console.log("Plot specification ready. Use display() to render it in custom outputs.");
+      outputs:
+        - type: display_data
+          data:
+            'application/vnd.nodebooks.ui+json':
+              ui: markdown
+              markdown: |-
+                **Tip:** Use `display(await import("@observablehq/plot"))` within
+                a cell execution to render Plot charts directly in the output.
+        - type: display_data
+          data:
+            'application/vnd.nodebooks.ui+json':
+              ui: dataSummary
+              title: Revenue sample statistics
+              schema:
+                - name: month
+                  type: string
+                - name: revenue
+                  type: number
+              stats:
+                revenue:
+                  count: 6
+                  min: 120
+                  max: 260
+                  mean: 193.33333333333334
+        - type: display_data
+          data:
+            'application/vnd.nodebooks.ui+json':
+              ui: table
+              columns:
+                - key: month
+                  label: Month
+                - key: revenue
+                  label: Revenue ($k)
+              rows:
+                - month: Jan
+                  revenue: 120
+                - month: Feb
+                  revenue: 180
+                - month: Mar
+                  revenue: 150

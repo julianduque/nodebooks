@@ -1,16 +1,18 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import {
-  createCodeCell,
-  createEmptyNotebook,
-  createMarkdownCell,
   ensureNotebookRuntimeVersion,
   NotebookCellSchema,
   NotebookEnvSchema,
   NotebookSchema,
+  type NotebookEnv,
 } from "@nodebooks/notebook-schema";
 import type { Notebook } from "@nodebooks/notebook-schema";
 import type { NotebookStore } from "../types.js";
+import {
+  createNotebookFromTemplate,
+  TemplateNotFoundError,
+} from "../templates/index.js";
 
 const NotebookMutationSchema = z.object({
   name: z.string().min(1).optional(),
@@ -19,14 +21,27 @@ const NotebookMutationSchema = z.object({
 });
 
 const NotebookCreateSchema = NotebookMutationSchema.extend({
-  template: z
-    .enum(["blank", "starter", "typescript"])
-    .default("starter")
-    .optional(),
+  template: z.string().min(1).optional(),
 });
 
 const formatNotebook = (notebook: Notebook) => {
   return ensureNotebookRuntimeVersion(notebook);
+};
+
+const mergeNotebookEnv = (
+  base: NotebookEnv,
+  override?: NotebookEnv
+): NotebookEnv => {
+  if (!override) {
+    return base;
+  }
+
+  return NotebookEnvSchema.parse({
+    runtime: override.runtime ?? base.runtime,
+    version: override.version ?? base.version,
+    packages: { ...base.packages, ...override.packages },
+    variables: { ...base.variables, ...override.variables },
+  });
 };
 
 export const registerNotebookRoutes = (
@@ -53,47 +68,33 @@ export const registerNotebookRoutes = (
   app.post("/notebooks", async (request, reply) => {
     const body = NotebookCreateSchema.parse(request.body ?? {});
 
-    const base = createEmptyNotebook(
-      body.name ? { name: body.name } : undefined
-    );
-
-    let cells = body.cells ?? [];
-    if (cells.length === 0) {
-      switch (body.template ?? "starter") {
-        case "blank":
-          cells = [createMarkdownCell({ source: "# New Notebook" })];
-          break;
-        case "typescript":
-          cells = [
-            createMarkdownCell({ source: "# TypeScript Notebook" }),
-            createCodeCell({
-              language: "ts",
-              source:
-                "const greeting: string = 'Hello, NodeBooks!';\nconsole.log(greeting);",
-            }),
-          ];
-          break;
-        default:
-          cells = [
-            createMarkdownCell({
-              source:
-                "# Welcome to NodeBooks\nRun the code cell below to get started.",
-            }),
-            createCodeCell({
-              source: "console.log('2 + 2 =', 2 + 2);",
-            }),
-          ];
+    const templateId = body.template ?? "starter";
+    let templateNotebook;
+    try {
+      templateNotebook = createNotebookFromTemplate(templateId);
+    } catch (error) {
+      if (error instanceof TemplateNotFoundError) {
+        reply.code(400);
+        return { error: error.message };
       }
+      throw error;
     }
 
-    const parsed = NotebookSchema.parse({
-      ...base,
-      env: body.env ? { ...base.env, ...body.env } : base.env,
-      cells,
-    });
+    const env = mergeNotebookEnv(templateNotebook.env, body.env);
+    const providedCells = body.cells ?? [];
+    const cells =
+      providedCells.length > 0 ? providedCells : templateNotebook.cells;
 
-    const notebook = await store.save(formatNotebook(parsed));
-
+    const notebook = await store.save(
+      formatNotebook(
+        NotebookSchema.parse({
+          ...templateNotebook,
+          name: body.name ?? templateNotebook.name,
+          env,
+          cells,
+        })
+      )
+    );
     reply.code(201);
     return { data: formatNotebook(notebook) };
   });

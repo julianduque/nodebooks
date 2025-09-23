@@ -1,0 +1,19 @@
+id: blank
+title: Blank Notebook
+description: >-
+  Start from a clean slate with no predefined cells, dependencies, or
+  environment variables.
+badge:
+  text: Blank
+  tone: slate
+tags:
+  - empty
+order: 90
+notebook:
+  name: Blank Notebook
+  env:
+    runtime: node
+    version: "20.x"
+    packages: {}
+    variables: {}
+  cells: []
