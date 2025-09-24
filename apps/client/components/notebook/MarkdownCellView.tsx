@@ -4,7 +4,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import type { OnMount } from "@monaco-editor/react";
 import DOMPurify from "dompurify";
 import { marked } from "marked";
-import MonacoEditor from "./MonacoEditorClient";
+import MonacoEditor from "@/components/notebook/MonacoEditorClient";
 import type { NotebookCell } from "@nodebooks/notebook-schema";
 
 interface MarkdownCellViewProps {

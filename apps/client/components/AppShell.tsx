@@ -2,13 +2,13 @@
 
 import { useState } from "react";
 import type { ReactNode } from "react";
-import { cn } from "../lib/utils";
+import { cn } from "@/components/lib/utils";
 import Link from "next/link";
 import Image from "next/image";
 import type { Route } from "next";
 import { usePathname } from "next/navigation";
-import { Button } from "./ui/button";
-import { Separator } from "./ui/separator";
+import { Button } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
 import {
   LayoutDashboard,
   NotebookPen,
@@ -198,8 +198,8 @@ const AppShell = ({
             className={cn(
               collapsed ? "h-9 w-9 p-0" : "h-9 w-full justify-center gap-2"
             )}
-            size={collapsed ? "icon" : "md"}
-            variant="secondary"
+            size={collapsed ? "icon" : "default"}
+            variant="default"
             type="button"
             onClick={onNewNotebook}
             aria-label="Create new notebook"

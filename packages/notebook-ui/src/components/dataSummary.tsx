@@ -1,28 +1,15 @@
+"use client";
 import React from "react";
+import { UiThemeContext } from "./theme";
 import type { UiDataSummary } from "@nodebooks/notebook-schema";
 import { deriveColumns, renderCellValue } from "./utils";
 
-type DataSummaryProps = UiDataSummary & { className?: string };
-
-const renderStat = (label: string, value: unknown) => {
-  if (typeof value === "number") {
-    return (
-      <div className="rounded border border-slate-200 bg-white px-2 py-1">
-        <div className="text-slate-500">{label}</div>
-        <div className="text-sky-700">{value}</div>
-      </div>
-    );
-  }
-  if (typeof value === "string") {
-    return (
-      <div className="rounded border border-slate-200 bg-white px-2 py-1">
-        <div className="text-slate-500">{label}</div>
-        <div className="text-slate-700">{value}</div>
-      </div>
-    );
-  }
-  return null;
+type DataSummaryProps = Omit<UiDataSummary, "ui"> & {
+  className?: string;
+  themeMode?: "light" | "dark";
 };
+
+// stat renderer moved inside component to honor theme
 
 export const DataSummary: React.FC<DataSummaryProps> = ({
   title,
@@ -31,44 +18,112 @@ export const DataSummary: React.FC<DataSummaryProps> = ({
   sample,
   note,
   className,
+  themeMode,
 }) => {
+  const ctx = React.useContext(UiThemeContext);
+  const mode = themeMode ?? ctx ?? "light";
+  const renderStat = (label: string, value: unknown) => {
+    if (typeof value === "number" || typeof value === "string") {
+      return (
+        <div
+          className={`rounded border px-2 py-1 ${
+            mode === "light" ? "border-slate-200 bg-white" : "bg-slate-800"
+          }`}
+          style={
+            mode === "light" ? undefined : { borderColor: "var(--border)" }
+          }
+        >
+          <div
+            className={mode === "light" ? "text-slate-500" : "text-slate-400"}
+          >
+            {label}
+          </div>
+          <div className={mode === "light" ? "text-sky-700" : "text-slate-100"}>
+            {value as any}
+          </div>
+        </div>
+      );
+    }
+    return null;
+  };
   const sampleCols = React.useMemo(() => deriveColumns(sample ?? []), [sample]);
   return (
-    <div className={className}>
+    <div className={`relative ${className ?? ""}`}>
       {title && (
-        <h3 className="mb-2 text-lg font-semibold text-slate-800">{title}</h3>
+        <h3
+          className={`mb-2 text-lg font-semibold ${mode === "light" ? "text-slate-800" : "text-slate-100"}`}
+        >
+          {title}
+        </h3>
       )}
       <div className="grid gap-4 md:grid-cols-2">
-        <div className="rounded border border-slate-200 bg-white">
-          <div className="border-b border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700">
+        <div
+          className={`rounded border ${mode === "light" ? "border-slate-200 bg-white" : "border-slate-800 bg-slate-900"}`}
+        >
+          <div
+            className={`border-b px-3 py-2 text-sm font-semibold ${mode === "light" ? "border-slate-200 text-slate-700" : "border-slate-700 text-slate-200"}`}
+          >
             Schema
           </div>
           <div className="max-h-64 overflow-auto p-2">
             {schema && schema.length > 0 ? (
               <table className="min-w-full border-collapse">
                 <thead>
-                  <tr className="bg-slate-50">
-                    <th className="px-3 py-2 text-left text-xs font-semibold text-slate-700">
+                  <tr style={{ background: "var(--muted)" }}>
+                    <th
+                      className={`px-3 py-2 text-left text-xs font-semibold border ${mode === "light" ? "text-slate-700" : "text-slate-100"}`}
+                      style={{ borderColor: "var(--border)" }}
+                    >
                       Name
                     </th>
-                    <th className="px-3 py-2 text-left text-xs font-semibold text-slate-700">
+                    <th
+                      className={`px-3 py-2 text-left text-xs font-semibold border ${mode === "light" ? "text-slate-700" : "text-slate-100"}`}
+                      style={{ borderColor: "var(--border)" }}
+                    >
                       Type
                     </th>
-                    <th className="px-3 py-2 text-left text-xs font-semibold text-slate-700">
+                    <th
+                      className={`px-3 py-2 text-left text-xs font-semibold border ${mode === "light" ? "text-slate-700" : "text-slate-100"}`}
+                      style={{ borderColor: "var(--border)" }}
+                    >
                       Nullable
                     </th>
                   </tr>
                 </thead>
                 <tbody>
                   {schema.map((f) => (
-                    <tr key={f.name} className="odd:bg-slate-50">
-                      <td className="px-3 py-2 text-sm text-emerald-700">
+                    <tr
+                      key={f.name}
+                      className={
+                        mode === "light"
+                          ? "odd:bg-slate-50"
+                          : "odd:bg-slate-800/60"
+                      }
+                    >
+                      <td
+                        className={`px-3 py-2 text-sm border ${
+                          mode === "light"
+                            ? "text-emerald-700"
+                            : "text-slate-100 font-medium"
+                        }`}
+                        style={{ borderColor: "var(--border)" }}
+                      >
                         {f.name}
                       </td>
-                      <td className="px-3 py-2 text-sm text-sky-700">
+                      <td
+                        className={`px-3 py-2 text-sm border ${
+                          mode === "light"
+                            ? "text-sky-700"
+                            : "text-slate-100 font-medium"
+                        }`}
+                        style={{ borderColor: "var(--border)" }}
+                      >
                         {f.type}
                       </td>
-                      <td className="px-3 py-2 text-sm text-slate-700">
+                      <td
+                        className={`px-3 py-2 text-sm border ${mode === "light" ? "text-slate-700" : "text-slate-200"}`}
+                        style={{ borderColor: "var(--border)" }}
+                      >
                         {String(f.nullable ?? true)}
                       </td>
                     </tr>
@@ -76,15 +131,21 @@ export const DataSummary: React.FC<DataSummaryProps> = ({
                 </tbody>
               </table>
             ) : (
-              <div className="px-3 py-2 text-sm text-slate-500">
+              <div
+                className={`px-3 py-2 text-sm ${mode === "light" ? "text-slate-500" : "text-slate-400"}`}
+              >
                 No schema provided
               </div>
             )}
           </div>
         </div>
 
-        <div className="rounded border border-slate-200 bg-white">
-          <div className="border-b border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700">
+        <div
+          className={`rounded border ${mode === "light" ? "border-slate-200 bg-white" : "border-slate-800 bg-slate-900"}`}
+        >
+          <div
+            className={`border-b px-3 py-2 text-sm font-semibold ${mode === "light" ? "border-slate-200 text-slate-700" : "border-slate-700 text-slate-200"}`}
+          >
             Field Stats
           </div>
           <div className="max-h-64 overflow-auto p-2">
@@ -93,12 +154,16 @@ export const DataSummary: React.FC<DataSummaryProps> = ({
                 {Object.entries(stats).map(([name, s]) => (
                   <div
                     key={name}
-                    className="rounded border border-slate-200 bg-white"
+                    className={`rounded border ${mode === "light" ? "border-slate-200 bg-white" : "border-slate-700 bg-slate-800"}`}
                   >
-                    <div className="border-b border-slate-200 px-3 py-1 text-sm font-semibold text-slate-700">
+                    <div
+                      className={`border-b px-3 py-1 text-sm font-semibold ${mode === "light" ? "border-slate-200 text-slate-700" : "border-slate-700 text-slate-200"}`}
+                    >
                       {name}
                     </div>
-                    <div className="grid grid-cols-2 gap-2 p-2 text-xs text-slate-700 md:grid-cols-3">
+                    <div
+                      className={`grid grid-cols-2 gap-2 p-2 text-xs md:grid-cols-3 ${mode === "light" ? "text-slate-700" : "text-slate-300"}`}
+                    >
                       {renderStat("count", s.count)}
                       {renderStat("distinct", s.distinct)}
                       {renderStat("nulls", s.nulls)}
@@ -114,7 +179,9 @@ export const DataSummary: React.FC<DataSummaryProps> = ({
                 ))}
               </div>
             ) : (
-              <div className="px-3 py-2 text-sm text-slate-500">
+              <div
+                className={`px-3 py-2 text-sm ${mode === "light" ? "text-slate-500" : "text-slate-400"}`}
+              >
                 No stats provided
               </div>
             )}
@@ -122,14 +189,18 @@ export const DataSummary: React.FC<DataSummaryProps> = ({
         </div>
       </div>
 
-      <div className="mt-4 rounded border border-slate-200 bg-white">
-        <div className="border-b border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700">
+      <div
+        className={`mt-4 rounded border ${mode === "light" ? "border-slate-200 bg-white" : "border-slate-800 bg-slate-900"}`}
+      >
+        <div
+          className={`border-b px-3 py-2 text-sm font-semibold ${mode === "light" ? "border-slate-200 text-slate-700" : "border-slate-700 text-slate-200"}`}
+        >
           Sample Rows
         </div>
         <div className="max-h-64 overflow-auto">
           {sample && sample.length > 0 ? (
             <table className="min-w-full border-collapse">
-              <thead className="bg-slate-50">
+              <thead style={{ background: "var(--muted)" }}>
                 <tr>
                   {sampleCols.map(
                     (c: {
@@ -139,7 +210,8 @@ export const DataSummary: React.FC<DataSummaryProps> = ({
                     }) => (
                       <th
                         key={c.key}
-                        className="px-3 py-2 text-left text-xs font-semibold text-slate-700"
+                        className={`px-3 py-2 text-left text-xs font-semibold border ${mode === "light" ? "text-slate-700" : "text-slate-100"}`}
+                        style={{ borderColor: "var(--border)" }}
                       >
                         {c.label ?? c.key}
                       </th>
@@ -149,7 +221,14 @@ export const DataSummary: React.FC<DataSummaryProps> = ({
               </thead>
               <tbody>
                 {sample.map((r, i) => (
-                  <tr key={i} className="odd:bg-slate-50">
+                  <tr
+                    key={i}
+                    className={
+                      mode === "light"
+                        ? "odd:bg-slate-50"
+                        : "odd:bg-slate-800/60"
+                    }
+                  >
                     {sampleCols.map(
                       (c: {
                         key: string;
@@ -158,10 +237,12 @@ export const DataSummary: React.FC<DataSummaryProps> = ({
                       }) => (
                         <td
                           key={c.key}
-                          className="px-3 py-2 text-sm text-slate-700"
+                          className={`px-3 py-2 text-sm border ${mode === "light" ? "text-slate-700" : "text-slate-200"}`}
+                          style={{ borderColor: "var(--border)" }}
                         >
                           {renderCellValue(
-                            (r as Record<string, unknown>)[c.key]
+                            (r as Record<string, unknown>)[c.key],
+                            mode
                           )}
                         </td>
                       )
@@ -171,7 +252,9 @@ export const DataSummary: React.FC<DataSummaryProps> = ({
               </tbody>
             </table>
           ) : (
-            <div className="px-3 py-2 text-sm text-slate-500">
+            <div
+              className={`px-3 py-2 text-sm ${mode === "light" ? "text-slate-500" : "text-slate-400"}`}
+            >
               No sample rows
             </div>
           )}
@@ -179,8 +262,19 @@ export const DataSummary: React.FC<DataSummaryProps> = ({
       </div>
 
       {note && (
-        <p className="mt-3 text-sm text-slate-600">
-          <span className="font-semibold text-slate-800">Note:</span> {note}
+        <p
+          className={`mt-3 text-sm ${mode === "light" ? "text-slate-600" : "text-slate-300"}`}
+        >
+          <span
+            className={
+              mode === "light"
+                ? "font-semibold text-slate-800"
+                : "font-semibold text-slate-100"
+            }
+          >
+            Note:
+          </span>{" "}
+          {note}
         </p>
       )}
     </div>

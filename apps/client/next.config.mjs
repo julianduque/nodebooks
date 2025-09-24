@@ -4,6 +4,7 @@ const nextConfig = {
   eslint: {
     dirs: ["app", "components"],
   },
+  transpilePackages: ["@nodebooks/notebook-ui", "@nodebooks/notebook-schema"],
 };
 
 export default nextConfig;

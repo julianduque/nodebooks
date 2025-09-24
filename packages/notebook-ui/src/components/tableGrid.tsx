@@ -1,8 +1,14 @@
+"use client";
 import React from "react";
+import { UiThemeContext } from "./theme";
 import type { UiTable } from "@nodebooks/notebook-schema";
 import { compareValues, deriveColumns, renderCellValue } from "./utils";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 
-type TableGridProps = UiTable & { className?: string };
+type TableGridProps = Omit<UiTable, "ui"> & {
+  className?: string;
+  themeMode?: "light" | "dark";
+};
 
 export const TableGrid: React.FC<TableGridProps> = ({
   rows,
@@ -11,7 +17,10 @@ export const TableGrid: React.FC<TableGridProps> = ({
   page,
   density = "normal",
   className,
+  themeMode,
 }) => {
+  const ctx = React.useContext(UiThemeContext);
+  const mode = themeMode ?? ctx ?? "light";
   const cols = React.useMemo(
     () => deriveColumns(rows, columns),
     [rows, columns]
@@ -64,10 +73,19 @@ export const TableGrid: React.FC<TableGridProps> = ({
   };
 
   return (
-    <div className={className}>
-      <div className="overflow-auto rounded border border-slate-200 bg-white">
+    <div className={`relative ${className ?? ""}`}>
+      <div
+        className={`overflow-auto rounded-md border ${
+          mode === "light"
+            ? "border-slate-200 bg-white"
+            : "border-slate-800 bg-slate-900"
+        }`}
+      >
         <table className="min-w-full border-collapse">
-          <thead className="bg-slate-50">
+          <thead
+            className={mode === "light" ? "" : ""}
+            style={{ background: "var(--muted)" }}
+          >
             <tr>
               {cols.map(
                 (c: {
@@ -77,12 +95,24 @@ export const TableGrid: React.FC<TableGridProps> = ({
                 }) => (
                   <th
                     key={c.key}
-                    className={`text-left text-slate-700 text-sm font-semibold ${cellPad} border-b border-slate-200 select-none cursor-pointer`}
+                    className={`sticky top-0 z-10 select-none cursor-pointer text-left text-sm font-semibold ${cellPad} border ${
+                      mode === "light" ? "text-slate-700" : "text-slate-100"
+                    }`}
+                    style={{
+                      borderColor: "var(--border)",
+                      background: "var(--muted)",
+                    }}
                     onClick={() => onHeaderClick(c.key)}
                   >
                     <span>{c.label ?? c.key}</span>
                     {sortKey === c.key && (
-                      <span className="ml-1 text-xs text-slate-400">
+                      <span
+                        className={
+                          mode === "light"
+                            ? "ml-1 text-xs text-slate-400"
+                            : "ml-1 text-xs text-slate-400"
+                        }
+                      >
                         {sortDir === "asc" ? "▲" : "▼"}
                       </span>
                     )}
@@ -93,7 +123,18 @@ export const TableGrid: React.FC<TableGridProps> = ({
           </thead>
           <tbody>
             {pageRows.map((r, i) => (
-              <tr key={i} className={i % 2 === 0 ? "bg-white" : "bg-slate-50"}>
+              <tr
+                key={i}
+                className={`${
+                  mode === "light"
+                    ? i % 2 === 0
+                      ? "bg-white"
+                      : "bg-slate-50"
+                    : i % 2 === 0
+                      ? "bg-slate-900"
+                      : "bg-slate-800/60"
+                } hover:bg-brand-50/50`}
+              >
                 {cols.map(
                   (c: {
                     key: string;
@@ -105,15 +146,16 @@ export const TableGrid: React.FC<TableGridProps> = ({
                     return (
                       <td
                         key={c.key}
-                        className={`${cellPad} text-slate-700 text-sm border-b border-slate-200 align-top ${
+                        className={`${cellPad} text-sm align-top border ${
                           align === "right"
                             ? "text-right"
                             : align === "center"
                               ? "text-center"
                               : "text-left"
-                        }`}
+                        } ${mode === "light" ? "text-slate-700" : "text-slate-200"}`}
+                        style={{ borderColor: "var(--border)" }}
                       >
-                        {renderCellValue(v)}
+                        {renderCellValue(v, mode)}
                       </td>
                     );
                   }
@@ -123,7 +165,10 @@ export const TableGrid: React.FC<TableGridProps> = ({
             {pageRows.length === 0 && (
               <tr>
                 <td
-                  className={`${cellPad} text-slate-500 text-sm`}
+                  className={`${cellPad} text-sm border ${
+                    mode === "light" ? "text-slate-500" : "text-slate-400"
+                  }`}
+                  style={{ borderColor: "var(--border)" }}
                   colSpan={cols.length}
                 >
                   No rows
@@ -133,33 +178,51 @@ export const TableGrid: React.FC<TableGridProps> = ({
           </tbody>
         </table>
       </div>
-      <div className="mt-2 flex items-center justify-between text-sm text-slate-700">
-        <div className="space-x-2">
+      <div
+        className={`mt-2 flex items-center justify-between text-sm ${
+          mode === "light" ? "text-slate-700" : "text-slate-300"
+        }`}
+      >
+        <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={() => setPageIndex((p) => Math.max(0, p - 1))}
-            className="rounded border border-slate-300 bg-slate-100 px-2 py-1 disabled:opacity-50"
+            className={`inline-flex h-8 items-center gap-1 rounded px-3 disabled:opacity-50 ${
+              mode === "light"
+                ? "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                : "border border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700"
+            }`}
             disabled={clampedIndex <= 0}
           >
-            Prev
+            <ChevronLeft size={16} /> Prev
           </button>
           <button
             type="button"
             onClick={() => setPageIndex((p) => Math.min(maxPage, p + 1))}
-            className="rounded border border-slate-300 bg-slate-100 px-2 py-1 disabled:opacity-50"
+            className={`inline-flex h-8 items-center gap-1 rounded px-3 disabled:opacity-50 ${
+              mode === "light"
+                ? "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                : "border border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700"
+            }`}
             disabled={clampedIndex >= maxPage}
           >
-            Next
+            Next <ChevronRight size={16} />
           </button>
         </div>
-        <div className="flex items-center space-x-3">
+        <div
+          className={`flex items-center gap-3 ${mode === "light" ? "text-slate-700" : "text-slate-200"}`}
+        >
           <span>
             Page {clampedIndex + 1} / {maxPage + 1}
           </span>
-          <label className="inline-flex items-center space-x-1">
+          <label className="inline-flex items-center gap-1">
             <span>Rows:</span>
             <select
-              className="rounded border border-slate-300 bg-white px-2 py-1"
+              className={`h-8 rounded px-2 ${
+                mode === "light"
+                  ? "border border-slate-300 bg-white text-slate-700"
+                  : "border border-slate-700 bg-slate-800 text-slate-200"
+              }`}
               value={pageSize}
               onChange={(e) => {
                 const size = Number(e.target.value) || 20;
@@ -174,7 +237,11 @@ export const TableGrid: React.FC<TableGridProps> = ({
               ))}
             </select>
           </label>
-          <span className="text-slate-500">{total} total</span>
+          <span
+            className={mode === "light" ? "text-slate-500" : "text-slate-400"}
+          >
+            {total} total
+          </span>
         </div>
       </div>
     </div>

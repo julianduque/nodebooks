@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Badge } from "../ui/badge";
-import { Button } from "../ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Pencil, Trash2 } from "lucide-react";
 import type { Notebook } from "@nodebooks/notebook-schema";
 
@@ -75,7 +75,7 @@ const SetupPanel = ({
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             placeholder="package or package@version"
-            className="w-full rounded-md border border-slate-300 px-2 py-1 pr-16 text-[13px] text-slate-700 focus:border-brand-500 focus:outline-none"
+            className="w-full rounded-md border border-slate-300 px-2 py-2 pr-16 text-[13px] text-slate-700 focus:border-brand-500 focus:outline-none"
             aria-label="Add dependency"
           />
           <Button
@@ -118,7 +118,7 @@ const SetupPanel = ({
           </p>
           <Button
             type="button"
-            variant="secondary"
+            variant="default"
             size="sm"
             className="px-3 text-[11px]"
             onClick={() => {
@@ -308,7 +308,7 @@ const VariableModal = ({
             </Button>
             <Button
               type="submit"
-              variant="secondary"
+              variant="default"
               className="px-3 text-[11px]"
             >
               Save

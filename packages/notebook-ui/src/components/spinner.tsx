@@ -1,12 +1,21 @@
+"use client";
 import React from "react";
+import { UiThemeContext } from "./theme";
 import type { UiSpinner } from "@nodebooks/notebook-schema";
+import { Loader2 } from "lucide-react";
 
-type SpinnerProps = UiSpinner & { className?: string };
+type SpinnerProps = Omit<UiSpinner, "ui"> & {
+  className?: string;
+  themeMode?: "light" | "dark";
+};
 export const Spinner: React.FC<SpinnerProps> = ({
   label,
   size = "md",
   className,
+  themeMode,
 }) => {
+  const ctx = React.useContext(UiThemeContext);
+  const mode = themeMode ?? ctx ?? "light";
   const px =
     typeof size === "number"
       ? size
@@ -16,29 +25,28 @@ export const Spinner: React.FC<SpinnerProps> = ({
           ? 32
           : 20;
   return (
-    <div className={`inline-flex items-center gap-2 ${className ?? ""}`}>
-      <svg
-        width={px}
-        height={px}
-        viewBox="0 0 24 24"
-        className="animate-spin text-slate-500"
-      >
-        <circle
-          className="opacity-25"
-          cx="12"
-          cy="12"
-          r="10"
-          stroke="currentColor"
-          strokeWidth="4"
-          fill="none"
-        />
-        <path
-          className="opacity-75"
-          fill="currentColor"
-          d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
-        />
-      </svg>
-      {label && <span className="text-xs text-slate-600">{label}</span>}
+    <div
+      className={`relative inline-flex items-center gap-2 ${className ?? ""}`}
+    >
+      <Loader2
+        size={px}
+        className={
+          mode === "light"
+            ? "animate-spin text-slate-600"
+            : "animate-spin text-slate-100"
+        }
+      />
+      {label && (
+        <span
+          className={
+            mode === "light"
+              ? "text-xs text-slate-600"
+              : "text-xs text-slate-100"
+          }
+        >
+          {label}
+        </span>
+      )}
     </div>
   );
 };

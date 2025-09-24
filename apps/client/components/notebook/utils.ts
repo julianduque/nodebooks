@@ -1,5 +1,5 @@
 import type { Notebook } from "@nodebooks/notebook-schema";
-import type { OutlineItem } from "./types";
+import type { OutlineItem } from "@/components/notebook/types";
 
 export const formatTimestamp = (value: string) => {
   try {

@@ -1,0 +1,4 @@
+@source "./src/**/*.{ts,tsx}";
+
+/* Generate the utilities used by this package */
+@import "tailwindcss";

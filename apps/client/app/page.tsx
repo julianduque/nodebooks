@@ -1,9 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import AppShell from "../components/AppShell";
-import { Button } from "../components/ui/button";
-import { Card, CardContent } from "../components/ui/card";
+import AppShell from "@/components/AppShell";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 import { ChevronRight, NotebookPen, Plus, Trash2 } from "lucide-react";
 import ConfirmDialog from "../components/ui/confirm";
 import type { Notebook } from "@nodebooks/notebook-schema";

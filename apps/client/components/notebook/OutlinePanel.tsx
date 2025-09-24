@@ -1,8 +1,8 @@
 "use client";
 
 import clsx from "clsx";
-import { Button } from "../ui/button";
-import type { OutlineItem } from "./types";
+import { Button } from "@/components/ui/button";
+import type { OutlineItem } from "@/components/notebook/types";
 
 interface OutlinePanelProps {
   items: OutlineItem[];

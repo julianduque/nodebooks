@@ -2,10 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import AppShell from "../../components/AppShell";
-import { Card, CardContent } from "../../components/ui/card";
-import { Button } from "../../components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { Play, Trash2, Plus } from "lucide-react";
-import ConfirmDialog from "../../components/ui/confirm";
+import ConfirmDialog from "@/components/ui/confirm";
 import type { Notebook } from "@nodebooks/notebook-schema";
 import { useRouter } from "next/navigation";
 

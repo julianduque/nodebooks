@@ -96,7 +96,7 @@ const CellCard = ({
     <article
       id={`cell-${cell.id}`}
       className={clsx(
-        "group/cell relative z-0 rounded-xl transition hover:z-40 focus-within:z-50",
+        "group/cell relative z-0 rounded-xl transition hover:z-40 focus-within:z-50 pr-14",
         "border-l-2 border-transparent hover:border-emerald-300/80"
       )}
       onMouseDown={onActivate}

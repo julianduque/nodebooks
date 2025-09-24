@@ -38,18 +38,55 @@ export const compareValues = (a: unknown, b: unknown) => {
   return sa < sb ? -1 : sa > sb ? 1 : 0;
 };
 
-export const renderCellValue = (v: unknown) => {
-  if (v === null) return <span className="text-slate-500">null</span>;
+export const renderCellValue = (
+  v: unknown,
+  mode: "light" | "dark" = "light"
+) => {
+  if (v === null)
+    return (
+      <span className={mode === "light" ? "text-slate-500" : "text-slate-400"}>
+        null
+      </span>
+    );
   if (typeof v === "undefined")
-    return <span className="text-slate-500">—</span>;
+    return (
+      <span className={mode === "light" ? "text-slate-500" : "text-slate-400"}>
+        —
+      </span>
+    );
   if (typeof v === "number")
-    return <span className="text-sky-700">{String(v)}</span>;
+    return (
+      <span className={mode === "light" ? "text-sky-700" : "text-sky-300"}>
+        {String(v)}
+      </span>
+    );
   if (typeof v === "boolean")
-    return <span className="text-pink-700">{String(v)}</span>;
-  if (typeof v === "string") return <span className="text-slate-700">{v}</span>;
+    return (
+      <span className={mode === "light" ? "text-pink-700" : "text-pink-300"}>
+        {String(v)}
+      </span>
+    );
+  if (typeof v === "string")
+    return (
+      <span className={mode === "light" ? "text-slate-700" : "text-slate-100"}>
+        {v}
+      </span>
+    );
   if (Array.isArray(v))
-    return <span className="text-slate-600">[{v.length}]</span>;
+    return (
+      <span className={mode === "light" ? "text-slate-600" : "text-slate-400"}>
+        [{v.length}]
+      </span>
+    );
   if (typeof v === "object")
-    return <span className="text-slate-600">{"{…}"}</span>;
-  return <span className="text-slate-700">{String(v)}</span>;
+    return (
+      <span className={mode === "light" ? "text-slate-600" : "text-slate-400"}>
+        {"{…}"}
+      </span>
+    );
+  return (
+    <span className={mode === "light" ? "text-slate-700" : "text-slate-100"}>
+      {String(v)}
+    </span>
+  );
 };

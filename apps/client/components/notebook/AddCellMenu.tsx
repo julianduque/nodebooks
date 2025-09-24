@@ -1,7 +1,7 @@
 "use client";
 
 import clsx from "clsx";
-import { Button } from "../ui/button";
+import { Button } from "@/components/ui/button";
 import { Plus } from "lucide-react";
 import type { NotebookCell } from "@nodebooks/notebook-schema";
 

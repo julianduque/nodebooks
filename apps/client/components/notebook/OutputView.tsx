@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import type { NotebookOutput } from "@nodebooks/notebook-schema";
 import { UiDisplaySchema, NODEBOOKS_UI_MIME } from "@nodebooks/notebook-schema";
 import { UiRenderer } from "@nodebooks/notebook-ui";
+import type { UiJson } from "@nodebooks/notebook-schema";
 import AnsiToHtml from "ansi-to-html";
 import DOMPurify from "dompurify";
 
@@ -87,21 +88,12 @@ const OutputView = ({ output }: { output: NotebookOutput }) => {
     const raw = output.data?.[NODEBOOKS_UI_MIME as string];
     const parsed = UiDisplaySchema.safeParse(raw);
     if (parsed.success) {
-      return (
-        <div className="rounded-lg border border-slate-200 bg-white p-3 text-slate-800">
-          <UiRenderer display={parsed.data} />
-        </div>
-      );
+      return <UiRenderer display={parsed.data} />;
     }
 
     // Fallback to raw data
-    return (
-      <div className="rounded-lg border border-slate-200 bg-white p-3 text-slate-800">
-        <pre className="whitespace-pre-wrap text-xs">
-          {JSON.stringify(output.data, null, 2)}
-        </pre>
-      </div>
-    );
+    const fallback: UiJson = { ui: "json", json: output.data };
+    return <UiRenderer display={fallback} />;
   }
 
   // Should be unreachable, but keep a tiny fallback
