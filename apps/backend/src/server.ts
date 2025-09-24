@@ -85,6 +85,9 @@ export const createServer = async ({
     if (url.startsWith("/icon")) {
       return true;
     }
+    if (url.startsWith("/opengraph-image")) {
+      return true;
+    }
     if (url.startsWith("/assets/")) {
       return true;
     }
