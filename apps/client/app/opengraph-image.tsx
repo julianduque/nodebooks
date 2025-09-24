@@ -1,7 +1,6 @@
 import { ImageResponse } from "next/og";
 import { headers } from "next/headers";
 
-export const runtime = "edge";
 export const alt = "NodeBooks";
 export const size = {
   width: 1200,
@@ -48,7 +47,7 @@ export default async function Image() {
             fontWeight: 500,
           }}
         >
-          nodebooks.dev
+          { /* nodebooks.dev */ }
         </div>
         <div
           style={{
@@ -62,12 +61,12 @@ export default async function Image() {
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              height: 140,
-              width: 140,
+              height: 150,
+              width: 150,
               borderRadius: 24,
-              background: "#0ea5e9",
+              background: "#ffffff",
               boxShadow:
-                "0 10px 25px rgba(14, 165, 233, 0.35), inset 0 0 20px rgba(255, 255, 255, 0.2)",
+                "0 10px 25px rgba(60, 135, 58, 0.85), inset 0 0 20px rgba(255, 255, 255, 0.4)",
               overflow: "hidden",
             }}
           >

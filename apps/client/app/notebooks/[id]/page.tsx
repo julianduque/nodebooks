@@ -56,10 +56,10 @@ export const generateMetadata = async ({
     // Omit explicit OG/Twitter titles so they inherit the resolved <title>
     openGraph: {
       description,
-      images: [`/notebooks/${id}/opengraph-image`],
+      images: ["/opengraph-image"],
     },
     twitter: {
-      images: [`/notebooks/${id}/opengraph-image`],
+      images: ["/opengraph-image"],
     },
   };
 };
