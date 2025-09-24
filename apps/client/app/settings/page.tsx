@@ -1,7 +1,7 @@
 "use client";
 
-import AppShell from "../../components/AppShell";
-import { Card, CardContent } from "../../components/ui/card";
+import AppShell from "@/components/AppShell";
+import { Card, CardContent } from "@/components/ui/card";
 
 export default function SettingsPage() {
   return (

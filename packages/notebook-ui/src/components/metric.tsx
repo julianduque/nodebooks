@@ -1,7 +1,12 @@
+"use client";
 import React from "react";
+import { UiThemeContext } from "./theme";
 import type { UiMetric } from "@nodebooks/notebook-schema";
 
-type MetricProps = UiMetric & { className?: string };
+type MetricProps = Omit<UiMetric, "ui"> & {
+  className?: string;
+  themeMode?: "light" | "dark";
+};
 export const MetricTile: React.FC<MetricProps> = ({
   label,
   value,
@@ -9,32 +14,59 @@ export const MetricTile: React.FC<MetricProps> = ({
   delta,
   helpText,
   className,
+  themeMode,
 }) => {
+  const ctx = React.useContext(UiThemeContext);
+  const mode = themeMode ?? ctx ?? "light";
   const deltaNum = typeof delta === "number" ? delta : undefined;
   const deltaColor =
     deltaNum === undefined
-      ? "text-slate-400"
+      ? mode === "light"
+        ? "text-slate-400"
+        : "text-slate-500"
       : deltaNum > 0
         ? "text-emerald-500"
         : deltaNum < 0
           ? "text-rose-500"
-          : "text-slate-400";
+          : mode === "light"
+            ? "text-slate-400"
+            : "text-slate-500";
   const deltaSign =
     deltaNum === undefined ? "" : deltaNum > 0 ? "▲" : deltaNum < 0 ? "▼" : "→";
   return (
     <div
-      className={`rounded-lg border border-slate-200 bg-white p-3 ${className ?? ""}`}
+      className={`relative rounded-lg border p-3 ${className ?? ""} ${mode === "light" ? "border-slate-200 bg-white" : "border-slate-800 bg-slate-900"}`}
     >
       {label && (
-        <div className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+        <div
+          className={
+            mode === "light"
+              ? "text-xs font-semibold uppercase tracking-[0.2em] text-slate-400"
+              : "text-xs font-semibold uppercase tracking-[0.2em] text-slate-500"
+          }
+        >
           {label}
         </div>
       )}
       <div className="mt-1 flex items-baseline gap-2">
-        <div className="text-3xl font-bold text-slate-800">
+        <div
+          className={
+            mode === "light"
+              ? "text-3xl font-bold text-slate-800"
+              : "text-3xl font-bold text-slate-100"
+          }
+        >
           {String(value)}
           {unit ? (
-            <span className="ml-1 text-base text-slate-500">{unit}</span>
+            <span
+              className={
+                mode === "light"
+                  ? "ml-1 text-base text-slate-500"
+                  : "ml-1 text-base text-slate-400"
+              }
+            >
+              {unit}
+            </span>
           ) : null}
         </div>
         {deltaNum !== undefined && (
@@ -44,7 +76,15 @@ export const MetricTile: React.FC<MetricProps> = ({
         )}
       </div>
       {helpText && (
-        <div className="mt-1 text-xs text-slate-600">{helpText}</div>
+        <div
+          className={
+            mode === "light"
+              ? "mt-1 text-xs text-slate-600"
+              : "mt-1 text-xs text-slate-400"
+          }
+        >
+          {helpText}
+        </div>
       )}
     </div>
   );

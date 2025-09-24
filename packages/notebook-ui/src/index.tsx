@@ -14,6 +14,7 @@ import { BadgeTag } from "./components/badge";
 import { MetricTile } from "./components/metric";
 import { ProgressBar } from "./components/progress";
 import { Spinner } from "./components/spinner";
+import { UiCard } from "./components/uiCard";
 
 // UI Renderer
 export interface UiRendererProps {
@@ -25,34 +26,49 @@ export const UiRenderer: React.FC<UiRendererProps> = ({
   display,
   className,
 }) => {
+  let inner: React.ReactElement | null = null;
   switch (display.ui) {
     case "image":
-      return <Image {...display} className={className} />;
+      inner = <Image {...display} className={className} />;
+      break;
     case "markdown":
-      return <Markdown {...display} className={className} />;
+      inner = <Markdown {...display} className={className} />;
+      break;
     case "html":
-      return <HtmlBlock {...display} className={className} />;
+      inner = <HtmlBlock {...display} className={className} />;
+      break;
     case "json":
-      return <JsonViewer {...display} className={className} />;
+      inner = <JsonViewer {...display} className={className} />;
+      break;
     case "code":
-      return <CodeBlock {...display} className={className} />;
+      inner = <CodeBlock {...display} className={className} />;
+      break;
     case "table":
-      return <TableGrid {...display} className={className} />;
+      inner = <TableGrid {...display} className={className} />;
+      break;
     case "dataSummary":
-      return <DataSummary {...display} className={className} />;
+      inner = <DataSummary {...display} className={className} />;
+      break;
     case "alert":
-      return <AlertCallout {...display} className={className} />;
+      inner = <AlertCallout {...display} className={className} />;
+      break;
     case "badge":
-      return <BadgeTag {...display} className={className} />;
+      inner = <BadgeTag {...display} className={className} />;
+      break;
     case "metric":
-      return <MetricTile {...display} className={className} />;
+      inner = <MetricTile {...display} className={className} />;
+      break;
     case "progress":
-      return <ProgressBar {...display} className={className} />;
+      inner = <ProgressBar {...display} className={className} />;
+      break;
     case "spinner":
-      return <Spinner {...display} className={className} />;
+      inner = <Spinner {...display} className={className} />;
+      break;
     default:
-      return null;
+      inner = null;
   }
+  if (!inner) return null;
+  return <UiCard>{inner}</UiCard>;
 };
 
 export default UiRenderer;
@@ -70,3 +86,4 @@ export { BadgeTag } from "./components/badge";
 export { MetricTile } from "./components/metric";
 export { ProgressBar } from "./components/progress";
 export { Spinner } from "./components/spinner";
+export { UiCard } from "./components/uiCard";

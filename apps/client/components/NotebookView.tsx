@@ -9,10 +9,11 @@ import {
   useState,
 } from "react";
 import clsx from "clsx";
-import AppShell from "./AppShell";
-import { Button } from "./ui/button";
-import { Badge } from "./ui/badge";
-import { Card, CardContent } from "./ui/card";
+import AppShell from "@/components/AppShell";
+import { Button } from "@/components/ui/button";
+
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
 import {
   Check,
   Loader2,
@@ -28,7 +29,7 @@ import {
   Settings as SettingsIcon,
   ListTree,
 } from "lucide-react";
-import ConfirmDialog from "./ui/confirm";
+import ConfirmDialog from "@/components/ui/confirm";
 import { useRouter } from "next/navigation";
 import {
   createCodeCell,
@@ -44,13 +45,16 @@ import type {
   NotebookTemplateId,
   OutlineItem,
   NotebookViewProps,
-} from "./notebook/types";
-import { parseMultipleDependencies, buildOutlineItems } from "./notebook/utils";
-import CellCard from "./notebook/CellCard";
-import AddCellMenu from "./notebook/AddCellMenu";
-import OutlinePanel from "./notebook/OutlinePanel";
-import SetupPanel from "./notebook/SetupPanel";
-import OutputView from "./notebook/OutputView";
+} from "@/components/notebook/types";
+import {
+  parseMultipleDependencies,
+  buildOutlineItems,
+} from "@/components/notebook/utils";
+import CellCard from "@/components/notebook/CellCard";
+import AddCellMenu from "@/components/notebook/AddCellMenu";
+import OutlinePanel from "@/components/notebook/OutlinePanel";
+import SetupPanel from "@/components/notebook/SetupPanel";
+import OutputView from "@/components/notebook/OutputView";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "/api";
 
@@ -1313,6 +1317,30 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
           </span>
         </span>
         <Button
+          variant={dirty ? "secondary" : "ghost"}
+          size="icon"
+          onClick={handleSaveNow}
+          disabled={!dirty}
+          aria-label="Save notebook"
+          title={dirty ? "Save notebook" : "Saved"}
+        >
+          {dirty ? (
+            <Save className="h-4 w-4" />
+          ) : (
+            <Check className="h-4 w-4 text-emerald-500" />
+          )}
+        </Button>
+        <Button
+          variant="default"
+          size="icon"
+          onClick={handleRunAll}
+          disabled={!socketReady}
+          aria-label="Run all cells"
+          title="Run all cells"
+        >
+          <PlayCircle className="h-4 w-4" />
+        </Button>
+        <Button
           variant="ghost"
           size="icon"
           onClick={() => setConfirmClearOutputsOpen(true)}
@@ -1339,30 +1367,6 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
           title="Restart kernel"
         >
           <RotateCcw className="h-4 w-4" />
-        </Button>
-        <Button
-          variant="secondary"
-          size="icon"
-          onClick={handleRunAll}
-          disabled={!socketReady}
-          aria-label="Run all cells"
-          title="Run all cells"
-        >
-          <PlayCircle className="h-4 w-4" />
-        </Button>
-        <Button
-          variant={dirty ? "secondary" : "ghost"}
-          size="icon"
-          onClick={handleSaveNow}
-          disabled={!dirty}
-          aria-label="Save notebook"
-          title={dirty ? "Save notebook" : "Saved"}
-        >
-          {dirty ? (
-            <Save className="h-4 w-4" />
-          ) : (
-            <Check className="h-4 w-4 text-emerald-500" />
-          )}
         </Button>
         <Button
           variant={shareStatus === "error" ? "destructive" : "ghost"}

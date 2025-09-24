@@ -1,8 +1,29 @@
+"use client";
 import React from "react";
+import { UiThemeContext } from "./theme";
 import type { UiBadge } from "@nodebooks/notebook-schema";
 
-type BadgeProps = UiBadge & { className?: string };
-const badgeColor = (c?: UiBadge["color"]) => {
+type BadgeProps = Omit<UiBadge, "ui"> & {
+  className?: string;
+  themeMode?: "light" | "dark";
+};
+const badgeColor = (mode: "light" | "dark", c?: UiBadge["color"]) => {
+  if (mode === "dark") {
+    switch (c) {
+      case "info":
+        return "bg-sky-600 text-white border-sky-400";
+      case "success":
+        return "bg-emerald-600 text-white border-emerald-400";
+      case "warn":
+        return "bg-amber-600 text-white border-amber-400";
+      case "error":
+        return "bg-rose-600 text-white border-rose-400";
+      case "brand":
+        return "bg-brand-600 text-white border-brand-400";
+      default:
+        return "bg-slate-600 text-white border-slate-400";
+    }
+  }
   switch (c) {
     case "info":
       return "bg-sky-100 text-sky-800 border-sky-300";
@@ -19,14 +40,24 @@ const badgeColor = (c?: UiBadge["color"]) => {
   }
 };
 
-export const BadgeTag: React.FC<BadgeProps> = ({ text, color, className }) => {
+export const BadgeTag: React.FC<BadgeProps> = ({
+  text,
+  color,
+  className,
+  themeMode,
+}) => {
+  const ctx = React.useContext(UiThemeContext);
+  const mode = themeMode ?? ctx ?? "light";
   return (
-    <span
-      className={`inline-flex items-center rounded border px-2 py-0.5 text-xs font-semibold ${badgeColor(
-        color
-      )} ${className ?? ""}`}
-    >
-      {text}
+    <span className={`relative inline-flex items-center ${className ?? ""}`}>
+      <span
+        className={`inline-flex items-center rounded-md border px-2 py-0.5 text-sm font-semibold ${badgeColor(
+          mode,
+          color
+        )}`}
+      >
+        {text}
+      </span>
     </span>
   );
 };

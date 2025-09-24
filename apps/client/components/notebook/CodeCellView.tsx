@@ -2,11 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { OnMount } from "@monaco-editor/react";
-import MonacoEditor from "./MonacoEditorClient";
+import MonacoEditor from "@/components/notebook/MonacoEditorClient";
 import type { NotebookCell } from "@nodebooks/notebook-schema";
-import { Badge } from "../ui/badge";
+import { Badge } from "@/components/ui/badge";
 import { Loader2, Zap } from "lucide-react";
-import OutputView from "./OutputView";
+import OutputView from "@/components/notebook/OutputView";
 
 interface CodeCellViewProps {
   cell: Extract<NotebookCell, { type: "code" }>;

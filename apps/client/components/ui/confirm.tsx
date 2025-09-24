@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { Button } from "./button";
+import { Button } from "@/components/ui/button";
 
 interface ConfirmDialogProps {
   open: boolean;
@@ -59,7 +59,7 @@ export const ConfirmDialog = ({
           </Button>
           <Button
             type="button"
-            variant={danger ? "destructive" : "secondary"}
+            variant={danger ? "destructive" : "default"}
             onClick={() => void onConfirm()}
           >
             {confirmLabel}
