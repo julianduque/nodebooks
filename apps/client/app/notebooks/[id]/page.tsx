@@ -47,22 +47,19 @@ export const generateMetadata = async ({
   }
 
   const title = notebookTitle ?? fallbackTitle;
-  const fullTitle = notebookTitle
-    ? `${notebookTitle} · NodeBooks`
-    : "NodeBooks";
   const description = notebookTitle
     ? `Notebook ${notebookTitle} in NodeBooks.`
     : "Interactive Node.js Notebooks.";
 
   return {
     title,
+    // Omit explicit OG/Twitter titles so they inherit the resolved <title>
     openGraph: {
-      title: fullTitle,
       description,
+      images: [`/notebooks/${id}/opengraph-image`],
     },
     twitter: {
-      title: fullTitle,
-      description,
+      images: [`/notebooks/${id}/opengraph-image`],
     },
   };
 };

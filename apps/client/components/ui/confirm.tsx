@@ -1,7 +1,16 @@
 "use client";
 
-import { useEffect } from "react";
-import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { buttonVariants } from "@/components/ui/button";
 
 interface ConfirmDialogProps {
   open: boolean;
@@ -24,49 +33,35 @@ export const ConfirmDialog = ({
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) => {
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onCancel();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, onCancel]);
-
-  if (!open) return null;
-
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-      onClick={onCancel}
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="confirm-title"
+    <AlertDialog
+      open={open}
+      onOpenChange={(val) => (!val ? onCancel() : undefined)}
     >
-      <div
-        className="w-full max-w-sm rounded-lg border border-slate-200 bg-white p-4 shadow-xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h2 id="confirm-title" className="text-sm font-semibold text-slate-800">
-          {title}
-        </h2>
-        {description ? (
-          <p className="mt-2 text-sm text-slate-600">{description}</p>
-        ) : null}
-        <div className="mt-4 flex justify-end gap-2">
-          <Button type="button" variant="ghost" onClick={onCancel}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{title}</AlertDialogTitle>
+          {description ? (
+            <AlertDialogDescription>{description}</AlertDialogDescription>
+          ) : null}
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel onClick={onCancel}>
             {cancelLabel}
-          </Button>
-          <Button
-            type="button"
-            variant={danger ? "destructive" : "default"}
+          </AlertDialogCancel>
+          <AlertDialogAction
+            className={
+              danger
+                ? buttonVariants({ variant: "destructive" })
+                : buttonVariants({ variant: "default" })
+            }
             onClick={() => void onConfirm()}
           >
             {confirmLabel}
-          </Button>
-        </div>
-      </div>
-    </div>
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 };
 

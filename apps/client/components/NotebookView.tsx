@@ -54,6 +54,7 @@ import CellCard from "@/components/notebook/CellCard";
 import AddCellMenu from "@/components/notebook/AddCellMenu";
 import OutlinePanel from "@/components/notebook/OutlinePanel";
 import SetupPanel from "@/components/notebook/SetupPanel";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import OutputView from "@/components/notebook/OutputView";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "/api";
@@ -1247,13 +1248,13 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
             onChange={(event) => setRenameDraft(event.target.value)}
             onBlur={handleRenameCommit}
             onKeyDown={handleRenameKeyDown}
-            className="min-w-[160px] max-w-sm truncate rounded-md border border-slate-300 bg-white px-2 py-1 text-sm font-semibold text-slate-900 focus:border-brand-500 focus:outline-none"
+            className="min-w-[160px] max-w-sm truncate rounded-md border border-slate-300 bg-white px-2 py-1 text-sm font-semibold text-slate-900 focus:outline-none"
             aria-label="Notebook name"
           />
         ) : (
           <button
             type="button"
-            className="truncate text-left text-base font-semibold text-slate-900 hover:text-brand-600"
+            className="truncate text-left text-base font-semibold text-slate-900"
             onClick={handleRenameStart}
             title={notebook.name}
           >
@@ -1410,40 +1411,19 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
   const secondaryHeader = useMemo(() => {
     if (!notebook) return null;
     return (
-      <div className="flex items-center gap-2">
-        <Button
-          type="button"
-          size="sm"
-          variant="ghost"
-          className={clsx(
-            "rounded-full px-3 text-xs font-semibold",
-            sidebarView === "outline"
-              ? "bg-slate-900 text-white hover:bg-slate-800"
-              : "text-slate-500 hover:text-slate-900"
-          )}
-          onClick={() => setSidebarView("outline")}
-        >
-          <span className="inline-flex items-center gap-1">
+      <Tabs
+        value={sidebarView}
+        onValueChange={(v) => setSidebarView(v as "setup" | "outline")}
+      >
+        <TabsList className="h-8">
+          <TabsTrigger value="outline" className="gap-1 px-2 py-1 text-xs">
             <ListTree className="h-4 w-4" /> Outline
-          </span>
-        </Button>
-        <Button
-          type="button"
-          size="sm"
-          variant="ghost"
-          className={clsx(
-            "rounded-full px-3 text-xs font-semibold",
-            sidebarView === "setup"
-              ? "bg-slate-900 text-white hover:bg-slate-800"
-              : "text-slate-500 hover:text-slate-900"
-          )}
-          onClick={() => setSidebarView("setup")}
-        >
-          <span className="inline-flex items-center gap-1">
+          </TabsTrigger>
+          <TabsTrigger value="setup" className="gap-1 px-2 py-1 text-xs">
             <SettingsIcon className="h-4 w-4" /> Setup
-          </span>
-        </Button>
-      </div>
+          </TabsTrigger>
+        </TabsList>
+      </Tabs>
     );
   }, [notebook, sidebarView]);
 

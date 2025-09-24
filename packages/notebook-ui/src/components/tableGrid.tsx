@@ -133,7 +133,7 @@ export const TableGrid: React.FC<TableGridProps> = ({
                     : i % 2 === 0
                       ? "bg-slate-900"
                       : "bg-slate-800/60"
-                } hover:bg-brand-50/50`}
+                }`}
               >
                 {cols.map(
                   (c: {

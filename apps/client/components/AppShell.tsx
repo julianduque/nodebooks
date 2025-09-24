@@ -30,7 +30,7 @@ interface NavItem {
 const navItems: NavItem[] = [
   {
     id: "home",
-    label: "Dashboard",
+    label: "Home",
     icon: <LayoutDashboard className="h-4 w-4" />,
     href: "/",
   },
@@ -230,18 +230,9 @@ const AppShell = ({
       <main className="flex flex-1 flex-col">
         <header className="sticky top-0 z-40 h-16 bg-background">
           <div className="relative flex h-full items-center gap-3 px-4 sm:gap-4">
-            <Button
-              variant="outline"
-              size="icon"
-              className="size-7 md:hidden"
-              onClick={() => setCollapsed((prev) => !prev)}
-              aria-label="Toggle Sidebar"
-            >
-              <PanelLeft className="h-4 w-4" />
-            </Button>
             {secondarySidebar ? (
               <Button
-                variant="outline"
+                variant="secondary"
                 size="icon"
                 className="size-7"
                 onClick={() => setSecondaryCollapsed((prev) => !prev)}

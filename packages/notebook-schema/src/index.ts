@@ -149,7 +149,7 @@ export const UiBadgeSchema = z.object({
   ui: z.literal("badge"),
   text: z.string(),
   color: z
-    .enum(["neutral", "info", "success", "warn", "error", "brand"])
+    .enum(["neutral", "info", "success", "warn", "error"])
     .optional(),
 });
 

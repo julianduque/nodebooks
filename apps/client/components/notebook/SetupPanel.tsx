@@ -1,10 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Pencil, Trash2 } from "lucide-react";
 import type { Notebook } from "@nodebooks/notebook-schema";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 interface SetupPanelProps {
   env: Notebook["env"];
@@ -75,7 +82,7 @@ const SetupPanel = ({
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             placeholder="package or package@version"
-            className="w-full rounded-md border border-slate-300 px-2 py-2 pr-16 text-[13px] text-slate-700 focus:border-brand-500 focus:outline-none"
+            className="w-full rounded-md border border-slate-300 px-2 py-2 pr-16 text-[13px] text-slate-700 focus:outline-none"
             aria-label="Add dependency"
           />
           <Button
@@ -154,24 +161,23 @@ const SetupPanel = ({
         </div>
       </div>
 
-      {varModalOpen && (
-        <VariableModal
-          title={editOriginalName ? "Edit Variable" : "Add Variable"}
-          name={formName}
-          value={formValue}
-          onNameChange={setFormName}
-          onValueChange={setFormValue}
-          onCancel={() => setVarModalOpen(false)}
-          onSubmit={async () => {
-            const key = formName.trim();
-            await onAddVariable(key, formValue);
-            if (editOriginalName && editOriginalName !== key) {
-              await onRemoveVariable(editOriginalName);
-            }
-            setVarModalOpen(false);
-          }}
-        />
-      )}
+      <VariableDialog
+        open={varModalOpen}
+        title={editOriginalName ? "Edit Variable" : "Add Variable"}
+        name={formName}
+        value={formValue}
+        onNameChange={setFormName}
+        onValueChange={setFormValue}
+        onCancel={() => setVarModalOpen(false)}
+        onSubmit={async () => {
+          const key = formName.trim();
+          await onAddVariable(key, formValue);
+          if (editOriginalName && editOriginalName !== key) {
+            await onRemoveVariable(editOriginalName);
+          }
+          setVarModalOpen(false);
+        }}
+      />
     </div>
   );
 };
@@ -243,7 +249,7 @@ const VariableRow = ({ name, onEdit, onRemove }: VariableRowProps) => {
   );
 };
 
-interface VariableModalProps {
+interface VariableDialogProps {
   title: string;
   name: string;
   value: string;
@@ -251,9 +257,10 @@ interface VariableModalProps {
   onValueChange: (v: string) => void;
   onCancel: () => void;
   onSubmit: () => void | Promise<void>;
+  open: boolean;
 }
 
-const VariableModal = ({
+const VariableDialog = ({
   title,
   name,
   value,
@@ -261,21 +268,16 @@ const VariableModal = ({
   onValueChange,
   onCancel,
   onSubmit,
-}: VariableModalProps) => {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onCancel();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onCancel]);
-
+  open,
+}: VariableDialogProps) => {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-md rounded-lg border border-slate-200 bg-white p-4 shadow-xl">
-        <h2 className="text-sm font-semibold text-slate-800">{title}</h2>
+    <Dialog open={open} onOpenChange={(val) => (!val ? onCancel() : undefined)}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+        </DialogHeader>
         <form
-          className="mt-3 space-y-2"
+          className="mt-1 space-y-3"
           onSubmit={(e) => {
             e.preventDefault();
             if (!name.trim()) return;
@@ -289,7 +291,7 @@ const VariableModal = ({
               value={name}
               onChange={(e) => onNameChange(e.target.value)}
               placeholder="NAME"
-              className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-[13px] text-slate-700 focus:border-brand-500 focus:outline-none"
+              className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-[13px] text-slate-700 focus:outline-none"
             />
           </label>
           <label className="block text-xs font-medium text-slate-600">
@@ -299,11 +301,11 @@ const VariableModal = ({
               value={value}
               onChange={(e) => onValueChange(e.target.value)}
               placeholder="value"
-              className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-[13px] text-slate-700 focus:border-brand-500 focus:outline-none"
+              className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-[13px] text-slate-700 focus:outline-none"
             />
           </label>
-          <div className="mt-3 flex justify-end gap-4">
-            <Button type="button" variant="ghost" onClick={onCancel}>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onCancel}>
               Cancel
             </Button>
             <Button
@@ -313,9 +315,9 @@ const VariableModal = ({
             >
               Save
             </Button>
-          </div>
+          </DialogFooter>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 };
