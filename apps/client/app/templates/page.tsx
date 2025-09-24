@@ -173,7 +173,7 @@ export default function TemplatesPage() {
                 </div>
                 <Button
                   size="sm"
-                  variant="secondary"
+                  variant="default"
                   className="gap-2"
                   onClick={() => createFrom(template.id)}
                 >

@@ -109,7 +109,6 @@ const CellCard = ({
             <Button
               variant="ghost"
               size="icon"
-              className="text-brand-600 hover:text-brand-700"
               onClick={onRun}
               disabled={isRunning || !canRun}
               aria-label="Run cell"

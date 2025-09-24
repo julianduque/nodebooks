@@ -1142,7 +1142,7 @@ export type UiDataSummaryOptions = {
 export declare function UiDataSummary(opts: UiDataSummaryOptions): { ui: "dataSummary" } & UiDataSummaryOptions;
 export type UiAlertOptions = { level?: "info" | "success" | "warn" | "error"; title?: string; text?: string; html?: string };
 export declare function UiAlert(opts: UiAlertOptions): { ui: "alert" } & UiAlertOptions;
-export type UiBadgeOptions = { color?: "neutral" | "info" | "success" | "warn" | "error" | "brand" };
+export type UiBadgeOptions = { color?: "neutral" | "info" | "success" | "warn" | "error" };
 export declare function UiBadge(text: string, opts?: UiBadgeOptions): { ui: "badge"; text: string } & UiBadgeOptions;
 export declare function UiBadge(opts: { ui?: "badge"; text: string } & UiBadgeOptions): { ui: "badge"; text: string } & UiBadgeOptions;
 export type UiMetricOptions = { label?: string; unit?: string; delta?: number; helpText?: string };

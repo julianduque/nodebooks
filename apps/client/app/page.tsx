@@ -88,7 +88,7 @@ export default function HomePage() {
         {recent.map((item) => (
           <div
             key={item.id}
-            className="group relative flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:-translate-y-1 hover:border-brand-200 hover:shadow-lg"
+            className="group relative flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:-translate-y-1 hover:shadow-lg"
           >
             <button
               type="button"
@@ -97,7 +97,7 @@ export default function HomePage() {
               aria-label={`Open ${item.name}`}
             >
               <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-brand-50 text-brand-600">
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg">
                   <NotebookPen className="h-5 w-5" />
                 </div>
                 <div className="min-w-0">
@@ -109,7 +109,7 @@ export default function HomePage() {
                   </p>
                 </div>
               </div>
-              <div className="mt-2 flex items-center gap-2 text-sm text-brand-600">
+              <div className="mt-2 flex items-center gap-2 text-sm">
                 <span>Open notebook</span>
                 <ChevronRight className="h-4 w-4" />
               </div>

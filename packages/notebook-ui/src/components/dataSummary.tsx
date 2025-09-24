@@ -39,7 +39,7 @@ export const DataSummary: React.FC<DataSummaryProps> = ({
             {label}
           </div>
           <div className={mode === "light" ? "text-sky-700" : "text-slate-100"}>
-            {value as any}
+            {value}
           </div>
         </div>
       );

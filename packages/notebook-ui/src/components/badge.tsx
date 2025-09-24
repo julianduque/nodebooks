@@ -18,8 +18,6 @@ const badgeColor = (mode: "light" | "dark", c?: UiBadge["color"]) => {
         return "bg-amber-600 text-white border-amber-400";
       case "error":
         return "bg-rose-600 text-white border-rose-400";
-      case "brand":
-        return "bg-brand-600 text-white border-brand-400";
       default:
         return "bg-slate-600 text-white border-slate-400";
     }
@@ -33,8 +31,6 @@ const badgeColor = (mode: "light" | "dark", c?: UiBadge["color"]) => {
       return "bg-amber-100 text-amber-900 border-amber-300";
     case "error":
       return "bg-rose-100 text-rose-800 border-rose-300";
-    case "brand":
-      return "bg-brand-100 text-brand-800 border-brand-300";
     default:
       return "bg-slate-100 text-slate-800 border-slate-300";
   }

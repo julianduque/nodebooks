@@ -246,7 +246,7 @@ UiAlert({
 
 ```ts
 import { UiBadge } from "@nodebooks/ui";
-UiBadge("beta", { color: "brand" });
+UiBadge("beta", { color: "info" });
 ```
 
 ### Metric / KPI Tile

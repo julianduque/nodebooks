@@ -110,7 +110,6 @@ export default function UiPlaygroundPage() {
             <BadgeTag text="Success" color="success" />
             <BadgeTag text="Warn" color="warn" />
             <BadgeTag text="Error" color="error" />
-            <BadgeTag text="Brand" color="brand" />
           </div>
         </UiCard>
       </section>
