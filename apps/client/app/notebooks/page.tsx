@@ -70,7 +70,12 @@ export default function NotebooksPage() {
         <Card className="max-w-xl">
           <CardContent className="flex items-center justify-between gap-4">
             <p className="text-sm text-slate-500">No notebooks yet.</p>
-            <Button size="sm" variant="default" className="gap-2" onClick={handleCreate}>
+            <Button
+              size="sm"
+              variant="default"
+              className="gap-2"
+              onClick={handleCreate}
+            >
               <Plus className="h-4 w-4" /> New notebook
             </Button>
           </CardContent>

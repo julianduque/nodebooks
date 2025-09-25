@@ -148,9 +148,7 @@ export const UiAlertSchema = z.object({
 export const UiBadgeSchema = z.object({
   ui: z.literal("badge"),
   text: z.string(),
-  color: z
-    .enum(["neutral", "info", "success", "warn", "error"])
-    .optional(),
+  color: z.enum(["neutral", "info", "success", "warn", "error"]).optional(),
 });
 
 export const UiMetricSchema = z.object({

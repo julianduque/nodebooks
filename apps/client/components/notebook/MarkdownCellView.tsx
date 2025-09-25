@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { OnMount } from "@monaco-editor/react";
 import DOMPurify from "dompurify";
-import { marked } from "marked";
+import { marked, type Tokens } from "marked";
 import MonacoEditor from "@/components/notebook/MonacoEditorClient";
 import type { NotebookCell } from "@nodebooks/notebook-schema";
 
@@ -32,13 +32,17 @@ marked.use({
 
 const renderer = new marked.Renderer();
 const originalCodeRenderer = renderer.code.bind(renderer);
-renderer.code = (code, infostring, escaped) => {
-  const language = (infostring ?? "").trim().toLowerCase();
-  if (language === "mermaid") {
-    const encoded = encodeURIComponent(code);
-    return `<pre class="mermaid" data-definition="${encoded}">${escapeHtml(code)}</pre>`;
+
+// Marked v16 passes a single token object into renderer.code
+renderer.code = (token: Tokens.Code) => {
+  const { text, lang } = token;
+  const language = (lang ?? "").trim();
+  const languageId = language.split(/\s+/)[0]?.toLowerCase();
+  if (languageId === "mermaid") {
+    const encoded = encodeURIComponent(text);
+    return `<pre class="mermaid" data-definition="${encoded}">${escapeHtml(text)}</pre>`;
   }
-  return originalCodeRenderer(code, infostring, escaped);
+  return originalCodeRenderer(token);
 };
 
 marked.use({ renderer });
@@ -49,11 +53,13 @@ const MarkdownCellView = ({
   editorKey,
 }: MarkdownCellViewProps) => {
   // Start at roughly one visual line + padding (updated on mount)
-  const [editorHeight, setEditorHeight] = useState<number>(48);
+  const [editorHeight, setEditorHeight] = useState<number>(10);
   const heightRef = useRef(0);
   const previewRef = useRef<HTMLDivElement | null>(null);
+  const [previewEl, setPreviewEl] = useState<HTMLDivElement | null>(null);
   const setPreviewRef = useCallback((node: HTMLDivElement | null) => {
     previewRef.current = node;
+    setPreviewEl(node);
   }, []);
   const html = useMemo(() => {
     const parsed = marked.parse(cell.source ?? "", { async: false });
@@ -61,26 +67,33 @@ const MarkdownCellView = ({
     return DOMPurify.sanitize(rendered);
   }, [cell.source]);
 
+  type MarkdownUIMeta = { ui?: { edit?: boolean } };
+  const isEditing = (cell.metadata as MarkdownUIMeta).ui?.edit ?? true;
+
   useEffect(() => {
-    const container = previewRef.current;
+    const container = previewEl;
     if (!container) return;
-    const mermaidBlocks = Array.from(
-      container.querySelectorAll<HTMLElement>("pre.mermaid")
-    );
-    if (mermaidBlocks.length === 0) return;
 
     let cancelled = false;
+    let scheduled = false;
 
     const renderMermaid = async () => {
+      const blocks = Array.from(
+        container.querySelectorAll<HTMLElement>(
+          "pre.mermaid:not([data-processed])"
+        )
+      );
+      if (blocks.length === 0) return;
+
       const mermaidModule = await import("mermaid");
       const mermaid = mermaidModule.default;
-      mermaid.initialize({ startOnLoad: false });
+      mermaid.initialize({ startOnLoad: false, securityLevel: "loose" });
       let index = 0;
-      for (const block of mermaidBlocks) {
+      for (const block of blocks) {
         const definitionAttr = block.dataset.definition ?? "";
         const definition = definitionAttr
           ? decodeURIComponent(definitionAttr)
-          : block.textContent ?? "";
+          : (block.textContent ?? "");
         if (!definition) continue;
         try {
           const { svg } = await mermaid.render(
@@ -90,7 +103,11 @@ const MarkdownCellView = ({
           if (cancelled) return;
           block.innerHTML = DOMPurify.sanitize(svg, {
             USE_PROFILES: { svg: true, svgFilters: true },
+            // Allow mermaid's inline styles and style tags inside the SVG
+            ADD_TAGS: ["style", "foreignObject"],
+            ADD_ATTR: ["style", "class"],
           });
+          block.setAttribute("data-processed", "1");
         } catch (error) {
           if (cancelled) return;
           block.classList.add("mermaid-error");
@@ -99,19 +116,34 @@ const MarkdownCellView = ({
               error instanceof Error ? error.message : String(error)
             )
           );
+          block.setAttribute("data-processed", "1");
         }
       }
     };
 
-    void renderMermaid();
+    const schedule = () => {
+      if (scheduled) return;
+      scheduled = true;
+      queueMicrotask(() => {
+        scheduled = false;
+        if (!cancelled) void renderMermaid();
+      });
+    };
+
+    // initial pass after mount/commit and whenever html changes
+    schedule();
+
+    // observe any content replacement in preview (e.g., after cell persist)
+    const observer = new MutationObserver(schedule);
+    observer.observe(container, { childList: true, subtree: true });
 
     return () => {
       cancelled = true;
+      observer.disconnect();
     };
-  }, [cell.id, html]);
+  }, [cell.id, previewEl, html]);
 
-  type MarkdownUIMeta = { ui?: { edit?: boolean } };
-  const isEditing = (cell.metadata as MarkdownUIMeta).ui?.edit ?? true;
+  // moved isEditing above to use inside effects
 
   const setEdit = useCallback(
     (edit: boolean) => {
