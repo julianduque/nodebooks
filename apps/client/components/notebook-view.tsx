@@ -9,7 +9,7 @@ import {
   useState,
 } from "react";
 import clsx from "clsx";
-import AppShell from "@/components/AppShell";
+import AppShell from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 
 import { Badge } from "@/components/ui/badge";
@@ -51,12 +51,12 @@ import {
   parseMultipleDependencies,
   buildOutlineItems,
 } from "@/components/notebook/utils";
-import CellCard from "@/components/notebook/CellCard";
-import AddCellMenu from "@/components/notebook/AddCellMenu";
-import OutlinePanel from "@/components/notebook/OutlinePanel";
-import SetupPanel from "@/components/notebook/SetupPanel";
+import CellCard from "@/components/notebook/cell-card";
+import AddCellMenu from "@/components/notebook/add-cell-menu";
+import OutlinePanel from "@/components/notebook/outline-panel";
+import SetupPanel from "@/components/notebook/setup-panel";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import OutputView from "@/components/notebook/OutputView";
+import OutputView from "@/components/notebook/output-view";
 
 import { clientConfig } from "@nodebooks/config/client";
 const API_BASE_URL = clientConfig().apiBaseUrl;

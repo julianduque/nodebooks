@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { OnMount } from "@monaco-editor/react";
 import DOMPurify from "dompurify";
 import { marked, type Tokens } from "marked";
-import MonacoEditor from "@/components/notebook/MonacoEditorClient";
+import MonacoEditor from "@/components/notebook/monaco-editor-client";
 import type { NotebookCell } from "@nodebooks/notebook-schema";
 
 const escapeHtml = (value: string) =>

@@ -15,8 +15,8 @@ import {
   XCircle,
 } from "lucide-react";
 import type { NotebookCell } from "@nodebooks/notebook-schema";
-import CodeCellView from "./CodeCellView";
-import MarkdownCellView from "./MarkdownCellView";
+import CodeCellView from "./code-cell-view";
+import MarkdownCellView from "./markdown-cell-view";
 
 interface CellCardProps {
   cell: NotebookCell;
