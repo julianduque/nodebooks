@@ -12,6 +12,7 @@ import {
   Play,
   Trash2,
   Plus,
+  XCircle,
 } from "lucide-react";
 import type { NotebookCell } from "@nodebooks/notebook-schema";
 import CodeCellView from "./CodeCellView";
@@ -24,10 +25,12 @@ interface CellCardProps {
     options?: { persist?: boolean; touch?: boolean }
   ) => void;
   onRun: () => void;
+  onInterrupt?: () => void;
   onDelete: () => void;
   onAddBelow: (type: NotebookCell["type"]) => void;
   onMove: (direction: "up" | "down") => void;
   isRunning: boolean;
+  queued?: boolean;
   canRun: boolean;
   canMoveUp: boolean;
   canMoveDown: boolean;
@@ -76,10 +79,12 @@ const CellCard = ({
   cell,
   onChange,
   onRun,
+  onInterrupt,
   onDelete,
   onAddBelow,
   onMove,
   isRunning,
+  queued,
   canRun,
   canMoveUp,
   canMoveDown,
@@ -120,6 +125,18 @@ const CellCard = ({
                 <Play className="h-4 w-4" />
               )}
             </Button>
+            {isRunning && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={onInterrupt}
+                aria-label="Abort cell"
+                title="Abort cell"
+                className="text-rose-600 hover:text-rose-600"
+              >
+                <XCircle className="h-4 w-4" />
+              </Button>
+            )}
             <Button
               variant="ghost"
               size="icon"
@@ -208,6 +225,7 @@ const CellCard = ({
           onChange={onChange}
           onRun={onRun}
           isRunning={isRunning}
+          queued={queued}
         />
       ) : (
         <MarkdownCellView

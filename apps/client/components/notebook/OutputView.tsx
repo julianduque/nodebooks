@@ -85,13 +85,18 @@ const OutputView = ({ output }: { output: NotebookOutput }) => {
     output.type === "execute_result" ||
     output.type === "update_display_data"
   ) {
-    const raw = output.data?.[NODEBOOKS_UI_MIME as string];
-    const parsed = UiDisplaySchema.safeParse(raw);
-    if (parsed.success) {
-      return <UiRenderer display={parsed.data} />;
+    const rawVendor = output.data?.[NODEBOOKS_UI_MIME as string];
+    const parsedVendor = UiDisplaySchema.safeParse(rawVendor);
+    if (parsedVendor.success) {
+      return <UiRenderer display={parsedVendor.data} />;
     }
-
-    // Fallback to raw data
+    // Secondary fallback: some runtimes may put the UI object under application/json
+    const rawJson = output.data?.["application/json" as string];
+    const parsedJson = UiDisplaySchema.safeParse(rawJson);
+    if (parsedJson.success) {
+      return <UiRenderer display={parsedJson.data} />;
+    }
+    // Final fallback to raw data
     const fallback: UiJson = { ui: "json", json: output.data };
     return <UiRenderer display={fallback} />;
   }

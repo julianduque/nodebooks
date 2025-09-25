@@ -63,10 +63,6 @@ export default async function Image() {
               justifyContent: "center",
               height: 150,
               width: 150,
-              borderRadius: 24,
-              background: "#ffffff",
-              boxShadow:
-                "0 10px 25px rgba(60, 135, 58, 0.85), inset 0 0 20px rgba(255, 255, 255, 0.4)",
               overflow: "hidden",
             }}
           >

@@ -219,6 +219,12 @@ const handleConnection = async (
 
   connection.on("close", () => {
     clearInterval(hb);
+    const rt = runtimes.get(session.id);
+    try {
+      (rt as unknown as { release?: () => void })?.release?.();
+    } catch (err) {
+      void err;
+    }
     runtimes.delete(session.id);
     void sessions.closeSession(session.id);
   });
@@ -342,28 +348,57 @@ const handleExecuteRequest = async ({
 
   sendMessage(connection, { type: "status", state: "busy" });
 
-  const result = await runtime.execute({
-    cell: runnableCell,
-    code: message.code,
-    notebookId: notebook.id,
-    env: notebook.env,
-    timeoutMs: message.timeoutMs,
-    onStream: (stream: {
-      type: "stream";
-      name: "stdout" | "stderr";
-      text: string;
-    }) => {
-      sendMessage(connection, { ...stream, cellId: cell.id });
-    },
-    onDisplay: (display: {
-      type: "display_data" | "execute_result" | "update_display_data";
-      data: Record<string, unknown>;
-      metadata?: Record<string, unknown>;
-    }) => {
-      // Stream UI displays as they are emitted
-      sendMessage(connection, { ...display, cellId: cell.id });
-    },
-  });
+  let result: {
+    outputs: Array<
+      | { type: "stream"; name: "stdout" | "stderr"; text: string }
+      | {
+          type: "display_data" | "execute_result" | "update_display_data";
+          data: Record<string, unknown>;
+          metadata?: Record<string, unknown>;
+        }
+      | { type: "error"; ename: string; evalue: string; traceback: string[] }
+    >;
+    execution: {
+      started: number;
+      ended: number;
+      status: "ok" | "error" | "aborted";
+    };
+  } | null = null;
+  try {
+    result = await runtime.execute({
+      cell: runnableCell,
+      code: message.code,
+      notebookId: notebook.id,
+      env: notebook.env,
+      timeoutMs: message.timeoutMs,
+      onStream: (stream: {
+        type: "stream";
+        name: "stdout" | "stderr";
+        text: string;
+      }) => {
+        sendMessage(connection, { ...stream, cellId: cell.id });
+      },
+      onDisplay: (display: {
+        type: "display_data" | "execute_result" | "update_display_data";
+        data: Record<string, unknown>;
+        metadata?: Record<string, unknown>;
+      }) => {
+        // Stream UI displays as they are emitted
+        sendMessage(connection, { ...display, cellId: cell.id });
+      },
+    });
+  } catch (e) {
+    void e;
+    // Treat cancellations as aborted without tearing down the session context
+    sendMessage(connection, {
+      type: "execute_reply",
+      cellId: cell.id,
+      status: "aborted",
+      execTimeMs: 0,
+    });
+    sendMessage(connection, { type: "status", state: "idle" });
+    return;
+  }
 
   for (const output of result.outputs) {
     // Streams and streamed displays are already sent live; skip here

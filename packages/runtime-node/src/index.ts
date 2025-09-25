@@ -472,6 +472,13 @@ export class NotebookRuntime {
   private currentEnvKey: string | null = null;
   // Per-runtime view of environment variables exposed to user code via process.env
   private exposedEnv: Record<string, string> = {};
+  // Track timers created during execution so we can await/cleanup them.
+  private pendingTimeouts = new Set<unknown>();
+  private pendingIntervals = new Set<unknown>();
+  private pendingIntervalFirstTick = new Set<unknown>();
+  private timeoutWaiters: Array<() => void> = [];
+  private intervalWaiters: Array<() => void> = [];
+  private intervalDoneWaiters: Array<() => void> = [];
 
   constructor(options: NotebookRuntimeOptions = {}) {
     this.workspaceRoot = options.workspaceRoot ?? DEFAULT_WORKSPACE_ROOT;
@@ -485,6 +492,11 @@ export class NotebookRuntime {
     );
 
     const placeholderRequire = createPlaceholderRequire();
+
+    // Timer management so timers scheduled by user code actually run before
+    // the cell completes, and to avoid leaking intervals across cells.
+    const timers = this.createTimerAPI();
+
     const sandbox: Record<string, unknown> = {
       console: this.console.proxy,
       require: placeholderRequire,
@@ -493,10 +505,10 @@ export class NotebookRuntime {
       process: this.processProxy,
       Buffer,
       // Timers
-      setTimeout,
-      clearTimeout,
-      setInterval,
-      clearInterval,
+      setTimeout: timers.setTimeout,
+      clearTimeout: timers.clearTimeout,
+      setInterval: timers.setInterval,
+      clearInterval: timers.clearInterval,
       // Web/Fetch APIs from host Node.js (Node 20+)
       fetch: (globalThis as unknown as { fetch?: typeof fetch }).fetch?.bind(
         globalThis as unknown as object
@@ -527,6 +539,185 @@ export class NotebookRuntime {
     // Users should now `import { UiImage, UiMarkdown, UiHTML, UiJSON, UiCode } from "@nodebooks/ui"`.
   }
 
+  private createTimerAPI() {
+    const addTimeout = (h: unknown) => {
+      this.pendingTimeouts.add(h);
+    };
+    const deleteTimeout = (h: unknown) => {
+      if (this.pendingTimeouts.delete(h)) {
+        this.maybeResolveTimeoutWaiters();
+      }
+    };
+    const addInterval = (h: unknown) => {
+      this.pendingIntervals.add(h);
+      this.pendingIntervalFirstTick.add(h);
+    };
+    const deleteInterval = (h: unknown) => {
+      this.pendingIntervals.delete(h);
+      this.maybeResolveIntervalDoneWaiters();
+    };
+
+    const wrappedSetTimeout = (
+      fn: (...args: unknown[]) => void,
+      delay?: number | undefined,
+      ...args: unknown[]
+    ) => {
+      let handle: unknown = undefined;
+      const runner = (...cbArgs: unknown[]) => {
+        try {
+          fn(...cbArgs);
+        } finally {
+          deleteTimeout(handle);
+        }
+      };
+      handle = hostSetTimeout(
+        runner as (...args: unknown[]) => void,
+        delay as number,
+        ...args
+      );
+      addTimeout(handle);
+      return handle as NodeJS.Timeout;
+    };
+
+    const wrappedClearTimeout = (h: unknown) => {
+      deleteTimeout(h);
+      return hostClearTimeout(h as NodeJS.Timeout);
+    };
+
+    const wrappedSetInterval = (
+      fn: (...args: unknown[]) => void,
+      delay?: number | undefined,
+      ...args: unknown[]
+    ) => {
+      let handle: unknown = undefined;
+      let fired = false;
+      const runner = (...cbArgs: unknown[]) => {
+        try {
+          fn(...cbArgs);
+        } finally {
+          if (!fired) {
+            fired = true;
+            this.pendingIntervalFirstTick.delete(handle);
+            this.maybeResolveIntervalWaiters();
+          }
+        }
+      };
+      handle = hostSetInterval(
+        runner as (...args: unknown[]) => void,
+        delay as number,
+        ...args
+      );
+      addInterval(handle);
+      return handle as NodeJS.Timeout;
+    };
+
+    const wrappedClearInterval = (h: unknown) => {
+      deleteInterval(h);
+      return hostClearInterval(h as NodeJS.Timeout);
+    };
+
+    return {
+      setTimeout: wrappedSetTimeout,
+      clearTimeout: wrappedClearTimeout,
+      setInterval: wrappedSetInterval,
+      clearInterval: wrappedClearInterval,
+    };
+  }
+
+  private maybeResolveTimeoutWaiters() {
+    if (this.pendingTimeouts.size === 0 && this.timeoutWaiters.length > 0) {
+      const waiters = this.timeoutWaiters.slice();
+      this.timeoutWaiters = [];
+      for (const w of waiters) {
+        try {
+          w();
+        } catch (err) {
+          void err;
+        }
+      }
+    }
+  }
+
+  private waitForPendingTimeouts(): Promise<void> {
+    if (this.pendingTimeouts.size === 0) return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      this.timeoutWaiters.push(resolve);
+    });
+  }
+
+  private maybeResolveIntervalWaiters() {
+    if (
+      this.pendingIntervalFirstTick.size === 0 &&
+      this.intervalWaiters.length > 0
+    ) {
+      const waiters = this.intervalWaiters.slice();
+      this.intervalWaiters = [];
+      for (const w of waiters) {
+        try {
+          w();
+        } catch (err) {
+          void err;
+        }
+      }
+    }
+  }
+
+  private waitForIntervalFirstTicks(): Promise<void> {
+    if (this.pendingIntervalFirstTick.size === 0) return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      this.intervalWaiters.push(resolve);
+    });
+  }
+
+  private maybeResolveIntervalDoneWaiters() {
+    if (
+      this.pendingIntervals.size === 0 &&
+      this.intervalDoneWaiters.length > 0
+    ) {
+      const list = this.intervalDoneWaiters.slice();
+      this.intervalDoneWaiters = [];
+      for (const fn of list) {
+        try {
+          fn();
+        } catch (err) {
+          void err;
+        }
+      }
+    }
+  }
+
+  private waitForNoIntervals(): Promise<void> {
+    if (this.pendingIntervals.size === 0) return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      this.intervalDoneWaiters.push(resolve);
+    });
+  }
+
+  private clearAllScheduledTimers() {
+    // Clear any remaining timeouts/intervals created during this execution.
+    for (const t of this.pendingTimeouts) {
+      try {
+        hostClearTimeout(t as NodeJS.Timeout);
+      } catch {
+        /* noop */
+      }
+    }
+    for (const i of this.pendingIntervals) {
+      try {
+        hostClearInterval(i as NodeJS.Timeout);
+      } catch {
+        /* noop */
+      }
+    }
+    this.pendingTimeouts.clear();
+    this.pendingIntervals.clear();
+    this.pendingIntervalFirstTick.clear();
+    // Resolve anyone waiting if no pending remain
+    this.maybeResolveTimeoutWaiters();
+    this.maybeResolveIntervalWaiters();
+    this.maybeResolveIntervalDoneWaiters();
+  }
+
   async execute({
     cell,
     code,
@@ -539,6 +730,7 @@ export class NotebookRuntime {
     const outputs: NotebookOutput[] = [];
     const started = Date.now();
     const timeout = timeoutMs ?? cell.metadata.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    let softWaitTimedOut = false;
 
     this.console.setEmitter((name, text) => {
       const stream: StreamOutput = { type: "stream", name, text };
@@ -559,10 +751,11 @@ export class NotebookRuntime {
     try {
       await this.ensureEnvironment(notebookId, env);
 
-      const rewritten = cell.language === "ts" ? code : rewriteTopLevelDeclarations(code, cell.language);
-      const wrapped = cell.language === "ts"
-        ? wrapForTopLevelAwaitTsCapture(rewritten)
-        : wrapForTopLevelAwait(rewritten);
+      const rewritten = rewriteTopLevelDeclarations(code, cell.language);
+      const wrapped =
+        cell.language === "ts"
+          ? wrapForTopLevelAwaitTsCapture(rewritten)
+          : wrapForTopLevelAwait(rewritten);
       if (process.env.NB_DEBUG === "1") {
         this.console.proxy.log("[debug] rewritten code:\n" + rewritten);
         this.console.proxy.log("[debug] wrapped code:\n" + wrapped);
@@ -631,6 +824,59 @@ export class NotebookRuntime {
         result = await withTimeout(result as Promise<unknown>, Number(timeout));
       }
 
+      // If user code scheduled timeouts, wait for them to fire before
+      // concluding execution (up to remaining time budget). This makes
+      // common patterns like `setTimeout(() => console.log("hi"), 100)`
+      // behave intuitively in notebooks.
+      try {
+        // Allow pending one-shot timers to fire and at least one tick of any
+        // intervals, bounded by the original timeout budget.
+        let remaining = Math.max(0, Number(timeout) - (Date.now() - started));
+        if (remaining > 0) {
+          await withTimeout(this.waitForPendingTimeouts(), remaining);
+        }
+        remaining = Math.max(0, Number(timeout) - (Date.now() - started));
+        if (remaining > 0) {
+          await withTimeout(this.waitForIntervalFirstTicks(), remaining);
+        }
+        remaining = Math.max(0, Number(timeout) - (Date.now() - started));
+        if (remaining > 0) {
+          await withTimeout(this.waitForNoIntervals(), remaining);
+        }
+      } catch {
+        // Soft timeout in the waiting phase (e.g., long setTimeout or uncleared interval)
+        softWaitTimedOut = true;
+        try {
+          const ms = Number(timeout);
+
+          const alert = {
+            ui: "alert" as const,
+            level: "warn" as const,
+            title: "Execution time limit reached",
+            text: `The cell reached the ${ms}ms limit while waiting for timeouts/intervals. Pending timers were stopped.`,
+          };
+          const ds = toDisplayData(alert);
+          for (const d of ds) {
+            if (d.type === "display_data") {
+              (d as DisplayDataOutput).metadata = {
+                ...((d as DisplayDataOutput).metadata ?? {}),
+                streamed: true,
+              };
+              try {
+                onDisplay?.(d as DisplayDataOutput);
+              } catch {
+                this.console.proxy.error(
+                  `[timeout] Execution hit the ${ms}ms limit while waiting for timers.`
+                );
+              }
+            }
+            outputs.push(d);
+          }
+        } catch (emitErr) {
+          void emitErr;
+        }
+      }
+
       const displayOutputs = toDisplayData(result);
       outputs.push(...displayOutputs);
 
@@ -640,12 +886,37 @@ export class NotebookRuntime {
         execution: {
           started,
           ended,
-          status: "ok",
+          status: softWaitTimedOut ? "error" : "ok",
         },
       } satisfies ExecuteResult;
     } catch (error) {
       const ended = Date.now();
       const details = createExecutionError(error);
+      // Friendly timeout notice in output for better UX
+      try {
+        const msg = String(details.message || "");
+        if (/timed\s*out/i.test(msg)) {
+          const ms = Number(timeout);
+          // Stream a stderr note so it’s always visible in the console area
+          try {
+            this.console.proxy.error(
+              `[timeout] Execution exceeded ${ms}ms and was stopped.`
+            );
+          } catch {
+            /* noop */
+          }
+          const alert = {
+            ui: "alert",
+            level: "warn" as const,
+            title: "Execution timed out",
+            text: `The cell exceeded the ${ms}ms time limit. Pending tasks were stopped.`,
+          } as const;
+          const extra = toDisplayData(alert);
+          outputs.push(...extra);
+        }
+      } catch {
+        /* noop */
+      }
       outputs.push({
         type: "error",
         ename: details.name,
@@ -662,14 +933,19 @@ export class NotebookRuntime {
         },
       } satisfies ExecuteResult;
     } finally {
+      // Always clear any leftover timers to avoid leaks across cells.
+      try {
+        this.clearAllScheduledTimers();
+      } catch (err) {
+        void err;
+      }
       this.console.setEmitter(null);
       // Clean up display hook
       delete (this.context as Record<string, unknown>).__nodebooks_display;
-      (
-        this.sandboxRequire as unknown as {
-          setUiDisplayHook?: (fn: UiDisplayHook) => void;
-        }
-      ).setUiDisplayHook?.(null);
+      const reqForCleanup = this.sandboxRequire as unknown as {
+        setUiDisplayHook?: (fn: UiDisplayHook) => void;
+      } | null;
+      reqForCleanup?.setUiDisplayHook?.(null);
     }
   }
 
@@ -800,6 +1076,12 @@ export class NotebookRuntime {
   }
 }
 
+// Host timer refs for wrappers
+const hostSetTimeout = setTimeout;
+const hostClearTimeout = clearTimeout;
+const hostSetInterval = setInterval;
+const hostClearInterval = clearInterval;
+
 const sanitizePackages = (packages: Record<string, string>) => {
   const sanitized: Record<string, string> = {};
   for (const [rawName, rawVersion] of Object.entries(packages)) {
@@ -863,13 +1145,15 @@ const wrapForTopLevelAwait = (source: string): string => {
       let j = i;
       if (/^\s*(?:export\s+)?type\b/.test(t)) {
         // Collect until a semicolon at depth 0 of {} nesting
-        let depthBraces = (raw.match(/\{/g) || []).length - (raw.match(/\}/g) || []).length;
+        let depthBraces =
+          (raw.match(/\{/g) || []).length - (raw.match(/\}/g) || []).length;
         let ended = /;\s*$/.test(raw) && depthBraces === 0;
         while (!ended && j + 1 < lines.length) {
           j++;
           const ln = lines[j] ?? "";
           block.push(ln);
-          depthBraces += (ln.match(/\{/g) || []).length - (ln.match(/\}/g) || []).length;
+          depthBraces +=
+            (ln.match(/\{/g) || []).length - (ln.match(/\}/g) || []).length;
           if (/;\s*$/.test(ln) && depthBraces === 0) {
             ended = true;
             break;
@@ -877,12 +1161,14 @@ const wrapForTopLevelAwait = (source: string): string => {
         }
       } else {
         // interface: collect until matching closing brace
-        let depth = (raw.match(/\{/g) || []).length - (raw.match(/\}/g) || []).length;
+        let depth =
+          (raw.match(/\{/g) || []).length - (raw.match(/\}/g) || []).length;
         while (depth > 0 && j + 1 < lines.length) {
           j++;
           const ln = lines[j] ?? "";
           block.push(ln);
-          depth += (ln.match(/\{/g) || []).length - (ln.match(/\}/g) || []).length;
+          depth +=
+            (ln.match(/\{/g) || []).length - (ln.match(/\}/g) || []).length;
         }
       }
       headerBlocks.push(block.join("\n"));
@@ -1027,7 +1313,7 @@ const wrapForTopLevelAwait = (source: string): string => {
   const start = chosen.start;
   const end = chosen.end;
   const stmt = bodyText.slice(start, end);
-    const expr = stmt.replace(/;\s*$/, "");
+  const expr = stmt.replace(/;\s*$/, "");
 
   // Heuristic: if the final expression contains TypeScript generic arrow or
   // complex generic syntax that esbuild may misparse when wrapped, avoid
@@ -1085,11 +1371,14 @@ const wrapForTopLevelAwaitTsCapture = (source: string): string => {
   let inLineComment = false;
   let inBlockComment = false;
   let inString: false | '"' | "'" | "`" = false;
-  let paren = 0, bracket = 0, brace = 0;
+  let paren = 0,
+    bracket = 0,
+    brace = 0;
 
   const commit = (endExclusive: number) => {
     const s = bodyText.slice(realStmtStart, endExclusive);
-    if (s.trim().length > 0) statements.push({ start: realStmtStart, end: endExclusive });
+    if (s.trim().length > 0)
+      statements.push({ start: realStmtStart, end: endExclusive });
     realStmtStart = endExclusive;
   };
 
@@ -1116,14 +1405,38 @@ const wrapForTopLevelAwaitTsCapture = (source: string): string => {
       continue;
     }
     if (inString) {
-      if (ch === "\\") { i += 2; continue; }
-      if ((inString === "`" && ch === "`") || ch === inString) { inString = false; i++; continue; }
-      i++; continue;
+      if (ch === "\\") {
+        i += 2;
+        continue;
+      }
+      if ((inString === "`" && ch === "`") || ch === inString) {
+        inString = false;
+        i++;
+        continue;
+      }
+      i++;
+      continue;
     }
-    if (ch === "/" && next === "/") { inLineComment = true; i += 2; continue; }
-    if (ch === "/" && next === "*") { inBlockComment = true; i += 2; continue; }
-    if (ch === '"' || ch === "'") { inString = ch as '"' | "'"; i++; continue; }
-    if (ch === "`") { inString = "`"; i++; continue; }
+    if (ch === "/" && next === "/") {
+      inLineComment = true;
+      i += 2;
+      continue;
+    }
+    if (ch === "/" && next === "*") {
+      inBlockComment = true;
+      i += 2;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      inString = ch as '"' | "'";
+      i++;
+      continue;
+    }
+    if (ch === "`") {
+      inString = "`";
+      i++;
+      continue;
+    }
 
     if (ch === "(") paren++;
     else if (ch === ")") paren = Math.max(0, paren - 1);
@@ -1134,15 +1447,26 @@ const wrapForTopLevelAwaitTsCapture = (source: string): string => {
 
     // At top level, if a new statement with a control-start keyword begins on this
     // line (e.g., function/class/interface/type/export), commit the previous chunk.
-    if (paren === 0 && bracket === 0 && brace === 0 && (i === 0 || bodyText[i - 1] === "\n")) {
+    if (
+      paren === 0 &&
+      bracket === 0 &&
+      brace === 0 &&
+      (i === 0 || bodyText[i - 1] === "\n")
+    ) {
       const ahead = bodyText.slice(i).trimStart();
-      if (/^(?:async\s+function|function|class|interface|type|export)\b/.test(ahead)) {
+      if (
+        /^(?:async\s+function|function|class|interface|type|export)\b/.test(
+          ahead
+        )
+      ) {
         if (realStmtStart < i) commit(i);
       }
     }
 
     if (ch === ";" && paren === 0 && bracket === 0 && brace === 0) {
-      commit(i + 1); i++; continue;
+      commit(i + 1);
+      i++;
+      continue;
     }
     i++;
   }
@@ -1181,68 +1505,6 @@ const wrapForTopLevelAwaitTsCapture = (source: string): string => {
     .filter(Boolean)
     .join("\n");
   return `${header}(async()=>{\n${body}\n})()`;
-};
-
-// Simpler wrapper for TS-heavy cells: hoist imports/types/interfaces only,
-// then run the body inside an async IIFE without attempting to capture the
-// last expression (avoids parser ambiguities with generic arrows).
-const wrapForTopLevelAwaitSimple = (source: string): string => {
-  const lines = source.split(/\r?\n/);
-  const headerBlocks: string[] = [];
-  const rest: string[] = [];
-  for (let i = 0; i < lines.length; i++) {
-    const raw = lines[i] ?? "";
-    const t = raw.trimStart();
-    if (t.startsWith("import") && !t.startsWith("import(")) {
-      const block: string[] = [raw];
-      let j = i;
-      let ended = /;\s*$/.test(raw);
-      while (!ended && j + 1 < lines.length) {
-        j++;
-        block.push(lines[j] ?? "");
-        if (/;\s*$/.test(lines[j] ?? "")) {
-          ended = true;
-          break;
-        }
-      }
-      headerBlocks.push(block.join("\n"));
-      i = j;
-      continue;
-    }
-    if (/^(?:export\s+)?(?:interface|type)\b/.test(t)) {
-      const block: string[] = [raw];
-      let j = i;
-      if (/^\s*(?:export\s+)?type\b/.test(t)) {
-        let depthBraces = (raw.match(/\{/g) || []).length - (raw.match(/\}/g) || []).length;
-        let ended = /;\s*$/.test(raw) && depthBraces === 0;
-        while (!ended && j + 1 < lines.length) {
-          j++;
-          const ln = lines[j] ?? "";
-          block.push(ln);
-          depthBraces += (ln.match(/\{/g) || []).length - (ln.match(/\}/g) || []).length;
-          if (/;\s*$/.test(ln) && depthBraces === 0) {
-            ended = true;
-            break;
-          }
-        }
-      } else {
-        let depth = (raw.match(/\{/g) || []).length - (raw.match(/\}/g) || []).length;
-        while (depth > 0 && j + 1 < lines.length) {
-          j++;
-          const ln = lines[j] ?? "";
-          block.push(ln);
-          depth += (ln.match(/\{/g) || []).length - (ln.match(/\}/g) || []).length;
-        }
-      }
-      headerBlocks.push(block.join("\n"));
-      i = j;
-      continue;
-    }
-    rest.push(raw);
-  }
-  const header = headerBlocks.length > 0 ? `${headerBlocks.join("\n")}\n` : "";
-  const bodyText = rest.join("\n");
-  return `${header}(async()=>{\n${bodyText}\n})()`;
 };
 
 const createPackageJson = (

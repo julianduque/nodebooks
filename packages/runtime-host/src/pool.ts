@@ -228,6 +228,132 @@ export class WorkerPool {
     const next = this.queue.shift();
     if (next) next();
   }
+
+  // Reserve a dedicated worker for sticky-session execution. The returned API
+  // allows running jobs on the same child process and releasing it when done.
+  reserve() {
+    // Spawn a dedicated child not shared with the pool for sticky sessions.
+    let child = spawnWorker(this.opts);
+    let runningJobId: string | null = null;
+    let cancelTimer: NodeJS.Timeout | null = null;
+    let rejectCurrent: ((e: unknown) => void) | null = null;
+    let released = false;
+    const runOnChild = (
+      jobId: string,
+      opts: ExecuteOptions
+    ): Promise<ExecuteResult> => {
+      runningJobId = jobId;
+      return new Promise<ExecuteResult>((resolve, reject) => {
+        rejectCurrent = reject;
+        let bytes = 0;
+        const onMessage = (raw: unknown) => {
+          if (raw && typeof raw === "object" && raw !== null && "type" in raw) {
+            const parsed = IpcEventMessageSchema.safeParse(raw);
+            if (!parsed.success) return;
+            const msg = parsed.data as IpcEventMessage;
+            if (msg.type === "Error") {
+              cleanup();
+              reject(new Error(msg.message));
+              return;
+            }
+            if (msg.type === "Result") {
+              cleanup();
+              resolve({ outputs: msg.outputs, execution: msg.execution });
+              return;
+            }
+            return;
+          }
+          if (raw instanceof Uint8Array || Buffer.isBuffer(raw)) {
+            const arr = raw instanceof Uint8Array ? raw : new Uint8Array(raw);
+            bytes += arr.byteLength;
+            if (bytes > this.opts.maxOutputBytes) {
+              cleanup();
+              try {
+                child.kill("SIGKILL");
+              } catch (err) {
+                void err;
+              }
+              reject(new Error("Output limit exceeded"));
+              return;
+            }
+            const frame = tryDecode(arr);
+            if (!frame) return;
+            if (frame.kind === StreamKind.Display) {
+              opts.onDisplay?.((frame as { data: unknown }).data);
+            } else if (frame.kind === StreamKind.Stdout) {
+              opts.onStdout?.((frame as { text: string }).text);
+            } else if (frame.kind === StreamKind.Stderr) {
+              opts.onStderr?.((frame as { text: string }).text);
+            }
+          }
+        };
+        const cleanup = () => {
+          child.off("message", onMessage);
+          runningJobId = null;
+          rejectCurrent = null;
+          if (cancelTimer) {
+            clearTimeout(cancelTimer);
+            cancelTimer = null;
+          }
+        };
+        child.on("message", onMessage);
+        const payload: IpcRunCell = {
+          type: "RunCell",
+          jobId,
+          cell: opts.cell,
+          code: opts.code,
+          notebookId: opts.notebookId,
+          env: opts.env,
+          timeoutMs: opts.timeoutMs ?? this.opts.perJobTimeoutMs,
+        };
+        child.send(payload);
+      });
+    };
+
+    const cancel = (jobId: string) => {
+      try {
+        child.send({ type: "Cancel", jobId });
+      } catch (err) {
+        void err;
+      }
+      // If the job doesn't finish within grace, force kill and respawn.
+      if (cancelTimer) {
+        clearTimeout(cancelTimer);
+        cancelTimer = null;
+      }
+      cancelTimer = setTimeout(() => {
+        if (runningJobId === jobId) {
+          try {
+            child.kill("SIGKILL");
+          } catch (err) {
+            void err;
+          }
+          // Reject the in-flight promise to unblock callers
+          try {
+            rejectCurrent?.(new Error("Job cancelled"));
+          } catch (err) {
+            void err;
+          }
+          // respawn a fresh child for subsequent runs
+          child = spawnWorker(this.opts);
+          runningJobId = null;
+          rejectCurrent = null;
+        }
+      }, this.opts.cancelGraceMs);
+    };
+
+    const release = () => {
+      if (released) return;
+      released = true;
+      try {
+        child.kill();
+      } catch (err) {
+        void err;
+      }
+    };
+
+    return { run: runOnChild, cancel, release };
+  }
 }
 
 const spawnWorker = (opts: Required<WorkerPoolOptions>): ChildProcess => {

@@ -16,6 +16,7 @@ interface CodeCellViewProps {
   ) => void;
   onRun: () => void;
   isRunning: boolean;
+  queued?: boolean;
   editorKey: string;
 }
 
@@ -24,6 +25,7 @@ const CodeCellView = ({
   onChange,
   onRun,
   isRunning,
+  queued,
   editorKey,
 }: CodeCellViewProps) => {
   const runShortcutRef = useRef(onRun);
@@ -142,6 +144,12 @@ const CodeCellView = ({
             title={`Last run #${execCount}`}
           >
             <Zap className="h-3 w-3 text-emerald-400" /> {execCount}
+          </span>
+        ) : null}
+        {!isRunning && queued ? (
+          <span className="inline-flex items-center gap-1 rounded-full bg-indigo-500/20 px-2 py-0.5 text-[10px] font-semibold text-indigo-200">
+            <span className="h-2 w-2 rounded-full bg-indigo-400" />
+            Queued
           </span>
         ) : null}
       </div>
