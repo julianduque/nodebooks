@@ -28,13 +28,17 @@ export interface ExecuteResult {
 
 export class WorkerClient {
   private currentJobId: string | null = null;
+  private reserved: ReturnType<WorkerPool["reserve"]> | null = null;
   constructor(private readonly pool: WorkerPool) {}
 
   async execute(opts: ExecuteOptions): Promise<ExecuteResult> {
     const jobId = `${opts.notebookId}:${opts.cell.id}:${Date.now()}`;
     this.currentJobId = jobId;
     try {
-      const res = await this.pool.run(jobId, {
+      if (!this.reserved) {
+        this.reserved = this.pool.reserve();
+      }
+      const res = await this.reserved.run(jobId, {
         cell: opts.cell,
         code: opts.code,
         notebookId: opts.notebookId,
@@ -50,8 +54,8 @@ export class WorkerClient {
             if (d && d.type === "display_data") {
               opts.onDisplay?.(d);
             }
-          } catch {
-            /* noop */
+          } catch (err) {
+            void err;
           }
         },
       });
@@ -63,6 +67,18 @@ export class WorkerClient {
 
   cancel() {
     const id = this.currentJobId;
-    if (id) this.pool.cancel(id);
+    if (id) {
+      if (this.reserved) this.reserved.cancel(id);
+      else this.pool.cancel(id);
+    }
+  }
+
+  release() {
+    try {
+      this.reserved?.release();
+    } catch (err) {
+      void err;
+    }
+    this.reserved = null;
   }
 }

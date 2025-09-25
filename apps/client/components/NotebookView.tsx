@@ -36,6 +36,7 @@ import {
   createMarkdownCell,
   type KernelExecuteRequest,
   type KernelServerMessage,
+  type KernelInterruptRequest,
   type Notebook,
   type NotebookCell,
   type NotebookOutput,
@@ -70,6 +71,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
   const [dirty, setDirty] = useState(false);
   const [socketReady, setSocketReady] = useState(false);
   const [activeCellId, setActiveCellId] = useState<string | null>(null);
+  const [runQueue, setRunQueue] = useState<string[]>([]);
   const [sidebarView, setSidebarView] = useState<"setup" | "outline">(
     "outline"
   );
@@ -113,13 +115,19 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
   const prevNotebookIdRef = useRef<string | null>(null);
   const notebookRef = useRef<Notebook | null>(null);
   // Counter for "In [n]" execution labels
-  const runCounterRef = useRef<number>(1);
+  const runCounterRef = useRef<number>(0);
   // Track which cell ids are pending an execution completion to avoid
   // double-increment when messages duplicate (e.g., dev StrictMode, reconnects)
   const runPendingRef = useRef<Set<string>>(new Set());
+  // Immediate view of currently-running cell to avoid setState race during bursts
+  const runningRef = useRef<string | null>(null);
 
   const notebookId = notebook?.id;
   const sessionId = session?.id;
+  const runQueueRef = useRef<string[]>([]);
+  useEffect(() => {
+    runQueueRef.current = runQueue;
+  }, [runQueue]);
 
   useEffect(() => {
     if (shareStatus === "idle") {
@@ -133,16 +141,20 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     };
   }, [shareStatus]);
 
+  // Keep a ref to the latest notebook without triggering renders
   useEffect(() => {
-    if (notebook) {
+    notebookRef.current = notebook ?? null;
+  }, [notebook]);
+
+  // Reset rename UI only when the notebook name changes
+  useEffect(() => {
+    if (notebook?.name) {
       setRenameDraft(notebook.name);
-      notebookRef.current = notebook;
     } else {
       setRenameDraft("");
-      notebookRef.current = null;
     }
     setIsRenaming(false);
-  }, [notebook]);
+  }, [notebook?.name]);
 
   useEffect(() => {
     if (typeof document === "undefined") {
@@ -156,28 +168,15 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
   }, [notebook?.name]);
 
   useEffect(() => {
-    if (!notebook) return;
+    if (!notebook?.id) return;
     if (prevNotebookIdRef.current !== notebook.id) {
       setSidebarView("outline");
       prevNotebookIdRef.current = notebook.id;
-      // Initialize execution counter based on existing cells
-      try {
-        const max = Math.max(
-          0,
-          ...notebook.cells
-            .filter((c) => c.type === "code")
-            .map((c) => {
-              const n = (c.metadata as { display?: { execCount?: number } })
-                ?.display?.execCount;
-              return typeof n === "number" && Number.isFinite(n) ? n : 0;
-            })
-        );
-        runCounterRef.current = max + 1;
-      } catch {
-        runCounterRef.current = 1;
-      }
+      // New session, start counter from 1 regardless of persisted counts
+      runCounterRef.current = 0;
+      runPendingRef.current.clear();
     }
-  }, [notebook?.id, notebook]);
+  }, [notebook?.id]);
 
   useEffect(() => {
     if (isRenaming) {
@@ -318,11 +317,17 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
   const handleServerMessage = useCallback(
     (message: KernelServerMessage) => {
       if (message.type === "hello") {
+        // Fresh kernel session: reset display counter and pending set
+        runCounterRef.current = 0;
+        runPendingRef.current.clear();
+        // Clear any queued runs on fresh session
+        setRunQueue([]);
         return;
       }
       if (message.type === "status") {
         if (message.state === "idle") {
           setRunningCellId(null);
+          runningRef.current = null;
         }
         return;
       }
@@ -330,6 +335,9 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         setRunningCellId((current) =>
           current === message.cellId ? null : current
         );
+        if (runningRef.current === message.cellId) {
+          runningRef.current = null;
+        }
         updateNotebookCell(
           message.cellId,
           (cell) => {
@@ -341,13 +349,16 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
               cell.metadata as { display?: Record<string, unknown> }
             ).display ?? {}) as Record<string, unknown>;
             const hadPending = runPendingRef.current.delete(message.cellId);
+            // Always assign an execution count on reply. Only bump the global
+            // counter when we know this reply corresponds to a locally-started run.
+            // Preserve existing execCount if present (avoid duplicate messages
+            // overriding the initial count). Otherwise assign the next value.
             let execCount = (prevDisplay as { execCount?: number }).execCount;
             if (typeof execCount !== "number") {
-              // Ensure we always show a value; only increment the global counter
-              // when we know this completion corresponds to a local start.
-              execCount = hadPending
-                ? runCounterRef.current++
-                : runCounterRef.current;
+              execCount = runCounterRef.current;
+              if (hadPending) {
+                runCounterRef.current += 1;
+              }
             }
             return {
               ...cell,
@@ -386,12 +397,13 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         );
         return;
       }
+
       if (message.type === "error") {
-        // An execution errored; clear any pending record for that cell id
-        if (message.cellId) {
-          try {
-            runPendingRef.current.delete(message.cellId);
-          } catch {}
+        // Ensure UI does not stay stuck in Running on kernel errors
+        // Clear running state even if cellId is missing (server-level errors)
+        setRunningCellId(null);
+        if (runningRef.current === message.cellId) {
+          runningRef.current = null;
         }
         updateNotebookCell(
           message.cellId,
@@ -443,6 +455,24 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     },
     [updateNotebookCell, scheduleAutoSave]
   );
+
+  const handleInterruptKernel = useCallback(() => {
+    if (!notebook) return;
+    const socket = socketRef.current;
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      setError("Kernel is not connected yet");
+      return;
+    }
+    const payload: KernelInterruptRequest = {
+      type: "interrupt_request",
+      notebookId: notebook.id,
+    };
+    try {
+      socket.send(JSON.stringify(payload));
+    } catch {
+      // ignore send errors; status handler will reflect kernel state
+    }
+  }, [notebook]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -596,6 +626,9 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         socketRef.current = null;
       }
       setSocketReady(false);
+      // Ensure UI is not stuck in running state on disconnect
+      setRunningCellId(null);
+      runningRef.current = null;
     };
 
     socket.onmessage = (event) => {
@@ -623,7 +656,9 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     return () => {
       closeActiveSession("component unmounted");
     };
-  }, [closeActiveSession]);
+    // closeActiveSession is stable; run only on unmount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Notebook selection/navigation handled by router pages
 
@@ -718,30 +753,31 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
 
   const handleRunCell = useCallback(
     (id: string) => {
-      if (!notebook) {
+      if (!notebook) return;
+      const busy =
+        runningRef.current !== null ||
+        runPendingRef.current.size > 0 ||
+        !!runningCellId;
+      if (busy && runningRef.current !== id && runningCellId !== id) {
+        // Enqueue when another cell is running
+        setRunQueue((prev) => (prev.includes(id) ? prev : [...prev, id]));
         return;
       }
-      if (runningCellId === id) {
-        return;
-      }
+      if (runningCellId === id || runningRef.current === id) return;
       const cell = notebook.cells.find((item) => item.id === id);
-      if (!cell || cell.type !== "code") {
-        return;
-      }
+      if (!cell || cell.type !== "code") return;
       const socket = socketRef.current;
       if (!socket || socket.readyState !== WebSocket.OPEN) {
         setError("Kernel is not connected yet");
         return;
       }
-
       setRunningCellId(id);
+      runningRef.current = id;
       runPendingRef.current.add(id);
       updateNotebookCell(
         id,
         (current) => {
-          if (current.type !== "code") {
-            return current;
-          }
+          if (current.type !== "code") return current;
           return {
             ...current,
             outputs: [],
@@ -754,7 +790,6 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         },
         { persist: false }
       );
-
       const payload: KernelExecuteRequest = {
         type: "execute_request",
         cellId: id,
@@ -762,11 +797,20 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         language: cell.language,
         timeoutMs: cell.metadata.timeoutMs,
       };
-
       socket.send(JSON.stringify(payload));
     },
     [notebook, updateNotebookCell, runningCellId]
   );
+
+  // When a cell completes and queue has items, run the next one.
+  useEffect(() => {
+    if (!runningCellId && socketReady && runQueue.length > 0) {
+      const [next, ...rest] = runQueue;
+      setRunQueue(rest);
+      // Start next run
+      handleRunCell(next);
+    }
+  }, [runningCellId, runQueue, socketReady, handleRunCell]);
 
   const handleInstallDependencyInline = useCallback(
     async (raw: string) => {
@@ -910,7 +954,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
 
   const handleRestartKernel = useCallback(async () => {
     setRunningCellId(null);
-    runCounterRef.current = 1;
+    runCounterRef.current = 0;
     runPendingRef.current.clear();
     // Clear all cell outputs/exec metadata so the UI reflects a fresh kernel
     updateNotebook((current) => ({
@@ -958,6 +1002,9 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     }
     setError(null);
     setSocketReady(false);
+    // Reset execution counter on kernel reconnect/refresh as well
+    runCounterRef.current = 0;
+    runPendingRef.current.clear();
     bumpSocketGeneration();
   }, [sessionId, bumpSocketGeneration]);
 
@@ -1192,6 +1239,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
                   key={cell.id}
                   cell={cell}
                   isRunning={runningCellId === cell.id}
+                  queued={runQueue.includes(cell.id)}
                   canRun={socketReady}
                   canMoveUp={index > 0}
                   canMoveDown={index < notebook.cells.length - 1}
@@ -1203,6 +1251,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
                   }
                   onDelete={() => handleDeleteCell(cell.id)}
                   onRun={() => handleRunCell(cell.id)}
+                  onInterrupt={handleInterruptKernel}
                   onMove={(direction) => handleMoveCell(cell.id, direction)}
                   onAddBelow={(type) => handleAddCell(type, index + 1)}
                 />
@@ -1224,6 +1273,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     socketReady,
     error,
     runningCellId,
+    runQueue,
     handleCellChange,
     handleDeleteCell,
     handleRunCell,
@@ -1235,6 +1285,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     depOutputs,
     handleClearDepOutputs,
     handleAbortInstall,
+    handleInterruptKernel,
   ]);
 
   const topbarMain = useMemo(() => {

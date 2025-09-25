@@ -406,7 +406,10 @@ describe("NotebookRuntime", () => {
 
   it("TS: last expression capture only when variable reference (no call)", async () => {
     await withRuntime(undefined, async (runtime) => {
-      const cell = createCodeCell({ id: "cell-ts-capture-var", language: "ts" });
+      const cell = createCodeCell({
+        id: "cell-ts-capture-var",
+        language: "ts",
+      });
       const res = await runtime.execute({
         cell,
         code: ["const obj = { x: 10 };", "obj.x"].join("\n"),
