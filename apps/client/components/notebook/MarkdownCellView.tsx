@@ -239,7 +239,7 @@ const MarkdownCellView = ({
   return (
     <div className="flex flex-col gap-3">
       {isEditing ? (
-        <div className="relative overflow-hidden rounded-xl border border-slate-200 bg-transparent">
+        <div className="relative overflow-hidden rounded-xl border border-border bg-transparent">
           <MonacoEditor
             key={editorKey}
             path={`${cell.id}.md`}
@@ -274,7 +274,7 @@ const MarkdownCellView = ({
             }}
           />
           <div
-            className="markdown-preview space-y-3 border-t border-slate-200 p-5 text-sm leading-7 text-slate-700"
+            className="markdown-preview space-y-3 border-t border-border p-5 text-sm leading-7 text-foreground"
             ref={setPreviewRef}
             dangerouslySetInnerHTML={{ __html: html }}
           />
@@ -282,7 +282,7 @@ const MarkdownCellView = ({
       ) : (
         <div className="relative">
           <div
-            className="markdown-preview space-y-3 rounded-xl border border-transparent p-5 text-sm leading-7 text-slate-700 transition group-hover/cell:border-slate-200"
+            className="markdown-preview space-y-3 rounded-xl border border-transparent p-5 text-sm leading-7 text-foreground transition group-hover/cell:border-border"
             ref={setPreviewRef}
             dangerouslySetInnerHTML={{ __html: html }}
           />

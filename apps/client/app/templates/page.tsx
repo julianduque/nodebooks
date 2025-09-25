@@ -1,10 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import AppShell from "../../components/AppShell";
-import { Card, CardContent } from "../../components/ui/card";
-import { Badge } from "../../components/ui/badge";
-import { Button } from "../../components/ui/button";
+import AppShell from "@/components/AppShell";
+import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Plus } from "lucide-react";
 import type { Notebook } from "@nodebooks/notebook-schema";
 import {
@@ -12,8 +12,9 @@ import {
   type NotebookTemplateSummary,
   type TemplateBadgeTone,
 } from "@nodebooks/notebook-schema";
-import type { NotebookTemplateId } from "../../components/notebook/types";
+import type { NotebookTemplateId } from "@/components/notebook/types";
 import { useRouter } from "next/navigation";
+import LoadingOverlay from "@/components/ui/loading-overlay";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "/api";
 
@@ -101,13 +102,7 @@ export default function TemplatesPage() {
 
   const content = useMemo(() => {
     if (loading) {
-      return (
-        <Card className="max-w-md">
-          <CardContent className="py-10 text-center text-slate-600">
-            Loading templates…
-          </CardContent>
-        </Card>
-      );
+      return <LoadingOverlay label="Loading templates…" />;
     }
 
     if (error) {
@@ -124,7 +119,7 @@ export default function TemplatesPage() {
       return (
         <Card className="max-w-xl">
           <CardContent className="flex items-center justify-between gap-4">
-            <p className="text-sm text-slate-500">
+            <p className="text-sm text-muted-foreground">
               No templates available yet. Check back soon!
             </p>
             <Button size="sm" className="gap-2" onClick={() => createFrom()}>
@@ -144,17 +139,17 @@ export default function TemplatesPage() {
           return (
             <Card
               key={template.id}
-              className="border-slate-200 bg-white/90 shadow-sm"
+              className="border-border bg-card text-card-foreground shadow-sm"
             >
               <CardContent className="space-y-4 px-6 py-5">
                 <Badge className={`w-fit ${badgeClass}`}>
                   {template.badge.text}
                 </Badge>
                 <div className="space-y-2">
-                  <h3 className="text-lg font-semibold text-slate-900">
+                  <h3 className="text-lg font-semibold text-card-foreground">
                     {template.title}
                   </h3>
-                  <p className="text-sm text-slate-500">
+                  <p className="text-sm text-muted-foreground">
                     {template.description}
                   </p>
                   {template.tags.length > 0 && (
@@ -190,10 +185,10 @@ export default function TemplatesPage() {
 
   return (
     <AppShell title="Templates" onNewNotebook={() => createFrom("starter")}>
-      <h1 className="text-3xl font-semibold text-slate-900">
+      <h1 className="text-3xl font-semibold text-foreground">
         Template Gallery
       </h1>
-      <p className="mt-2 text-slate-500">
+      <p className="mt-2 text-muted-foreground">
         Jump into curated setups for common workflows.
       </p>
       {content}

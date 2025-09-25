@@ -4,6 +4,8 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { headers } from "next/headers";
 
+import { ThemeProvider, type ThemeMode } from "@/components/theme-context";
+
 const inter = Inter({ subsets: ["latin"] });
 
 const BASE_DESCRIPTION = "Interactive Node.js Notebooks";
@@ -53,10 +55,22 @@ interface RootLayoutProps {
   children: React.ReactNode;
 }
 
+const resolveInitialTheme = (): ThemeMode => {
+  return process.env.NODEBOOKS_THEME === "dark" ? "dark" : "light";
+};
+
 const RootLayout = ({ children }: RootLayoutProps) => {
+  const initialTheme = resolveInitialTheme();
   return (
-    <html lang="en" suppressHydrationWarning>
-      <body className={inter.className}>{children}</body>
+    <html
+      lang="en"
+      className={initialTheme === "dark" ? "dark" : undefined}
+      data-theme={initialTheme}
+      suppressHydrationWarning
+    >
+      <body className={inter.className}>
+        <ThemeProvider initialTheme={initialTheme}>{children}</ThemeProvider>
+      </body>
     </html>
   );
 };

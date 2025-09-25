@@ -54,7 +54,7 @@ const SetupPanel = ({
   return (
     <div className="flex h-full flex-col gap-4">
       <div>
-        <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">
+        <p className="text-xs font-semibold uppercase tracking-[0.3em] text-muted-foreground">
           Runtime
         </p>
         <div className="mt-1">
@@ -63,7 +63,7 @@ const SetupPanel = ({
           </Badge>
         </div>
       </div>
-      <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">
+      <p className="text-xs font-semibold uppercase tracking-[0.3em] text-muted-foreground">
         Dependencies
       </p>
       <div>
@@ -82,7 +82,7 @@ const SetupPanel = ({
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             placeholder="package or package@version"
-            className="w-full rounded-md border border-slate-300 px-2 py-2 pr-16 text-[13px] text-slate-700 focus:outline-none"
+            className="w-full rounded-md border border-input bg-background px-2 py-2 pr-16 text-[13px] text-foreground focus:outline-none"
             aria-label="Add dependency"
           />
           <Button
@@ -94,13 +94,15 @@ const SetupPanel = ({
             {depBusy ? "Adding…" : "Add"}
           </Button>
         </form>
-        <p className="mt-1 text-[11px] text-slate-400">
+        <p className="mt-1 text-[11px] text-muted-foreground">
           Use name@version; multiple allowed with commas.
         </p>
       </div>
       <div>
         {dependencies.length === 0 ? (
-          <p className="text-xs text-slate-500">No dependencies added yet.</p>
+          <p className="text-xs text-muted-foreground">
+            No dependencies added yet.
+          </p>
         ) : (
           <ul className="space-y-1">
             {dependencies.map((d) => (
@@ -115,11 +117,11 @@ const SetupPanel = ({
         )}
       </div>
       <div>
-        <p className="mt-2 text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">
+        <p className="mt-2 text-xs font-semibold uppercase tracking-[0.3em] text-muted-foreground">
           Environment Variables
         </p>
         <div className="mt-2 flex items-center justify-between">
-          <p className="text-[11px] text-slate-400">
+          <p className="text-[11px] text-muted-foreground">
             Available via <span className="font-mono">process.env.NAME</span> in
             code.
           </p>
@@ -140,7 +142,7 @@ const SetupPanel = ({
         </div>
         <div className="mt-2">
           {variables.length === 0 ? (
-            <p className="text-xs text-slate-500">No variables set.</p>
+            <p className="text-xs text-muted-foreground">No variables set.</p>
           ) : (
             <ul className="space-y-1">
               {variables.map((v) => (
@@ -190,8 +192,8 @@ interface DependencyRowProps {
 
 const DependencyRow = ({ name, version, onRemove }: DependencyRowProps) => {
   return (
-    <li className="flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1">
-      <div className="flex-1 truncate text-sm text-slate-700" title={name}>
+    <li className="flex items-center gap-1 rounded-md border border-border px-2 py-1">
+      <div className="flex-1 truncate text-sm text-foreground" title={name}>
         {name}
       </div>
       <Badge variant="secondary" className="font-mono text-[11px]">
@@ -221,15 +223,17 @@ interface VariableRowProps {
 
 const VariableRow = ({ name, onEdit, onRemove }: VariableRowProps) => {
   return (
-    <li className="flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1">
-      <div className="flex-1 truncate text-sm text-slate-700" title={name}>
-        <span className="font-mono text-[12px] text-slate-600">{name}</span>
+    <li className="flex items-center gap-1 rounded-md border border-border px-2 py-1">
+      <div className="flex-1 truncate text-sm text-foreground" title={name}>
+        <span className="font-mono text-[12px] text-muted-foreground">
+          {name}
+        </span>
       </div>
       <Button
         type="button"
         variant="ghost"
         size="icon"
-        className="text-slate-600 hover:text-slate-900"
+        className="text-muted-foreground hover:text-foreground"
         onClick={onEdit}
         aria-label={`Edit variable ${name}`}
       >
@@ -284,24 +288,24 @@ const VariableDialog = ({
             void onSubmit();
           }}
         >
-          <label className="block text-xs font-medium text-slate-600">
+          <label className="block text-xs font-medium text-muted-foreground">
             Name
             <input
               type="text"
               value={name}
               onChange={(e) => onNameChange(e.target.value)}
               placeholder="NAME"
-              className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-[13px] text-slate-700 focus:outline-none"
+              className="mt-1 w-full rounded-md border border-input bg-background px-2 py-1 text-[13px] text-foreground focus:outline-none"
             />
           </label>
-          <label className="block text-xs font-medium text-slate-600">
+          <label className="block text-xs font-medium text-muted-foreground">
             Value
             <input
               type="text"
               value={value}
               onChange={(e) => onValueChange(e.target.value)}
               placeholder="value"
-              className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1 text-[13px] text-slate-700 focus:outline-none"
+              className="mt-1 w-full rounded-md border border-input bg-background px-2 py-1 text-[13px] text-foreground focus:outline-none"
             />
           </label>
           <DialogFooter>

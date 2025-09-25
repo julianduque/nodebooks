@@ -2,6 +2,7 @@ import Fastify from "fastify";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import cors from "@fastify/cors";
 import fastifyCookie from "@fastify/cookie";
+import type * as FastifyCookieNamespace from "@fastify/cookie";
 import next from "next";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Socket } from "node:net";
@@ -25,6 +26,7 @@ import {
   derivePasswordToken,
   isTokenValid,
 } from "./auth/password.js";
+import { registerSettingsRoutes } from "./routes/settings.js";
 
 export interface CreateServerOptions {
   logger?: boolean;
@@ -44,9 +46,17 @@ export const createServer = async ({
   });
   // Do not register @fastify/websocket to avoid conflicting with Next HMR
 
-  const configuredPassword = process.env.NODEBOOKS_PASSWORD;
-  const passwordToken = configuredPassword
-    ? derivePasswordToken(configuredPassword)
+  const normalizePassword = (value?: string | null) => {
+    if (!value) {
+      return null;
+    }
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  };
+
+  let currentPassword = normalizePassword(process.env.NODEBOOKS_PASSWORD);
+  let passwordToken = currentPassword
+    ? derivePasswordToken(currentPassword)
     : null;
 
   const cookieOptions = {
@@ -116,39 +126,70 @@ export const createServer = async ({
 
   if (passwordToken) {
     app.log.info("Password protection enabled");
-    app.addHook("onRequest", async (request, reply) => {
-      if (shouldBypassAuth(request)) {
-        return;
-      }
-
-      const token = request.cookies[PASSWORD_COOKIE_NAME];
-      if (isTokenValid(token, passwordToken)) {
-        return;
-      }
-
-      return sendUnauthorized(request, reply);
-    });
-
-    app.post("/auth/login", async (request, reply) => {
-      const body = z
-        .object({ password: z.string().min(1) })
-        .safeParse(request.body);
-      if (!body.success) {
-        void reply.code(400).send({ error: "Password is required" });
-        return;
-      }
-
-      if (
-        !isTokenValid(derivePasswordToken(body.data.password), passwordToken)
-      ) {
-        void reply.code(401).send({ error: "Incorrect password" });
-        return;
-      }
-
-      reply.setCookie(PASSWORD_COOKIE_NAME, passwordToken, cookieOptions);
-      void reply.code(204).send();
-    });
   }
+
+  app.addHook("onRequest", async (request, reply) => {
+    if (!passwordToken) {
+      return;
+    }
+    if (shouldBypassAuth(request)) {
+      return;
+    }
+
+    const token = request.cookies[PASSWORD_COOKIE_NAME];
+    if (isTokenValid(token, passwordToken)) {
+      return;
+    }
+
+    return sendUnauthorized(request, reply);
+  });
+
+  app.post("/auth/login", async (request, reply) => {
+    if (!passwordToken) {
+      void reply
+        .code(400)
+        .send({ error: "Password protection is not enabled" });
+      return;
+    }
+
+    const body = z
+      .object({ password: z.string().min(1) })
+      .safeParse(request.body);
+    if (!body.success) {
+      void reply.code(400).send({ error: "Password is required" });
+      return;
+    }
+
+    if (!isTokenValid(derivePasswordToken(body.data.password), passwordToken)) {
+      void reply.code(401).send({ error: "Incorrect password" });
+      return;
+    }
+
+    reply.setCookie(PASSWORD_COOKIE_NAME, passwordToken, cookieOptions);
+    void reply.code(204).send();
+  });
+
+  const updatePassword = (nextPassword: string | null): string | null => {
+    const normalized = normalizePassword(nextPassword);
+    if (normalized === currentPassword) {
+      return passwordToken;
+    }
+
+    currentPassword = normalized;
+    if (normalized) {
+      process.env.NODEBOOKS_PASSWORD = normalized;
+      passwordToken = derivePasswordToken(normalized);
+      app.log.info("Password protection enabled");
+      return passwordToken;
+    }
+
+    delete process.env.NODEBOOKS_PASSWORD;
+    if (passwordToken) {
+      app.log.info("Password protection disabled");
+    }
+    passwordToken = null;
+    return null;
+  };
 
   // Mount Next.js (apps/client) using Next's handler so UI is served by Fastify
   const embedNext =
@@ -243,6 +284,12 @@ export const createServer = async ({
   // Mount all API routes under /api to avoid path conflicts with Next pages
   await app.register(
     async (api) => {
+      await registerSettingsRoutes(api, {
+        getPasswordToken: () => passwordToken,
+        setPassword: updatePassword,
+        cookieOptions:
+          cookieOptions as FastifyCookieNamespace.CookieSerializeOptions,
+      });
       registerNotebookRoutes(api, store);
       registerDependencyRoutes(api, store);
       registerSessionRoutes(api, sessions);
@@ -265,12 +312,9 @@ export const createServer = async ({
   }
 
   // Central upgrade handler: Next HMR and Kernel WS
-  const kernelUpgrade = createKernelUpgradeHandler(
-    "/api",
-    sessions,
-    store,
-    passwordToken ? { passwordToken } : {}
-  );
+  const kernelUpgrade = createKernelUpgradeHandler("/api", sessions, store, {
+    getPasswordToken: () => passwordToken,
+  });
   app.server.on(
     "upgrade",
     (req: IncomingMessage, socket: Socket, head: Buffer) => {

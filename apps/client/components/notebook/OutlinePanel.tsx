@@ -14,12 +14,12 @@ const OutlinePanel = ({ items, onSelect, activeCellId }: OutlinePanelProps) => {
   return (
     <div className="flex h-full flex-col gap-4">
       <div>
-        <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">
+        <p className="text-xs font-semibold uppercase tracking-[0.3em] text-muted-foreground">
           Outline
         </p>
       </div>
       {items.length === 0 ? (
-        <p className="text-xs text-slate-500">
+        <p className="text-xs text-muted-foreground">
           Add headings to your Markdown cells to build an outline.
         </p>
       ) : (
@@ -32,8 +32,8 @@ const OutlinePanel = ({ items, onSelect, activeCellId }: OutlinePanelProps) => {
                 className={clsx(
                   "w-full justify-start text-sm h-auto min-h-8 whitespace-normal break-words text-left leading-snug",
                   activeCellId === item.cellId
-                    ? "bg-slate-100 text-slate-900"
-                    : "text-slate-500 hover:text-slate-900"
+                    ? "bg-muted text-foreground"
+                    : "text-muted-foreground hover:text-foreground"
                 )}
                 style={{ paddingLeft: 12 + (item.level - 1) * 12 }}
                 onClick={() => onSelect(item.cellId)}
