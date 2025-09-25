@@ -73,6 +73,9 @@ vi.mock("../src/routes/sessions.js", () => ({
 vi.mock("../src/kernel/router.js", () => ({
   createKernelUpgradeHandler: () => () => false,
 }));
+vi.mock("../src/routes/settings.js", () => ({
+  registerSettingsRoutes: () => {},
+}));
 
 import { createServer, createNotebookStore } from "../src/server.js";
 
