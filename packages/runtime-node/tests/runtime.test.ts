@@ -77,9 +77,9 @@ describe("NotebookRuntime", () => {
       });
 
       expect(result.execution.status).toBe("ok");
-      expect(
-        result.outputs.some((output) => output.type === "display_data")
-      ).toBe(true);
+      // TS path only returns last expression when it is a variable reference.
+      // A call expression like add(1, 2) should not produce a captured display.
+      expect(result.outputs.some((o) => o.type === "display_data")).toBe(false);
     });
   });
 
@@ -377,6 +377,99 @@ describe("NotebookRuntime", () => {
       expect(thirdDisplay).toBeDefined();
       const thirdJson = thirdDisplay?.data?.["application/json"] as unknown;
       expect(thirdJson).toEqual([1, 2, 3, 4, 5]);
+    });
+  });
+
+  it("hoists TS interface/type declarations while executing code", async () => {
+    await withRuntime(undefined, async (runtime) => {
+      const cell = createCodeCell({ id: "cell-ts-hoist", language: "ts" });
+      const streams: string[] = [];
+      const code = [
+        "interface Pair<T> { a: T; b: T }",
+        "type Num = number;",
+        "const p: Pair<Num> = { a: 2, b: 3 };",
+        "console.log(p.a + p.b);",
+      ].join("\n");
+
+      const result = await runtime.execute({
+        cell,
+        code,
+        notebookId: "notebook-ts-hoist",
+        env: createEnv(),
+        onStream: (s) => streams.push(s.text.trim()),
+      });
+
+      expect(result.execution.status).toBe("ok");
+      expect(streams.some((l) => /\b5\b/.test(l))).toBe(true);
+    });
+  });
+
+  it("TS: last expression capture only when variable reference (no call)", async () => {
+    await withRuntime(undefined, async (runtime) => {
+      const cell = createCodeCell({ id: "cell-ts-capture-var", language: "ts" });
+      const res = await runtime.execute({
+        cell,
+        code: ["const obj = { x: 10 };", "obj.x"].join("\n"),
+        notebookId: "nb-ts-capture-var",
+        env: createEnv(),
+      });
+      expect(res.execution.status).toBe("ok");
+      const d = res.outputs.find(isDisplayData);
+      expect(d).toBeDefined();
+      const plain = String(d?.data?.["text/plain"] ?? "");
+      expect(plain).toContain("10");
+    });
+  });
+
+  it("executes TS code with interface + async function at top-level await", async () => {
+    await withRuntime(undefined, async (runtime) => {
+      const cell = createCodeCell({ id: "cell-ts-api", language: "ts" });
+      const streams: string[] = [];
+      const code = [
+        "interface EndpointSpec {",
+        "  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';",
+        "  path: string;",
+        "  description: string;",
+        "}",
+        "",
+        "const smokePlan: EndpointSpec[] = [",
+        "  { method: 'GET', path: '/status', description: 'Health check' },",
+        "  { method: 'GET', path: '/users', description: 'List users' },",
+        "  { method: 'POST', path: '/users', description: 'Create user' },",
+        "];",
+        "",
+        // local stub api
+        "const api = {",
+        "  async request({ method, url }: { method: EndpointSpec['method']; url: string }) {",
+        "    return { status: 200, method, url };",
+        "  }",
+        "};",
+        "",
+        "async function runSmokePlan() {",
+        "  for (const step of smokePlan) {",
+        "    const response = await api.request({ method: step.method, url: step.path });",
+        "    console.log(step.path, response.status);",
+        "  }",
+        "}",
+        "",
+        "await runSmokePlan();",
+        "'ok'",
+      ].join("\n");
+
+      const result = await runtime.execute({
+        cell,
+        code,
+        notebookId: "notebook-ts-api",
+        env: createEnv(),
+        onStream: (s) => streams.push(s.text.trim()),
+      });
+
+      expect(result.execution.status).toBe("ok");
+      expect(streams.some((l) => l.includes("/status 200"))).toBe(true);
+      expect(streams.some((l) => l.includes("/users 200"))).toBe(true);
+      const d = result.outputs.find(isDisplayData);
+      // No last-expression capture for call expressions in TS
+      expect(d).toBeUndefined();
     });
   });
 

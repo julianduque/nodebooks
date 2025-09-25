@@ -9,18 +9,24 @@ import {
   type KernelServerMessage,
 } from "@nodebooks/notebook-schema";
 import type {
+  OutputExecution,
+  NotebookOutput,
+} from "@nodebooks/notebook-schema";
+import type {
   NotebookStore,
   SessionManager,
   NotebookSession,
 } from "../types.js";
-import { NotebookRuntime } from "@nodebooks/runtime-node";
+import { WorkerClient } from "@nodebooks/runtime-host";
+import { getWorkerPool } from "./runtime-pool.js";
 import {
   PASSWORD_COOKIE_NAME,
   isTokenValid,
   parseCookieHeader,
 } from "../auth/password.js";
 
-const runtimes = new Map<string, NotebookRuntime>();
+const pool = getWorkerPool();
+const runtimes = new Map<string, WorkerClient>();
 
 // Heartbeat interval in ms to keep WebSocket connections alive behind proxies
 // like Heroku's router (55s idle timeout). Default to 25s, overridable via env.
@@ -256,7 +262,7 @@ const parseClientMessage = (payload: unknown) => {
 interface HandleMessageArgs {
   connection: WebSocket;
   message: KernelClientMessage;
-  runtime: NotebookRuntime;
+  runtime: WorkerClient;
   session: NotebookSession;
   store: NotebookStore;
 }
@@ -278,16 +284,22 @@ const handleKernelMessage = async ({
         store,
       });
       break;
-    case "interrupt_request":
+    case "interrupt_request": {
+      try {
+        runtime.cancel();
+      } catch (err) {
+        void err;
+      }
       sendMessage(connection, { type: "status", state: "idle" });
       break;
+    }
   }
 };
 
 interface ExecuteArgs {
   connection: WebSocket;
   message: KernelExecuteRequest;
-  runtime: NotebookRuntime;
+  runtime: WorkerClient;
   session: NotebookSession;
   store: NotebookStore;
 }
@@ -336,10 +348,18 @@ const handleExecuteRequest = async ({
     notebookId: notebook.id,
     env: notebook.env,
     timeoutMs: message.timeoutMs,
-    onStream: (stream) => {
+    onStream: (stream: {
+      type: "stream";
+      name: "stdout" | "stderr";
+      text: string;
+    }) => {
       sendMessage(connection, { ...stream, cellId: cell.id });
     },
-    onDisplay: (display) => {
+    onDisplay: (display: {
+      type: "display_data" | "execute_result" | "update_display_data";
+      data: Record<string, unknown>;
+      metadata?: Record<string, unknown>;
+    }) => {
       // Stream UI displays as they are emitted
       sendMessage(connection, { ...display, cellId: cell.id });
     },
@@ -375,8 +395,8 @@ const handleExecuteRequest = async ({
         ? {
             ...item,
             source: message.code,
-            outputs: result.outputs,
-            execution: result.execution,
+            outputs: result.outputs as unknown as NotebookOutput[],
+            execution: result.execution as unknown as OutputExecution,
             language: runnableCell.language,
           }
         : item
@@ -387,7 +407,7 @@ const handleExecuteRequest = async ({
 const ensureRuntime = (sessionId: string) => {
   let runtime = runtimes.get(sessionId);
   if (!runtime) {
-    runtime = new NotebookRuntime();
+    runtime = new WorkerClient(pool);
     runtimes.set(sessionId, runtime);
   }
   return runtime;
