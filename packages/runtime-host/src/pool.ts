@@ -1,5 +1,7 @@
 import { fork, type ChildProcess } from "node:child_process";
 import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import os from "node:os";
 import type { IpcEventMessage, IpcRunCell } from "@nodebooks/runtime-protocol";
 import { IpcEventMessageSchema } from "@nodebooks/runtime-protocol";
@@ -358,32 +360,87 @@ export class WorkerPool {
 
 const spawnWorker = (opts: Required<WorkerPoolOptions>): ChildProcess => {
   const req = createRequire(import.meta.url);
-  const distPath = req.resolve("@nodebooks/runtime-node-worker/dist/worker.js");
-  const srcPath = (() => {
-    try {
-      return req.resolve("@nodebooks/runtime-node-worker/src/worker.ts");
-    } catch {
-      return null as unknown as string;
-    }
-  })();
   type FsLike = { existsSync: (p: string) => boolean };
   const fsMod = req("node:fs") as FsLike;
-  const useDist = !!distPath && fsMod.existsSync(distPath);
-  const entry = useDist && distPath ? distPath : srcPath!;
 
-  const loader = (() => {
+  const tryResolve = (id: string): string | null => {
     try {
-      return req.resolve("tsx/dist/loader.mjs");
+      return req.resolve(id);
     } catch {
-      return "tsx"; // fallback if resolution fails
+      return null;
     }
+  };
+
+  const pkgRoot = (() => {
+    const pkgJson = tryResolve("@nodebooks/runtime-node-worker/package.json");
+    return pkgJson ? pkgJson.replace(/\/package\.json$/, "") : null;
   })();
+
+  // Prefer built worker
+  let distPath = tryResolve("@nodebooks/runtime-node-worker/dist/worker.js");
+  if ((!distPath || !fsMod.existsSync(distPath)) && pkgRoot) {
+    const candidate = `${pkgRoot}dist/worker.js`;
+    if (fsMod.existsSync(candidate)) distPath = candidate;
+  }
+  // Workspace-relative fallback (useful in monorepo dev when deps weren't re-installed)
+  if (!distPath || !fsMod.existsSync(distPath)) {
+    try {
+      const here = fileURLToPath(import.meta.url);
+      const base = dirname(here);
+      const candidate = join(base, "..", "..", "runtime-node-worker", "dist", "worker.js");
+      if (fsMod.existsSync(candidate)) distPath = candidate;
+    } catch {
+      /* noop */
+    }
+  }
+
+  // Fallback to TS source only if present; otherwise, provide a friendly error
+  let srcPath = tryResolve("@nodebooks/runtime-node-worker/src/worker.ts");
+  if ((!srcPath || !fsMod.existsSync(srcPath)) && pkgRoot) {
+    const candidate = `${pkgRoot}src/worker.ts`;
+    if (fsMod.existsSync(candidate)) srcPath = candidate;
+  }
+  if (!srcPath || !fsMod.existsSync(srcPath)) {
+    try {
+      const here = fileURLToPath(import.meta.url);
+      const base = dirname(here);
+      const candidate = join(base, "..", "..", "runtime-node-worker", "src", "worker.ts");
+      if (fsMod.existsSync(candidate)) srcPath = candidate;
+    } catch {
+      /* noop */
+    }
+  }
+
+  const useDist = !!distPath && fsMod.existsSync(distPath);
+  const usingSrc = !useDist && !!srcPath && fsMod.existsSync(srcPath);
+  if (!useDist && !usingSrc) {
+    throw new Error(
+      "Cannot locate @nodebooks/runtime-node-worker entry. Ensure the package is installed and built (pnpm -w -r build)."
+    );
+  }
+
+  let execArgv: string[];
+  let entry = distPath as string;
+  if (usingSrc) {
+    entry = srcPath as string;
+    const loader = (() => {
+      const m = tryResolve("tsx/dist/loader.mjs") || tryResolve("tsx");
+      if (!m) {
+        throw new Error(
+          "tsx is not available to load TypeScript worker. Build the worker (pnpm -w -r build) so dist/worker.js exists."
+        );
+      }
+      return m;
+    })();
+    execArgv = ["--loader", loader, `--max-old-space-size=${opts.memoryMb}`];
+  } else {
+    execArgv = [`--max-old-space-size=${opts.memoryMb}`];
+  }
+
   const child = fork(entry, {
     stdio: ["ignore", "pipe", "pipe", "ipc"],
     serialization: "advanced",
-    execArgv: useDist
-      ? [`--max-old-space-size=${opts.memoryMb}`]
-      : ["--loader", loader, `--max-old-space-size=${opts.memoryMb}`],
+    execArgv,
     env: { ...process.env, NB_BATCH_MS: String(opts.batchMs) },
   });
 
