@@ -1,0 +1,30 @@
+{
+  "name": "NodeBooks",
+  "description": "Interactive Node.js Notebooks",
+  "repository": "https://github.com/julianduque/nodebooks",
+  "keywords": ["node", "notebook", "fastify", "nextjs", "typescript"],
+  "env": {
+    "NODE_ENV": {
+      "value": "production"
+    },
+    "NODEBOOKS_PERSISTENCE": {
+      "description": "Notebook persistence driver: sqlite | postgres | in-memory",
+      "value": "postgres",
+      "required": true
+    },
+    "NODEBOOKS_PASSWORD": {
+      "description": "Optional password to protect the app",
+      "required": false
+    },
+    "NODEBOOKS_THEME": {
+      "description": "UI theme: light | dark",
+      "value": "light"
+    },
+    "KERNEL_WS_HEARTBEAT_MS": {
+      "description": "WS ping interval to keep connections alive (ms)",
+      "value": "25000"
+    }
+  },
+  "buildpacks": [{ "url": "heroku/nodejs" }],
+  "addons": ["heroku-postgresql:essential-0"]
+}

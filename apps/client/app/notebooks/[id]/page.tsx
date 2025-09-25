@@ -6,7 +6,7 @@ interface NotebookPageProps {
 }
 
 const buildNotebookApiUrl = (id: string): string => {
-  const rawBase = process.env.NEXT_PUBLIC_API_BASE_URL;
+  const rawBase = clientConfig().apiBaseUrl;
   if (rawBase && /^https?:\/\//.test(rawBase)) {
     const normalized = rawBase.endsWith("/") ? rawBase.slice(0, -1) : rawBase;
     return `${normalized}/notebooks/${id}`;
@@ -70,3 +70,4 @@ const NotebookEditorPage = async ({ params }: NotebookPageProps) => {
 };
 
 export default NotebookEditorPage;
+import { clientConfig } from "@nodebooks/config/client";

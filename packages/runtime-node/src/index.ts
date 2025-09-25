@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { formatWithOptions, inspect, promisify } from "node:util";
 import vm from "node:vm";
 import { transform } from "esbuild";
+import { loadRuntimeConfig } from "@nodebooks/config";
 
 const execFileAsync = promisify(execFile);
 const DEFAULT_WORKSPACE_ROOT = join(tmpdir(), "nodebooks-runtime");
@@ -36,7 +37,8 @@ import type {
   UiSpinner,
 } from "@nodebooks/notebook-schema";
 
-const DEFAULT_TIMEOUT_MS = process.env.NODEBOOKS_KERNEL_TIMEOUT_MS ?? 10_000;
+const RUNTIME_CONFIG = loadRuntimeConfig();
+const DEFAULT_TIMEOUT_MS = RUNTIME_CONFIG.kernelTimeoutMs;
 
 export interface NotebookRuntimeOptions {
   workspaceRoot?: string;
@@ -756,7 +758,7 @@ export class NotebookRuntime {
         cell.language === "ts"
           ? wrapForTopLevelAwaitTsCapture(rewritten)
           : wrapForTopLevelAwait(rewritten);
-      if (process.env.NB_DEBUG === "1") {
+      if (RUNTIME_CONFIG.debug) {
         this.console.proxy.log("[debug] rewritten code:\n" + rewritten);
         this.console.proxy.log("[debug] wrapped code:\n" + wrapped);
       }

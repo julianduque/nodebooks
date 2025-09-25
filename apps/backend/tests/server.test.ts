@@ -112,7 +112,9 @@ describe("createNotebookStore", () => {
   it("defaults to sqlite when not specified", () => {
     const result = createNotebookStore();
     expect(result.driver).toBe("sqlite");
-    expect(sqliteCtor).toHaveBeenCalledWith({ databaseFile: undefined });
+    expect(sqliteCtor).toHaveBeenCalledWith({
+      databaseFile: ".data/nodebooks.sqlite",
+    });
     expect(memoryCtor).not.toHaveBeenCalled();
   });
 

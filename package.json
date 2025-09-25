@@ -3,6 +3,10 @@
   "description": "Interactive notebook environment for Node.js",
   "private": true,
   "version": "0.1.0",
+  "repository": "https://github.com/julianduque/nodebooks",
+  "keywords": ["node", "notebook", "fastify", "nextjs", "typescript"],
+  "license": "MIT",
+  "author": "Julián Duque <julianduquej@gmail.com>",
   "workspaces": [
     "apps/*",
     "packages/*"

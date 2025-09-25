@@ -58,7 +58,8 @@ import SetupPanel from "@/components/notebook/SetupPanel";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import OutputView from "@/components/notebook/OutputView";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "/api";
+import { clientConfig } from "@nodebooks/config/client";
+const API_BASE_URL = clientConfig().apiBaseUrl;
 
 const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
   const router = useRouter();

@@ -1,7 +1,7 @@
 import { createServer } from "./server.js";
+import { loadServerConfig } from "@nodebooks/config";
 
-const port = Number.parseInt(process.env.PORT ?? "4000", 10);
-const host = process.env.HOST ?? "0.0.0.0";
+const { port, host } = loadServerConfig();
 
 const bootstrap = async () => {
   const server = await createServer();

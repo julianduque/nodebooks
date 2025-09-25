@@ -34,7 +34,7 @@ export interface WorkerPoolOptions {
   memoryMb?: number; // passed via --max-old-space-size
   perJobTimeoutMs?: number; // default if job doesn't specify
   maxOutputBytes?: number; // cap for combined stdout/stderr/display frames
-  batchMs?: number; // forwarded to worker via env NB_BATCH_MS
+  batchMs?: number; // forwarded to worker via env NODEBOOKS_BATCH_MS
   cancelGraceMs?: number; // time from Cancel to kill
 }
 
@@ -387,7 +387,14 @@ const spawnWorker = (opts: Required<WorkerPoolOptions>): ChildProcess => {
     try {
       const here = fileURLToPath(import.meta.url);
       const base = dirname(here);
-      const candidate = join(base, "..", "..", "runtime-node-worker", "dist", "worker.js");
+      const candidate = join(
+        base,
+        "..",
+        "..",
+        "runtime-node-worker",
+        "dist",
+        "worker.js"
+      );
       if (fsMod.existsSync(candidate)) distPath = candidate;
     } catch {
       /* noop */
@@ -404,7 +411,14 @@ const spawnWorker = (opts: Required<WorkerPoolOptions>): ChildProcess => {
     try {
       const here = fileURLToPath(import.meta.url);
       const base = dirname(here);
-      const candidate = join(base, "..", "..", "runtime-node-worker", "src", "worker.ts");
+      const candidate = join(
+        base,
+        "..",
+        "..",
+        "runtime-node-worker",
+        "src",
+        "worker.ts"
+      );
       if (fsMod.existsSync(candidate)) srcPath = candidate;
     } catch {
       /* noop */
@@ -441,7 +455,7 @@ const spawnWorker = (opts: Required<WorkerPoolOptions>): ChildProcess => {
     stdio: ["ignore", "pipe", "pipe", "ipc"],
     serialization: "advanced",
     execArgv,
-    env: { ...process.env, NB_BATCH_MS: String(opts.batchMs) },
+    env: { ...process.env, NODEBOOKS_BATCH_MS: String(opts.batchMs) },
   });
 
   child.stdout?.on("data", (buf: Buffer) => {

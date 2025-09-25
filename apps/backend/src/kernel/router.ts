@@ -19,6 +19,7 @@ import type {
 } from "../types.js";
 import { WorkerClient } from "@nodebooks/runtime-host";
 import { getWorkerPool } from "./runtime-pool.js";
+import { loadServerConfig } from "@nodebooks/config";
 import {
   PASSWORD_COOKIE_NAME,
   isTokenValid,
@@ -29,10 +30,10 @@ const pool = getWorkerPool();
 const runtimes = new Map<string, WorkerClient>();
 
 // Heartbeat interval in ms to keep WebSocket connections alive behind proxies
-// like Heroku's router (55s idle timeout). Default to 25s, overridable via env.
+// like Heroku's router (55s idle timeout). Default to 25s, overridable via config/env.
 const HEARTBEAT_INTERVAL_MS = (() => {
-  const raw = process.env.KERNEL_WS_HEARTBEAT_MS;
-  const parsed = raw ? Number.parseInt(raw, 10) : 25_000;
+  const cfg = loadServerConfig();
+  const parsed = cfg.kernelWsHeartbeatMs ?? 25_000;
   // Clamp to a reasonable minimum (10s) and maximum (50s)
   return Math.min(Math.max(parsed || 25_000, 10_000), 50_000);
 })();

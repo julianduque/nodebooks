@@ -24,9 +24,12 @@ export class SqliteNotebookStore implements NotebookStore {
 
   constructor(options: SqliteNotebookStoreOptions = {}) {
     const here = path.dirname(fileURLToPath(import.meta.url));
-    const apiRoot = path.resolve(here, "../..");
-    this.file =
-      options.databaseFile ?? path.resolve(apiRoot, "data", "nodebooks.sqlite");
+    const apiRoot = path.resolve(here, "../../");
+    this.file = path.resolve(
+      apiRoot,
+      "../../",
+      (options.databaseFile as string) ?? ".data/nodebooks.sqlite"
+    );
     this.ready = this.initialize();
   }
 
@@ -115,13 +118,13 @@ export class SqliteNotebookStore implements NotebookStore {
 
   private async initialize() {
     const here = path.dirname(fileURLToPath(import.meta.url));
-    const apiRoot = path.resolve(here, "../..");
+    const apiRoot = path.resolve(here, "../../");
     const locateFile = (file: string) =>
       path.resolve(apiRoot, "node_modules/sql.js/dist", file);
 
     this.sqlModule = await initSqlJs({ locateFile });
 
-    if (this.file !== ":memory:") {
+    if (this.file !== ":memory:" && !(await this.fileExists(this.file))) {
       await fs.mkdir(path.dirname(this.file), { recursive: true });
     }
 

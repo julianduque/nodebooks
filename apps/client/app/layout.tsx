@@ -3,6 +3,8 @@ import "@nodebooks/notebook-ui/styles.css";
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { headers } from "next/headers";
+import { clientConfig } from "@nodebooks/config/client";
+import { loadServerConfig } from "@nodebooks/config";
 
 import { ThemeProvider, type ThemeMode } from "@/components/theme-context";
 
@@ -11,7 +13,8 @@ const inter = Inter({ subsets: ["latin"] });
 const BASE_DESCRIPTION = "Interactive Node.js Notebooks";
 
 const resolveOrigin = async (): Promise<string | undefined> => {
-  if (process.env.NEXT_PUBLIC_SITE_URL) return process.env.NEXT_PUBLIC_SITE_URL;
+  const siteUrl = clientConfig().siteUrl;
+  if (siteUrl) return siteUrl;
   try {
     const h = await headers();
     const protocol = h.get("x-forwarded-proto") ?? "http";
@@ -56,7 +59,7 @@ interface RootLayoutProps {
 }
 
 const resolveInitialTheme = (): ThemeMode => {
-  return process.env.NODEBOOKS_THEME === "dark" ? "dark" : "light";
+  return loadServerConfig().theme;
 };
 
 const RootLayout = ({ children }: RootLayoutProps) => {

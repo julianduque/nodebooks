@@ -13,7 +13,7 @@ const spawnWorker = (): ChildProcess => {
   const child = fork(dist, {
     stdio: ["ignore", "pipe", "pipe", "ipc"],
     serialization: "advanced",
-    env: { ...process.env, NB_BATCH_MS: "5" },
+    env: { ...process.env, NODEBOOKS_BATCH_MS: "5" },
   });
   return child;
 };

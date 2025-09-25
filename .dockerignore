@@ -1,0 +1,19 @@
+# Local dependency caches
+node_modules
+**/node_modules
+.pnpm-store
+**/.pnpm-store
+
+# VCS
+.git
+.gitignore
+
+# OS/editor noise
+.DS_Store
+.vscode
+
+# Build outputs (not needed to build inside container)
+apps/backend/dist
+apps/client/.next
+packages/**/dist
+
