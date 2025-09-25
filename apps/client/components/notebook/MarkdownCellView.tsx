@@ -1,11 +1,19 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { OnMount } from "@monaco-editor/react";
 import DOMPurify from "dompurify";
 import { marked } from "marked";
 import MonacoEditor from "@/components/notebook/MonacoEditorClient";
 import type { NotebookCell } from "@nodebooks/notebook-schema";
+
+const escapeHtml = (value: string) =>
+  value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 
 interface MarkdownCellViewProps {
   cell: Extract<NotebookCell, { type: "markdown" }>;
@@ -22,6 +30,19 @@ marked.use({
   breaks: true,
 });
 
+const renderer = new marked.Renderer();
+const originalCodeRenderer = renderer.code.bind(renderer);
+renderer.code = (code, infostring, escaped) => {
+  const language = (infostring ?? "").trim().toLowerCase();
+  if (language === "mermaid") {
+    const encoded = encodeURIComponent(code);
+    return `<pre class="mermaid" data-definition="${encoded}">${escapeHtml(code)}</pre>`;
+  }
+  return originalCodeRenderer(code, infostring, escaped);
+};
+
+marked.use({ renderer });
+
 const MarkdownCellView = ({
   cell,
   onChange,
@@ -30,11 +51,64 @@ const MarkdownCellView = ({
   // Start at roughly one visual line + padding (updated on mount)
   const [editorHeight, setEditorHeight] = useState<number>(48);
   const heightRef = useRef(0);
+  const previewRef = useRef<HTMLDivElement | null>(null);
+  const setPreviewRef = useCallback((node: HTMLDivElement | null) => {
+    previewRef.current = node;
+  }, []);
   const html = useMemo(() => {
     const parsed = marked.parse(cell.source ?? "", { async: false });
     const rendered = typeof parsed === "string" ? parsed : "";
     return DOMPurify.sanitize(rendered);
   }, [cell.source]);
+
+  useEffect(() => {
+    const container = previewRef.current;
+    if (!container) return;
+    const mermaidBlocks = Array.from(
+      container.querySelectorAll<HTMLElement>("pre.mermaid")
+    );
+    if (mermaidBlocks.length === 0) return;
+
+    let cancelled = false;
+
+    const renderMermaid = async () => {
+      const mermaidModule = await import("mermaid");
+      const mermaid = mermaidModule.default;
+      mermaid.initialize({ startOnLoad: false });
+      let index = 0;
+      for (const block of mermaidBlocks) {
+        const definitionAttr = block.dataset.definition ?? "";
+        const definition = definitionAttr
+          ? decodeURIComponent(definitionAttr)
+          : block.textContent ?? "";
+        if (!definition) continue;
+        try {
+          const { svg } = await mermaid.render(
+            `mermaid-${cell.id}-${index++}`,
+            definition
+          );
+          if (cancelled) return;
+          block.innerHTML = DOMPurify.sanitize(svg, {
+            USE_PROFILES: { svg: true, svgFilters: true },
+          });
+        } catch (error) {
+          if (cancelled) return;
+          block.classList.add("mermaid-error");
+          block.replaceChildren(
+            document.createTextNode(
+              error instanceof Error ? error.message : String(error)
+            )
+          );
+        }
+      }
+    };
+
+    void renderMermaid();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [cell.id, html]);
 
   type MarkdownUIMeta = { ui?: { edit?: boolean } };
   const isEditing = (cell.metadata as MarkdownUIMeta).ui?.edit ?? true;
@@ -169,6 +243,7 @@ const MarkdownCellView = ({
           />
           <div
             className="markdown-preview space-y-3 border-t border-slate-200 p-5 text-sm leading-7 text-slate-700"
+            ref={setPreviewRef}
             dangerouslySetInnerHTML={{ __html: html }}
           />
         </div>
@@ -176,6 +251,7 @@ const MarkdownCellView = ({
         <div className="relative">
           <div
             className="markdown-preview space-y-3 rounded-xl border border-transparent p-5 text-sm leading-7 text-slate-700 transition group-hover/cell:border-slate-200"
+            ref={setPreviewRef}
             dangerouslySetInnerHTML={{ __html: html }}
           />
         </div>
