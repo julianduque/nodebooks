@@ -84,9 +84,15 @@ const DEFAULT_TEMPLATE_DIR = path.join(
   "templates"
 );
 
-const TEMPLATE_DIR = process.env.NODEBOOKS_TEMPLATE_DIR
-  ? path.resolve(process.cwd(), process.env.NODEBOOKS_TEMPLATE_DIR)
-  : DEFAULT_TEMPLATE_DIR;
+import { loadServerConfig } from "@nodebooks/config";
+
+const TEMPLATE_DIR = (() => {
+  const cfg = loadServerConfig();
+  if (cfg.templatesDir && cfg.templatesDir.length > 0) {
+    return path.resolve(process.cwd(), cfg.templatesDir);
+  }
+  return DEFAULT_TEMPLATE_DIR;
+})();
 
 const registry = new Map<string, NotebookTemplateDefinition>();
 

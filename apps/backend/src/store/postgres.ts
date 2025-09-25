@@ -5,6 +5,7 @@ import {
   type Notebook,
 } from "@nodebooks/notebook-schema";
 import type { NotebookStore } from "../types.js";
+import { loadServerConfig } from "@nodebooks/config";
 
 export interface PostgresNotebookStoreOptions {
   connectionString?: string;
@@ -58,7 +59,7 @@ export class PostgresNotebookStore implements NotebookStore {
       this.managePool = false;
     } else {
       const connectionString =
-        options.connectionString ?? process.env.DATABASE_URL;
+        options.connectionString ?? loadServerConfig().persistence.databaseUrl;
       if (!connectionString) {
         throw new Error(
           "DATABASE_URL must be set when NODEBOOKS_PERSISTENCE=postgres"

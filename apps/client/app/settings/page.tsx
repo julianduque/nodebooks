@@ -10,7 +10,8 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import LoadingOverlay from "@/components/ui/loading-overlay";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "/api";
+import { clientConfig } from "@nodebooks/config/client";
+const API_BASE_URL = clientConfig().apiBaseUrl;
 
 interface SettingsPayload {
   theme: ThemeMode;

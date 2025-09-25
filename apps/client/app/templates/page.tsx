@@ -16,7 +16,8 @@ import type { NotebookTemplateId } from "@/components/notebook/types";
 import { useRouter } from "next/navigation";
 import LoadingOverlay from "@/components/ui/loading-overlay";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "/api";
+import { clientConfig } from "@nodebooks/config/client";
+const API_BASE_URL = clientConfig().apiBaseUrl;
 
 const BADGE_TONE_CLASSES: Record<TemplateBadgeTone, string> = {
   slate: "border border-slate-300 bg-slate-200 text-slate-800",

@@ -3,11 +3,9 @@ import type * as FastifyCookieNamespace from "@fastify/cookie";
 import { z } from "zod";
 
 import { PASSWORD_COOKIE_NAME } from "../auth/password.js";
+import { loadServerConfig } from "@nodebooks/config";
 
-const DEFAULT_KERNEL_TIMEOUT_MS = 10_000;
 const ThemeSchema = z.enum(["light", "dark"]);
-
-type Theme = z.infer<typeof ThemeSchema>;
 
 const SettingsUpdateSchema = z
   .object({
@@ -24,27 +22,11 @@ const SettingsUpdateSchema = z
   })
   .strict();
 
-const parseTheme = (raw?: string | null): Theme => {
-  return raw === "dark" ? "dark" : "light";
-};
-
-const parseKernelTimeout = (raw?: string | null): number => {
-  if (!raw) {
-    return DEFAULT_KERNEL_TIMEOUT_MS;
-  }
-  const parsed = Number.parseInt(raw, 10);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    return DEFAULT_KERNEL_TIMEOUT_MS;
-  }
-  return parsed;
-};
-
 const resolveSettingsPayload = (options: RegisterSettingsRoutesOptions) => {
+  const cfg = loadServerConfig();
   return {
-    theme: parseTheme(process.env.NODEBOOKS_THEME),
-    kernelTimeoutMs: parseKernelTimeout(
-      process.env.NODEBOOKS_KERNEL_TIMEOUT_MS
-    ),
+    theme: cfg.theme,
+    kernelTimeoutMs: cfg.kernelTimeoutMs,
     passwordEnabled: options.getPasswordToken() !== null,
   };
 };

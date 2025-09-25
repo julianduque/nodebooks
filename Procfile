@@ -1,0 +1,2 @@
+web: pnpm start
+

@@ -1,4 +1,5 @@
 import process from "node:process";
+import { loadRuntimeConfig } from "@nodebooks/config";
 import {
   IpcControlMessageSchema,
   IpcRunCellSchema,
@@ -36,7 +37,7 @@ const handleRun = async (payload: IpcRunCell) => {
   let stdoutBuf = "";
   let stderrBuf = "";
   let flushTimer: NodeJS.Timeout | null = null;
-  const batchMs = Number.parseInt(process.env.NB_BATCH_MS || "25", 10) || 25;
+  const batchMs = loadRuntimeConfig().batchMs;
   const scheduleFlush = () => {
     if (flushTimer) return;
     flushTimer = setTimeout(() => {

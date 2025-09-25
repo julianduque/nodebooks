@@ -2,6 +2,7 @@ import Image from "next/image";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import type { Route } from "next";
+import { loadServerConfig } from "@nodebooks/config";
 
 import LoginForm from "./login-form";
 import {
@@ -39,7 +40,7 @@ const resolveRedirect = (raw: string | string[] | undefined): Route => {
 };
 
 const LoginPage = async ({ searchParams }: LoginPageProps) => {
-  const configuredPassword = process.env.NODEBOOKS_PASSWORD;
+  const configuredPassword = loadServerConfig().password ?? undefined;
   if (!configuredPassword) {
     redirect("/");
   }

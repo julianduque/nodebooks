@@ -10,6 +10,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@nodebooks/config": "workspace:*",
     "@monaco-editor/react": "^4.7.0",
     "@nodebooks/notebook-schema": "workspace:*",
     "@nodebooks/notebook-ui": "workspace:*",

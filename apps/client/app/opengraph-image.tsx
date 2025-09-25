@@ -1,5 +1,6 @@
 import { ImageResponse } from "next/og";
 import { headers } from "next/headers";
+import { clientConfig } from "@nodebooks/config/client";
 
 export const alt = "NodeBooks";
 export const size = {
@@ -9,7 +10,7 @@ export const size = {
 export const contentType = "image/png";
 
 const getOrigin = async (): Promise<string> => {
-  const url = process.env.NEXT_PUBLIC_SITE_URL;
+  const url = clientConfig().siteUrl;
   if (url) return url;
   const h = await headers();
   const protocol = h.get("x-forwarded-proto") ?? "http";

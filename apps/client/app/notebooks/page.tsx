@@ -10,7 +10,8 @@ import type { Notebook } from "@nodebooks/notebook-schema";
 import { useRouter } from "next/navigation";
 import LoadingOverlay from "@/components/ui/loading-overlay";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "/api";
+import { clientConfig } from "@nodebooks/config/client";
+const API_BASE_URL = clientConfig().apiBaseUrl;
 
 export default function NotebooksPage() {
   const [list, setList] = useState<Notebook[]>([]);

@@ -11,6 +11,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@nodebooks/config": "workspace:*",
     "@nodebooks/runtime-node": "workspace:*",
     "@nodebooks/runtime-protocol": "workspace:*",
     "@nodebooks/notebook-schema": "workspace:*"

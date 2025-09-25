@@ -27,15 +27,18 @@ import {
   isTokenValid,
 } from "./auth/password.js";
 import { registerSettingsRoutes } from "./routes/settings.js";
+import { loadServerConfig } from "@nodebooks/config";
 
 export interface CreateServerOptions {
   logger?: boolean;
 }
 
+const cfg = loadServerConfig();
+
 export const createServer = async ({
   logger = true,
 }: CreateServerOptions = {}) => {
-  const isDev = process.env.NODE_ENV !== "production";
+  const isDev = cfg.isDev;
   const app = Fastify({ logger, pluginTimeout: isDev ? 120_000 : undefined });
 
   await app.register(fastifyCookie);
@@ -54,7 +57,7 @@ export const createServer = async ({
     return trimmed.length > 0 ? trimmed : null;
   };
 
-  let currentPassword = normalizePassword(process.env.NODEBOOKS_PASSWORD);
+  let currentPassword = normalizePassword(cfg.password);
   let passwordToken = currentPassword
     ? derivePasswordToken(currentPassword)
     : null;
@@ -192,8 +195,7 @@ export const createServer = async ({
   };
 
   // Mount Next.js (apps/client) using Next's handler so UI is served by Fastify
-  const embedNext =
-    (process.env.EMBED_NEXT ?? "true").toLowerCase() !== "false";
+  const embedNext = cfg.embedNext;
   type NextInitOptions = {
     dev?: boolean;
     dir?: string;
@@ -221,8 +223,8 @@ export const createServer = async ({
   let nextHandle: NextHandler | null = null;
   let nextUpgrade: NextUpgradeHandler | null = null;
   if (embedNext) {
-    const port = Number.parseInt(process.env.PORT ?? "4000", 10);
-    const host = process.env.HOST ?? "0.0.0.0";
+    const port = cfg.port;
+    const host = cfg.host;
     const hostnameForNext = host === "0.0.0.0" ? "localhost" : host;
     const __filename = fileURLToPath(import.meta.url);
     const __dirname = path.dirname(__filename);
@@ -231,8 +233,7 @@ export const createServer = async ({
     // Switch CWD so Next/PostCSS/Tailwind resolve client configs correctly.
     // Keeping CWD at the client root avoids missing CSS during dev.
     const originalCwd = process.cwd();
-    const keepClientCwd =
-      (process.env.NEXT_KEEP_CLIENT_CWD ?? "true").toLowerCase() !== "false";
+    const keepClientCwd = cfg.keepClientCwd;
     try {
       process.chdir(uiDir);
     } catch (_err) {
@@ -266,7 +267,9 @@ export const createServer = async ({
   }
 
   const { store, driver } = createNotebookStore({
-    driver: process.env.NODEBOOKS_PERSISTENCE,
+    driver: cfg.persistence.driver,
+    sqlitePath: cfg.persistence.sqlitePath,
+    databaseUrl: cfg.persistence.databaseUrl,
   });
   const sessions = new InMemorySessionManager(store);
 
@@ -376,7 +379,7 @@ export const createNotebookStore = (
   options: CreateNotebookStoreOptions = {}
 ): NotebookStoreResult => {
   const driver = resolvePersistenceDriver(
-    options.driver ?? process.env.NODEBOOKS_PERSISTENCE
+    options.driver ?? cfg.persistence.driver
   );
   switch (driver) {
     case "in-memory":
@@ -384,14 +387,14 @@ export const createNotebookStore = (
     case "sqlite":
       return {
         store: new SqliteNotebookStore({
-          databaseFile: options.sqlitePath ?? process.env.NODEBOOKS_SQLITE_PATH,
+          databaseFile: options.sqlitePath ?? cfg.persistence.sqlitePath,
         }),
         driver,
       };
     case "postgres":
       return {
         store: new PostgresNotebookStore({
-          connectionString: options.databaseUrl ?? process.env.DATABASE_URL,
+          connectionString: options.databaseUrl ?? cfg.persistence.databaseUrl,
         }),
         driver,
       };
