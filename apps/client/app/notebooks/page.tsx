@@ -8,6 +8,7 @@ import { Play, Trash2, Plus } from "lucide-react";
 import ConfirmDialog from "@/components/ui/confirm";
 import type { Notebook } from "@nodebooks/notebook-schema";
 import { useRouter } from "next/navigation";
+import LoadingOverlay from "@/components/ui/loading-overlay";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "/api";
 
@@ -57,20 +58,19 @@ export default function NotebooksPage() {
 
   const content = useMemo(() => {
     if (loading) {
-      return (
-        <Card className="max-w-md">
-          <CardContent className="py-10 text-center text-slate-600">
-            Loading…
-          </CardContent>
-        </Card>
-      );
+      return <LoadingOverlay label="Loading notebooks…" />;
     }
     if (list.length === 0) {
       return (
         <Card className="max-w-xl">
           <CardContent className="flex items-center justify-between gap-4">
-            <p className="text-sm text-slate-500">No notebooks yet.</p>
-            <Button size="sm" variant="default" className="gap-2" onClick={handleCreate}>
+            <p className="text-sm text-muted-foreground">No notebooks yet.</p>
+            <Button
+              size="sm"
+              variant="default"
+              className="gap-2"
+              onClick={handleCreate}
+            >
               <Plus className="h-4 w-4" /> New notebook
             </Button>
           </CardContent>
@@ -85,10 +85,10 @@ export default function NotebooksPage() {
             className="flex flex-col gap-4 px-6 py-4 sm:flex-row sm:items-center sm:justify-between"
           >
             <div className="min-w-0">
-              <h3 className="truncate text-lg font-semibold text-slate-900">
+              <h3 className="truncate text-lg font-semibold text-card-foreground">
                 {n.name}
               </h3>
-              <p className="text-sm text-slate-500">
+              <p className="text-sm text-muted-foreground">
                 Updated {new Date(n.updatedAt).toLocaleString()}
               </p>
             </div>
@@ -123,8 +123,8 @@ export default function NotebooksPage() {
 
   return (
     <AppShell title="Notebooks" onNewNotebook={handleCreate}>
-      <h1 className="text-3xl font-semibold text-slate-900">Notebooks</h1>
-      <p className="mt-2 text-slate-500">
+      <h1 className="text-3xl font-semibold text-foreground">Notebooks</h1>
+      <p className="mt-2 text-muted-foreground">
         Manage all notebooks in your workspace.
       </p>
       {content}

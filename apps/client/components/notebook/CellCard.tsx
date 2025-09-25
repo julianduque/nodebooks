@@ -46,7 +46,7 @@ const AddCellMenu = ({
   return (
     <div
       className={clsx(
-        "mt-1 flex items-center gap-1 text-xs text-slate-600 shadow-sm",
+        "mt-1 flex items-center gap-1 text-xs text-muted-foreground shadow-sm",
         className
       )}
     >
@@ -103,7 +103,7 @@ const CellCard = ({
       onFocus={onActivate}
       tabIndex={-1}
     >
-      <div className="absolute right-0 top-0 z-50 flex flex-col gap-2 rounded-2xl bg-white/95 p-2 text-slate-600 shadow-lg opacity-0 pointer-events-none transition group-hover/cell:opacity-100 group-hover/cell:pointer-events-auto group-focus-within/cell:opacity-100 group-focus-within/cell:pointer-events-auto">
+      <div className="absolute right-0 top-0 z-50 flex flex-col gap-2 rounded-2xl border border-border bg-card/95 p-2 text-muted-foreground shadow-lg backdrop-blur-sm opacity-0 pointer-events-none transition group-hover/cell:opacity-100 group-hover/cell:pointer-events-auto group-focus-within/cell:opacity-100 group-focus-within/cell:pointer-events-auto">
         {isCode ? (
           <>
             <Button

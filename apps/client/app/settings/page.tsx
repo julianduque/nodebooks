@@ -8,6 +8,7 @@ import { useTheme, type ThemeMode } from "@/components/theme-context";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import LoadingOverlay from "@/components/ui/loading-overlay";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "/api";
 
@@ -104,7 +105,8 @@ const KernelSection = ({
           Kernel timeout
         </h3>
         <p className="text-sm text-muted-foreground">
-          Configure the maximum execution time for notebook cells (1–10 minutes).
+          Configure the maximum execution time for notebook cells (1–10
+          minutes).
         </p>
       </div>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -164,7 +166,11 @@ const PasswordSection = ({
           aria-label="NodeBooks password"
         />
         <div className="flex gap-2">
-          <Button type="button" onClick={onSave} disabled={saving || password.length === 0}>
+          <Button
+            type="button"
+            onClick={onSave}
+            disabled={saving || password.length === 0}
+          >
             {saving ? "Saving…" : enabled ? "Update" : "Enable"}
           </Button>
           <Button
@@ -425,20 +431,16 @@ const SettingsPage = () => {
 
   const cardContent = useMemo(() => {
     if (loading) {
-      return (
-        <Card className="mt-8 max-w-xl">
-          <CardContent className="px-6 py-6 text-sm text-muted-foreground">
-            Loading settings…
-          </CardContent>
-        </Card>
-      );
+      return <LoadingOverlay label="Loading settings…" />;
     }
 
     if (error) {
       return (
         <Card className="mt-8 max-w-xl border-amber-300 bg-amber-50/80 dark:border-amber-500/60 dark:bg-amber-500/10">
           <CardContent className="space-y-4 px-6 py-6">
-            <p className="text-sm text-amber-800 dark:text-amber-200">{error}</p>
+            <p className="text-sm text-amber-800 dark:text-amber-200">
+              {error}
+            </p>
             <Button
               size="sm"
               variant="outline"

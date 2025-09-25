@@ -8,6 +8,7 @@ import { ChevronRight, NotebookPen, Plus, Trash2 } from "lucide-react";
 import ConfirmDialog from "../components/ui/confirm";
 import type { Notebook } from "@nodebooks/notebook-schema";
 import { useRouter } from "next/navigation";
+import LoadingOverlay from "@/components/ui/loading-overlay";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "/api";
 
@@ -57,19 +58,13 @@ export default function HomePage() {
 
   const content = useMemo(() => {
     if (loading) {
-      return (
-        <Card className="max-w-md">
-          <CardContent className="py-10 text-center text-slate-600">
-            Loading…
-          </CardContent>
-        </Card>
-      );
+      return <LoadingOverlay label="Loading notebooks…" />;
     }
     if (list.length === 0) {
       return (
         <Card className="mt-8 max-w-xl">
           <CardContent className="flex items-center justify-between gap-4">
-            <p className="text-sm text-slate-500">
+            <p className="text-sm text-muted-foreground">
               Spin up a new notebook with example cells.
             </p>
             <Button className="gap-2" onClick={handleCreate}>
@@ -88,7 +83,7 @@ export default function HomePage() {
         {recent.map((item) => (
           <div
             key={item.id}
-            className="group relative flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:-translate-y-1 hover:shadow-lg"
+            className="group relative flex flex-col gap-3 rounded-2xl border border-border bg-card p-5 text-left text-card-foreground shadow-sm transition hover:-translate-y-1 hover:shadow-lg"
           >
             <button
               type="button"
@@ -101,10 +96,10 @@ export default function HomePage() {
                   <NotebookPen className="h-5 w-5" />
                 </div>
                 <div className="min-w-0">
-                  <h3 className="truncate text-lg font-semibold text-slate-900">
+                  <h3 className="truncate text-lg font-semibold text-card-foreground">
                     {item.name}
                   </h3>
-                  <p className="text-sm text-slate-500">
+                  <p className="text-sm text-muted-foreground">
                     Last opened {new Date(item.updatedAt).toLocaleString()}
                   </p>
                 </div>
@@ -136,8 +131,8 @@ export default function HomePage() {
 
   return (
     <AppShell title="Home" onNewNotebook={handleCreate}>
-      <h1 className="text-3xl font-semibold text-slate-900">Home</h1>
-      <p className="mt-2 text-slate-500">
+      <h1 className="text-3xl font-semibold text-foreground">Home</h1>
+      <p className="mt-2 text-muted-foreground">
         Pick up your recent notebooks or start something new.
       </p>
       {content}

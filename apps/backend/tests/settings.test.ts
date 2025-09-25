@@ -133,7 +133,7 @@ describe("settings routes", () => {
     const cookieHeader = res.headers["set-cookie"];
     const serialized = Array.isArray(cookieHeader)
       ? cookieHeader.join(";")
-      : cookieHeader ?? "";
+      : (cookieHeader ?? "");
     expect(serialized).toContain(`${PASSWORD_COOKIE_NAME}=`);
     expect(serialized).toMatch(/Expires=/);
     await app.close();
@@ -152,4 +152,3 @@ describe("settings routes", () => {
     await app.close();
   });
 });
-

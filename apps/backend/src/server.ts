@@ -2,7 +2,7 @@ import Fastify from "fastify";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import cors from "@fastify/cors";
 import fastifyCookie from "@fastify/cookie";
-import type { fastifyCookie as FastifyCookieNamespace } from "@fastify/cookie";
+import type * as FastifyCookieNamespace from "@fastify/cookie";
 import next from "next";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Socket } from "node:net";

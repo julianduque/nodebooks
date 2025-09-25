@@ -59,16 +59,17 @@ pnpm start
 - `HOST` – Host to bind (default `0.0.0.0`).
 - `NODEBOOKS_PASSWORD` – Password to protect the server (default `null`).
 - `NODEBOOKS_SQLITE_PATH` – Path to the SQLite file for notebooks storage (defaults to `apps/backend/data/nodebooks.sqlite`).
-- `NODEBOOKS_PERSISTENCE` – Notebook persistence driver (`sqlite` default). Supported values:
 - `NODEBOOKS_KERNEL_TIMEOUT_MS` – Kernel execution timeout in ms (default `10000`).
+- `NODEBOOKS_THEME` – Theme to use for the UI (default `light`). Supported values:
+  - `light` – Light theme.
+  - `dark` – Dark theme.
+- `NODEBOOKS_PERSISTENCE` – Notebook persistence driver (`sqlite` default). Supported values:
   - `sqlite` – Persist notebooks to the bundled `sql.js` database file.
   - `postgres` – Use PostgreSQL via `DATABASE_URL`.
   - `in-memory` – Ephemeral storage useful for local smoke tests.
 - `DATABASE_URL` – PostgreSQL connection string used when `NODEBOOKS_PERSISTENCE=postgres`.
 - `KERNEL_WS_HEARTBEAT_MS` – Server→client WebSocket ping interval in ms to keep
   connections alive behind proxies with idle timeouts (default `25000`).
-- `EMBED_NEXT` – When `false`, disables serving the UI from Fastify (use separate Next server in dev).
-- `NEXT_KEEP_CLIENT_CWD` – Keep CWD pinned to the client root for PostCSS/Tailwind resolution (default `true`).
 
 ## Testing & Quality
 
@@ -86,6 +87,8 @@ pnpm format:check   # Prettier verify only
 
 - Cross-workspace imports use the `@nodebooks/*` aliases.
 - The shared `@nodebooks/notebook-schema` package builds to `dist/` and is consumed as compiled ESM at runtime.
+- The Notebooks uses the `@nodebooks/notebook-ui` package for components and displays.
+- The Notebooks uses the `@nodebooks/runtime-node` package for the Node.js runtime environment.
 
 ## License
 

@@ -1098,7 +1098,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
       return (
         <div className="flex flex-1 items-center justify-center p-10">
           <Card className="w-full max-w-md text-center">
-            <CardContent className="py-10 text-slate-600">
+            <CardContent className="py-10 text-muted-foreground">
               Loading notebook…
             </CardContent>
           </Card>
@@ -1111,7 +1111,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         <div className="flex flex-1 items-center justify-center p-10">
           <Card className="w-full max-w-md text-center">
             <CardContent className="space-y-3 py-10">
-              <p className="text-lg font-semibold text-slate-700">
+              <p className="text-lg font-semibold text-foreground">
                 Select a notebook to begin.
               </p>
               {error && <p className="text-sm text-rose-600">{error}</p>}
@@ -1134,9 +1134,9 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
             )}
             {/* Installation output shown at the top of the notebook */}
             {(depBusy || depOutputs.length > 0 || depError) && (
-              <div className="mb-4 rounded-lg border border-slate-200 bg-white p-2 shadow-sm">
+              <div className="mb-4 rounded-lg border border-border bg-card p-2 text-card-foreground shadow-sm">
                 <div className="flex items-center justify-between gap-2">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
                     Install output
                   </div>
                   <div className="flex items-center gap-1">
@@ -1144,7 +1144,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
                       type="button"
                       variant="ghost"
                       size="icon"
-                      className="text-slate-600 hover:text-slate-900"
+                      className="text-muted-foreground hover:text-foreground"
                       onClick={handleClearDepOutputs}
                       disabled={
                         !depBusy && depOutputs.length === 0 && !depError
@@ -1167,9 +1167,9 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
                     )}
                   </div>
                 </div>
-                <div className="mt-2 space-y-2 rounded-md border border-slate-200 bg-slate-950 p-2 text-[13px] text-slate-100">
+                <div className="mt-2 space-y-2 rounded-md border border-border bg-muted/20 p-2 text-[13px] text-foreground">
                   {depBusy && depOutputs.length === 0 ? (
-                    <div className="flex items-center gap-2 text-slate-300/80">
+                    <div className="flex items-center gap-2 text-muted-foreground">
                       <Loader2 className="h-3.5 w-3.5 animate-spin" /> Preparing
                       environment…
                     </div>
@@ -1248,13 +1248,13 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
             onChange={(event) => setRenameDraft(event.target.value)}
             onBlur={handleRenameCommit}
             onKeyDown={handleRenameKeyDown}
-            className="min-w-[160px] max-w-sm truncate rounded-md border border-slate-300 bg-white px-2 py-1 text-sm font-semibold text-slate-900 focus:outline-none"
+            className="min-w-[260px] max-w-sm truncate rounded-md border border-input bg-background px-2 py-1 text-sm font-semibold text-foreground focus:outline-none"
             aria-label="Notebook name"
           />
         ) : (
           <button
             type="button"
-            className="truncate text-left text-base font-semibold text-slate-900"
+            className="truncate text-left text-base font-semibold text-foreground"
             onClick={handleRenameStart}
             title={notebook.name}
           >
@@ -1297,7 +1297,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         >
           {runtimeName} {versionLabel}
         </Badge>
-        <span className="hidden items-center gap-2 text-[11px] text-slate-500 md:flex">
+        <span className="hidden items-center gap-2 text-[11px] text-muted-foreground md:flex">
           <span className="flex items-center gap-1">
             <span
               className={clsx(

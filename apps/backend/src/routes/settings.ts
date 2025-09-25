@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import type { fastifyCookie as FastifyCookieNamespace } from "@fastify/cookie";
+import type * as FastifyCookieNamespace from "@fastify/cookie";
 import { z } from "zod";
 
 import { PASSWORD_COOKIE_NAME } from "../auth/password.js";
@@ -13,7 +13,7 @@ const SettingsUpdateSchema = z
   .object({
     theme: ThemeSchema.optional(),
     kernelTimeoutMs: z
-      .number({ invalid_type_error: "Kernel timeout must be a number" })
+      .number()
       .int()
       .min(1_000, { message: "Kernel timeout must be at least 1000ms" })
       .max(600_000, {
@@ -89,11 +89,7 @@ export const registerSettingsRoutes = async (
       const nextToken = options.setPassword(normalized);
 
       if (nextToken) {
-        reply.setCookie(
-          PASSWORD_COOKIE_NAME,
-          nextToken,
-          options.cookieOptions
-        );
+        reply.setCookie(PASSWORD_COOKIE_NAME, nextToken, options.cookieOptions);
       } else {
         reply.clearCookie(PASSWORD_COOKIE_NAME, options.cookieOptions);
       }
@@ -102,4 +98,3 @@ export const registerSettingsRoutes = async (
     return { data: resolveSettingsPayload(options) };
   });
 };
-
