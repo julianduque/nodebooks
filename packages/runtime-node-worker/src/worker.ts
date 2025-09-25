@@ -1,0 +1,140 @@
+import process from "node:process";
+import {
+  IpcControlMessageSchema,
+  IpcRunCellSchema,
+  IpcCancelSchema,
+  IpcPingSchema,
+  type IpcControlMessage,
+  type IpcRunCell,
+  type IpcCancel,
+  packDisplay,
+  packText,
+  StreamKind,
+} from "@nodebooks/runtime-protocol";
+import { NotebookRuntime } from "@nodebooks/runtime-node";
+
+type RunContext = { jobId: string; cancelled: boolean };
+
+let current: RunContext | null = null;
+const runtime = new NotebookRuntime();
+
+const safeSend = (msg: unknown) => {
+  try {
+    if (typeof process.send === "function") {
+      (process.send as (message: unknown) => void)(msg);
+    }
+  } catch {
+    /* noop */
+  }
+};
+
+const handleRun = async (payload: IpcRunCell) => {
+  current = { jobId: payload.jobId, cancelled: false };
+  safeSend({ type: "Ack", jobId: payload.jobId });
+  const jobIdNum = hash32(payload.jobId);
+
+  let stdoutBuf = "";
+  let stderrBuf = "";
+  let flushTimer: NodeJS.Timeout | null = null;
+  const batchMs = Number.parseInt(process.env.NB_BATCH_MS || "25", 10) || 25;
+  const scheduleFlush = () => {
+    if (flushTimer) return;
+    flushTimer = setTimeout(() => {
+      try {
+        if (stdoutBuf) {
+          const frame = packText(StreamKind.Stdout, jobIdNum, stdoutBuf);
+          safeSend(frame);
+          stdoutBuf = "";
+        }
+        if (stderrBuf) {
+          const frame = packText(StreamKind.Stderr, jobIdNum, stderrBuf);
+          safeSend(frame);
+          stderrBuf = "";
+        }
+      } finally {
+        if (flushTimer) {
+          clearTimeout(flushTimer);
+          flushTimer = null;
+        }
+      }
+    }, batchMs);
+  };
+
+  try {
+    const result = await runtime.execute({
+      cell: payload.cell,
+      code: payload.code,
+      notebookId: payload.notebookId,
+      env: payload.env,
+      timeoutMs: payload.timeoutMs,
+      onStream: (stream) => {
+        if (current?.cancelled) return;
+        if (stream.name === "stdout") stdoutBuf += stream.text;
+        else stderrBuf += stream.text;
+        scheduleFlush();
+      },
+      onDisplay: (display) => {
+        if (current?.cancelled) return;
+        const frame = packDisplay(jobIdNum, display, false);
+        safeSend(frame);
+      },
+    });
+    if (stdoutBuf) {
+      const frame = packText(StreamKind.Stdout, jobIdNum, stdoutBuf, true);
+      safeSend(frame);
+      stdoutBuf = "";
+    }
+    if (stderrBuf) {
+      const frame = packText(StreamKind.Stderr, jobIdNum, stderrBuf, true);
+      safeSend(frame);
+      stderrBuf = "";
+    }
+    safeSend({
+      type: "Result",
+      jobId: payload.jobId,
+      outputs: result.outputs,
+      execution: result.execution,
+    });
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    safeSend({
+      type: "Error",
+      jobId: payload.jobId,
+      name: err.name,
+      message: err.message,
+      stack: err.stack,
+    });
+  } finally {
+    current = null;
+  }
+};
+
+const handleCancel = (_payload: IpcCancel) => {
+  if (current) current.cancelled = true;
+};
+
+process.on("message", async (raw: unknown) => {
+  const parsed = IpcControlMessageSchema.safeParse(raw);
+  if (!parsed.success) return;
+  const msg = parsed.data as IpcControlMessage;
+  if (IpcRunCellSchema.safeParse(msg).success) {
+    await handleRun(msg as unknown as IpcRunCell);
+    return;
+  }
+  if (IpcCancelSchema.safeParse(msg).success) {
+    handleCancel(msg as unknown as IpcCancel);
+    return;
+  }
+  if (IpcPingSchema.safeParse(msg).success) {
+    safeSend({ type: "Pong" });
+  }
+});
+
+const hash32 = (s: string) => {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i) & 0xff;
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+};

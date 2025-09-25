@@ -1,0 +1,22 @@
+{
+  "name": "@nodebooks/runtime-host",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "pretest": "pnpm --filter @nodebooks/runtime-node-worker build",
+    "lint": "eslint src --ext .ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@nodebooks/runtime-protocol": "workspace:*",
+    "@nodebooks/notebook-schema": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.2",
+    "@types/node": "^24.5.2",
+    "vitest": "^3.2.4"
+  }
+}

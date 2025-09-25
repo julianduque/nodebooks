@@ -407,6 +407,13 @@ const toDisplayData = (value: unknown) => {
     return outputs;
   }
 
+  // Do not display bare function references (e.g., last expression is a function
+  // or async function identifier). Users typically expect values, not function
+  // objects like "[AsyncFunction: name]".
+  if (typeof value === "function") {
+    return outputs;
+  }
+
   // If UI helpers already emitted this object during execution, skip
   // adding it again as the final display value to avoid duplication.
   if (
@@ -552,8 +559,10 @@ export class NotebookRuntime {
     try {
       await this.ensureEnvironment(notebookId, env);
 
-      const rewritten = rewriteTopLevelDeclarations(code, cell.language);
-      const wrapped = wrapForTopLevelAwait(rewritten);
+      const rewritten = cell.language === "ts" ? code : rewriteTopLevelDeclarations(code, cell.language);
+      const wrapped = cell.language === "ts"
+        ? wrapForTopLevelAwaitTsCapture(rewritten)
+        : wrapForTopLevelAwait(rewritten);
       if (process.env.NB_DEBUG === "1") {
         this.console.proxy.log("[debug] rewritten code:\n" + rewritten);
         this.console.proxy.log("[debug] wrapped code:\n" + wrapped);
@@ -826,11 +835,12 @@ const createPackagesKey = (packages: Record<string, string>) => {
 //   statement is found, just execute the body and return undefined.
 const wrapForTopLevelAwait = (source: string): string => {
   const lines = source.split(/\r?\n/);
-  const topImports: string[] = [];
+  const headerBlocks: string[] = [];
   const rest: string[] = [];
   for (let i = 0; i < lines.length; i++) {
     const raw = lines[i] ?? "";
     const t = raw.trimStart();
+    // Hoist top-level imports
     if (t.startsWith("import") && !t.startsWith("import(")) {
       const block: string[] = [raw];
       let j = i;
@@ -843,14 +853,46 @@ const wrapForTopLevelAwait = (source: string): string => {
           break;
         }
       }
-      topImports.push(block.join("\n"));
+      headerBlocks.push(block.join("\n"));
+      i = j;
+      continue;
+    }
+    // Hoist top-level TypeScript type/interface declarations
+    if (/^(?:export\s+)?(?:interface|type)\b/.test(t)) {
+      const block: string[] = [raw];
+      let j = i;
+      if (/^\s*(?:export\s+)?type\b/.test(t)) {
+        // Collect until a semicolon at depth 0 of {} nesting
+        let depthBraces = (raw.match(/\{/g) || []).length - (raw.match(/\}/g) || []).length;
+        let ended = /;\s*$/.test(raw) && depthBraces === 0;
+        while (!ended && j + 1 < lines.length) {
+          j++;
+          const ln = lines[j] ?? "";
+          block.push(ln);
+          depthBraces += (ln.match(/\{/g) || []).length - (ln.match(/\}/g) || []).length;
+          if (/;\s*$/.test(ln) && depthBraces === 0) {
+            ended = true;
+            break;
+          }
+        }
+      } else {
+        // interface: collect until matching closing brace
+        let depth = (raw.match(/\{/g) || []).length - (raw.match(/\}/g) || []).length;
+        while (depth > 0 && j + 1 < lines.length) {
+          j++;
+          const ln = lines[j] ?? "";
+          block.push(ln);
+          depth += (ln.match(/\{/g) || []).length - (ln.match(/\}/g) || []).length;
+        }
+      }
+      headerBlocks.push(block.join("\n"));
       i = j;
       continue;
     }
     rest.push(raw);
   }
 
-  const header = topImports.length > 0 ? `${topImports.join("\n")}\n` : "";
+  const header = headerBlocks.length > 0 ? `${headerBlocks.join("\n")}\n` : "";
 
   const isControlStart = (s: string) =>
     /^(?:if|for|while|switch|try|catch|finally|with|else|class|function|const|let|var|export|import|return|throw|break|continue|case|default)\b/.test(
@@ -985,7 +1027,16 @@ const wrapForTopLevelAwait = (source: string): string => {
   const start = chosen.start;
   const end = chosen.end;
   const stmt = bodyText.slice(start, end);
-  const expr = stmt.replace(/;\s*$/, "");
+    const expr = stmt.replace(/;\s*$/, "");
+
+  // Heuristic: if the final expression contains TypeScript generic arrow or
+  // complex generic syntax that esbuild may misparse when wrapped, avoid
+  // injecting parentheses directly and instead fall back to plain IIFE return.
+  const looksGeneric = /<\w+\s*(?:extends\b[^>]*)?>\s*\(/.test(expr);
+  if (looksGeneric) {
+    const body = [`${bodyText}`, `return (${expr})`].filter(Boolean).join("\n");
+    return `${header}(async()=>{\n${body}\n})()`;
+  }
 
   const newBodyText = `${bodyText.slice(0, start)}${resultVar} = (${expr});${bodyText.slice(end)}`;
 
@@ -993,6 +1044,205 @@ const wrapForTopLevelAwait = (source: string): string => {
     .filter(Boolean)
     .join("\n");
   return `${header}(async()=>{\n${body}\n})()`;
+};
+
+// TS-focused wrapper: hoist only top-level imports; keep type/interface in body,
+// and reliably capture the last expression statement. Avoids splitting inside
+// type alias/object braces by requiring all grouping depths to be zero.
+const wrapForTopLevelAwaitTsCapture = (source: string): string => {
+  const lines = source.split(/\r?\n/);
+  const imports: string[] = [];
+  const rest: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i] ?? "";
+    const t = raw.trimStart();
+    if (t.startsWith("import") && !t.startsWith("import(")) {
+      const block: string[] = [raw];
+      let j = i;
+      let ended = /;\s*$/.test(raw);
+      while (!ended && j + 1 < lines.length) {
+        j++;
+        block.push(lines[j] ?? "");
+        if (/;\s*$/.test(lines[j] ?? "")) {
+          ended = true;
+          break;
+        }
+      }
+      imports.push(block.join("\n"));
+      i = j;
+      continue;
+    }
+    rest.push(raw);
+  }
+
+  const header = imports.length > 0 ? `${imports.join("\n")}\n` : "";
+  const bodyText = rest.join("\n");
+
+  type Range = { start: number; end: number };
+  const statements: Range[] = [];
+  let realStmtStart = 0;
+  let i = 0;
+  let inLineComment = false;
+  let inBlockComment = false;
+  let inString: false | '"' | "'" | "`" = false;
+  let paren = 0, bracket = 0, brace = 0;
+
+  const commit = (endExclusive: number) => {
+    const s = bodyText.slice(realStmtStart, endExclusive);
+    if (s.trim().length > 0) statements.push({ start: realStmtStart, end: endExclusive });
+    realStmtStart = endExclusive;
+  };
+
+  const isControlStart = (s: string) =>
+    /^(?:if|for|while|switch|try|catch|finally|with|else|class|function|const|let|var|export|import|return|throw|break|continue|case|default|interface|type)\b/.test(
+      s.trimStart()
+    );
+
+  while (i < bodyText.length) {
+    const ch = bodyText[i]!;
+    const next = bodyText[i + 1];
+    if (inLineComment) {
+      if (ch === "\n") inLineComment = false;
+      i++;
+      continue;
+    }
+    if (inBlockComment) {
+      if (ch === "*" && next === "/") {
+        inBlockComment = false;
+        i += 2;
+        continue;
+      }
+      i++;
+      continue;
+    }
+    if (inString) {
+      if (ch === "\\") { i += 2; continue; }
+      if ((inString === "`" && ch === "`") || ch === inString) { inString = false; i++; continue; }
+      i++; continue;
+    }
+    if (ch === "/" && next === "/") { inLineComment = true; i += 2; continue; }
+    if (ch === "/" && next === "*") { inBlockComment = true; i += 2; continue; }
+    if (ch === '"' || ch === "'") { inString = ch as '"' | "'"; i++; continue; }
+    if (ch === "`") { inString = "`"; i++; continue; }
+
+    if (ch === "(") paren++;
+    else if (ch === ")") paren = Math.max(0, paren - 1);
+    else if (ch === "[") bracket++;
+    else if (ch === "]") bracket = Math.max(0, bracket - 1);
+    else if (ch === "{") brace++;
+    else if (ch === "}") brace = Math.max(0, brace - 1);
+
+    // At top level, if a new statement with a control-start keyword begins on this
+    // line (e.g., function/class/interface/type/export), commit the previous chunk.
+    if (paren === 0 && bracket === 0 && brace === 0 && (i === 0 || bodyText[i - 1] === "\n")) {
+      const ahead = bodyText.slice(i).trimStart();
+      if (/^(?:async\s+function|function|class|interface|type|export)\b/.test(ahead)) {
+        if (realStmtStart < i) commit(i);
+      }
+    }
+
+    if (ch === ";" && paren === 0 && bracket === 0 && brace === 0) {
+      commit(i + 1); i++; continue;
+    }
+    i++;
+  }
+
+  if (realStmtStart < bodyText.length) commit(bodyText.length);
+
+  // Pick last non-control statement
+  let chosen: Range | null = null;
+  for (let k = statements.length - 1; k >= 0; k--) {
+    const { start, end } = statements[k]!;
+    const snippet = bodyText.slice(start, end).trim();
+    if (snippet === "") continue;
+    if (isControlStart(snippet)) continue;
+    chosen = { start, end };
+    break;
+  }
+
+  if (!chosen) {
+    return `${header}(async()=>{\n${bodyText}\n})()`;
+  }
+
+  const resultVar = "__nodebooks_result__";
+  const start = chosen.start;
+  const end = chosen.end;
+  const stmt = bodyText.slice(start, end);
+  const expr = stmt.replace(/;\s*$/, "");
+  // Only capture when the last statement is a plain variable reference
+  // (identifier or dotted path). Avoid calls, literals, or complex expressions.
+  const idRefRe = /^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*$/;
+  if (!idRefRe.test(expr.trim())) {
+    // Do not capture; just run body
+    return `${header}(async()=>{\n${bodyText}\n})()`;
+  }
+  const newBodyText = `${bodyText.slice(0, start)}${resultVar} = ${expr};${bodyText.slice(end)}`;
+  const body = [`let ${resultVar};`, newBodyText, `return ${resultVar}`]
+    .filter(Boolean)
+    .join("\n");
+  return `${header}(async()=>{\n${body}\n})()`;
+};
+
+// Simpler wrapper for TS-heavy cells: hoist imports/types/interfaces only,
+// then run the body inside an async IIFE without attempting to capture the
+// last expression (avoids parser ambiguities with generic arrows).
+const wrapForTopLevelAwaitSimple = (source: string): string => {
+  const lines = source.split(/\r?\n/);
+  const headerBlocks: string[] = [];
+  const rest: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i] ?? "";
+    const t = raw.trimStart();
+    if (t.startsWith("import") && !t.startsWith("import(")) {
+      const block: string[] = [raw];
+      let j = i;
+      let ended = /;\s*$/.test(raw);
+      while (!ended && j + 1 < lines.length) {
+        j++;
+        block.push(lines[j] ?? "");
+        if (/;\s*$/.test(lines[j] ?? "")) {
+          ended = true;
+          break;
+        }
+      }
+      headerBlocks.push(block.join("\n"));
+      i = j;
+      continue;
+    }
+    if (/^(?:export\s+)?(?:interface|type)\b/.test(t)) {
+      const block: string[] = [raw];
+      let j = i;
+      if (/^\s*(?:export\s+)?type\b/.test(t)) {
+        let depthBraces = (raw.match(/\{/g) || []).length - (raw.match(/\}/g) || []).length;
+        let ended = /;\s*$/.test(raw) && depthBraces === 0;
+        while (!ended && j + 1 < lines.length) {
+          j++;
+          const ln = lines[j] ?? "";
+          block.push(ln);
+          depthBraces += (ln.match(/\{/g) || []).length - (ln.match(/\}/g) || []).length;
+          if (/;\s*$/.test(ln) && depthBraces === 0) {
+            ended = true;
+            break;
+          }
+        }
+      } else {
+        let depth = (raw.match(/\{/g) || []).length - (raw.match(/\}/g) || []).length;
+        while (depth > 0 && j + 1 < lines.length) {
+          j++;
+          const ln = lines[j] ?? "";
+          block.push(ln);
+          depth += (ln.match(/\{/g) || []).length - (ln.match(/\}/g) || []).length;
+        }
+      }
+      headerBlocks.push(block.join("\n"));
+      i = j;
+      continue;
+    }
+    rest.push(raw);
+  }
+  const header = headerBlocks.length > 0 ? `${headerBlocks.join("\n")}\n` : "";
+  const bodyText = rest.join("\n");
+  return `${header}(async()=>{\n${bodyText}\n})()`;
 };
 
 const createPackageJson = (
@@ -1350,6 +1600,31 @@ const createSandboxRequire = (
         "Access to child_process is disabled in NodeBooks runtime"
       );
     }
+    // Allow outbound networking modules but block server/bind APIs.
+    if (specifier === "http" || specifier === "node:http") {
+      const mod = base("node:http");
+      return wrapHttpModule(mod);
+    }
+    if (specifier === "https" || specifier === "node:https") {
+      const mod = base("node:https");
+      return wrapHttpsModule(mod);
+    }
+    if (specifier === "http2" || specifier === "node:http2") {
+      const mod = base("node:http2");
+      return wrapHttp2Module(mod);
+    }
+    if (specifier === "net" || specifier === "node:net") {
+      const mod = base("node:net");
+      return wrapNetModule(mod);
+    }
+    if (specifier === "tls" || specifier === "node:tls") {
+      const mod = base("node:tls");
+      return wrapTlsModule(mod);
+    }
+    if (specifier === "dgram" || specifier === "node:dgram") {
+      const mod = base("node:dgram");
+      return wrapDgramModule(mod);
+    }
     return base(specifier);
   }) as unknown as NodeJS.Require & {
     setUiDisplayHook?: (fn: UiDisplayHook) => void;
@@ -1377,6 +1652,142 @@ const createSandboxRequire = (
   return sandboxRequire as NodeJS.Require & {
     setUiDisplayHook: (fn: UiDisplayHook) => void;
   };
+};
+
+// --- Network module wrappers: allow client connections, block server/bind. ---
+const bindCallable = (val: unknown, thisArg: unknown): unknown => {
+  if (typeof val === "function") {
+    // Use Reflect.apply to avoid relying on the Function type
+    return (...args: unknown[]) =>
+      Reflect.apply(val as never, thisArg as never, args as never);
+  }
+  return val as unknown;
+};
+
+const wrapHttpModule = (mod: Record<string, unknown>) => {
+  const blocked = () => {
+    throw new Error("http server creation is not allowed in NodeBooks runtime");
+  };
+  const proxy: Record<string, unknown> = Object.create(null);
+  for (const key of Object.keys(mod) as string[]) {
+    const val = (mod as Record<string, unknown>)[key];
+    if (key === "createServer") {
+      proxy[key] = blocked;
+    } else {
+      proxy[key] = bindCallable(val, mod);
+    }
+  }
+  return proxy;
+};
+
+const wrapHttpsModule = (mod: Record<string, unknown>) => {
+  const blocked = () => {
+    throw new Error(
+      "https server creation is not allowed in NodeBooks runtime"
+    );
+  };
+  const proxy: Record<string, unknown> = Object.create(null);
+  for (const key of Object.keys(mod) as string[]) {
+    const val = (mod as Record<string, unknown>)[key];
+    if (key === "createServer") {
+      proxy[key] = blocked;
+    } else {
+      proxy[key] = bindCallable(val, mod);
+    }
+  }
+  return proxy;
+};
+
+const wrapHttp2Module = (mod: Record<string, unknown>) => {
+  const blocked = () => {
+    throw new Error(
+      "http2 server creation is not allowed in NodeBooks runtime"
+    );
+  };
+  const proxy: Record<string, unknown> = Object.create(null);
+  for (const key of Object.keys(mod) as string[]) {
+    const val = (mod as Record<string, unknown>)[key];
+    if (key === "createServer" || key === "createSecureServer") {
+      proxy[key] = blocked;
+    } else {
+      proxy[key] = bindCallable(val, mod);
+    }
+  }
+  return proxy;
+};
+
+const wrapNetModule = (mod: Record<string, unknown>) => {
+  const blocked = () => {
+    throw new Error("net server creation is not allowed in NodeBooks runtime");
+  };
+  const proxy: Record<string, unknown> = Object.create(null);
+  for (const key of Object.keys(mod) as string[]) {
+    const val = (mod as Record<string, unknown>)[key];
+    if (key === "createServer") {
+      proxy[key] = blocked;
+    } else if (key === "Server") {
+      // Expose the constructor but warn on listen will be best-effort elsewhere
+      proxy[key] = val as unknown;
+    } else {
+      proxy[key] = bindCallable(val, mod);
+    }
+  }
+  return proxy;
+};
+
+const wrapTlsModule = (mod: Record<string, unknown>) => {
+  const blocked = () => {
+    throw new Error("tls server creation is not allowed in NodeBooks runtime");
+  };
+  const proxy: Record<string, unknown> = Object.create(null);
+  for (const key of Object.keys(mod) as string[]) {
+    const val = (mod as Record<string, unknown>)[key];
+    if (key === "createServer") {
+      proxy[key] = blocked;
+    } else {
+      proxy[key] = bindCallable(val, mod);
+    }
+  }
+  return proxy;
+};
+
+const wrapDgramModule = (mod: Record<string, unknown>) => {
+  const proxy: Record<string, unknown> = Object.create(null);
+  for (const key of Object.keys(mod) as string[]) {
+    const val = (mod as Record<string, unknown>)[key];
+    if (key === "createSocket" && typeof val === "function") {
+      proxy[key as string] = (...args: unknown[]) => {
+        const socket = Reflect.apply(val as never, mod as never, args as never);
+        // Wrap bind/addMembership
+        const sProxy = new Proxy(socket as object, {
+          get(target: object, prop: string | symbol, receiver: unknown) {
+            if (
+              prop === "bind" ||
+              prop === "addMembership" ||
+              prop === "setMulticastTTL" ||
+              prop === "addSourceSpecificMembership"
+            ) {
+              return () => {
+                throw new Error(
+                  "dgram binding/multicast is not allowed in NodeBooks runtime"
+                );
+              };
+            }
+            const v = Reflect.get(target, prop, receiver);
+            if (typeof v === "function") {
+              return (...fnArgs: unknown[]) =>
+                Reflect.apply(v as never, target as never, fnArgs as never);
+            }
+            return v;
+          },
+        });
+        return sProxy;
+      };
+    } else {
+      proxy[key as string] = bindCallable(val, mod);
+    }
+  }
+  return proxy;
 };
 
 const createProcessProxy = (

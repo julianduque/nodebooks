@@ -1,0 +1,23 @@
+{
+  "name": "@nodebooks/runtime-node-worker",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/worker.js",
+  "types": "dist/worker.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "lint": "eslint src --ext .ts",
+    "pretest": "pnpm build",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@nodebooks/runtime-node": "workspace:*",
+    "@nodebooks/runtime-protocol": "workspace:*",
+    "@nodebooks/notebook-schema": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.2",
+    "@types/node": "^24.5.2",
+    "vitest": "^3.2.4"
+  }
+}

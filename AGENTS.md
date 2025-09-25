@@ -10,11 +10,11 @@ Use `pnpm@10` (declared in `package.json`) to install dependencies across the mo
 
 ## Build, Test, and Development Commands
 
-`pnpm dev` runs all workspaces in watch mode (Fastify via `tsx`, Next.js via `next dev`). Use `pnpm --filter @nodebooks/api dev` or `pnpm --filter @nodebooks/ui dev` when you only need one surface. `pnpm build` compiles every package; `pnpm lint` runs ESLint with the repo config; `pnpm test` executes Vitest in each workspace. Code formatting is handled by Prettier via `pnpm format` (write) and `pnpm format:check` (verify only).
+`pnpm dev` runs all workspaces in watch mode (Fastify via `tsx`, Next.js via `next dev`). Use `pnpm --filter @nodebooks/server dev` or `pnpm --filter @nodebooks/client dev` when you only need one surface. `pnpm build` compiles every package; `pnpm lint` runs ESLint with the repo config; `pnpm test` executes Vitest in each workspace. Code formatting is handled by Prettier via `pnpm format` (write) and `pnpm format:check` (verify only).
 
 ## Coding Style & Naming Conventions
 
-TypeScript with ES modules is the default; keep files as `.ts`/`.tsx`. Favor 2-space indentation and double quotes to match existing code. Prettier is configured at the repo root (`.prettierrc`) with `.prettierignore` excluding build output and `apps/backend/data`; run `pnpm format` before committing. Import types using `import type` (ESLint enforces `@typescript-eslint/consistent-type-imports`). Name React components in `PascalCase`, utility modules in `camelCase`, and tests as `*.test.ts[x]`.
+TypeScript with ES modules is the default; keep files as `.ts`/`.tsx`. Favor 2-space indentation and double quotes to match existing code. Prettier is configured at the repo root (`.prettierrc`) with `.prettierignore` excluding build output and `apps/backend/data`; run `pnpm format` before committing. Import types using `import type` (ESLint enforces `@typescript-eslint/consistent-type-imports`). Name files in `kebab-case`, React components in `PascalCase`, utility modules in `camelCase`, and tests as `*.test.ts[x]`.
 
 ## React useEffect Guidelines
 

@@ -6,7 +6,8 @@ import {
   NotebookSchema,
 } from "@nodebooks/notebook-schema";
 import type { NotebookStore } from "../types.js";
-import { NotebookRuntime } from "@nodebooks/runtime-node";
+import { WorkerClient } from "@nodebooks/runtime-host";
+import { getWorkerPool } from "../kernel/runtime-pool.js";
 
 const encodePackagePath = (name: string) => {
   // Encode each path component while preserving slashes
@@ -66,7 +67,7 @@ export const registerDependencyRoutes = (
 
     // Trigger install immediately using a throwaway runtime instance
     try {
-      const runtime = new NotebookRuntime();
+      const runtime = new WorkerClient(getWorkerPool());
       const result = await runtime.execute({
         cell: createCodeCell({ language: "js", source: "" }),
         code: "",
@@ -125,7 +126,7 @@ export const registerDependencyRoutes = (
     );
 
     try {
-      const runtime = new NotebookRuntime();
+      const runtime = new WorkerClient(getWorkerPool());
       const result = await runtime.execute({
         cell: createCodeCell({ language: "js", source: "" }),
         code: "",

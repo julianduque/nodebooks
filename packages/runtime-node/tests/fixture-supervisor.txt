@@ -1,0 +1,313 @@
+import { UiImage, UiMarkdown } from "@nodebooks/ui";
+
+class HumanMessage {
+  constructor(public content: string) {}
+}
+
+class SystemMessage {
+  constructor(public content: string) {}
+}
+
+class ChatHeroku {
+  constructor(private readonly options: Record<string, unknown>) {}
+
+  async invoke(messages: Array<HumanMessage | SystemMessage>) {
+    const human = messages.find(
+      (msg) => msg instanceof HumanMessage
+    ) as HumanMessage | undefined;
+    const system = messages.find(
+      (msg) => msg instanceof SystemMessage
+    ) as SystemMessage | undefined;
+    const text = human?.content ?? "";
+    const prompt = system?.content ?? "";
+
+    if (prompt.includes("routing supervisor")) {
+      const questionSection = text.split("Question: ").pop() ?? text;
+      const question = (questionSection.split("\n")[0] ?? questionSection)
+        .toLowerCase()
+        .trim();
+      if (question.includes("weather") || question.includes("temperature")) {
+        return { content: "weather" };
+      }
+      if (
+        question.includes("math") ||
+        question.includes("calculate") ||
+        question.includes("equation")
+      ) {
+        return { content: "math" };
+      }
+      return { content: "general" };
+    }
+
+    if (prompt.includes("weather expert")) {
+      return { content: "It looks sunny today." };
+    }
+    if (prompt.includes("mathematics expert")) {
+      return { content: "Euler's identity is e^(iπ) + 1 = 0." };
+    }
+    return { content: "Leonhard Euler was a Swiss mathematician." };
+  }
+}
+
+type AnnotationConfig<T> = {
+  reducer: (x: T, y: T) => T;
+  default: () => T;
+};
+
+const Annotation = Object.assign(
+  <T>(config: AnnotationConfig<T>) => config,
+  {
+    Root: <T extends Record<string, unknown>>(config: T) => config,
+  }
+);
+
+const MessagesAnnotation = Annotation;
+const START = "__START__";
+const END = "__END__";
+
+type SupervisorSnapshot = {
+  messages: Array<HumanMessage | SystemMessage | { content?: string }>;
+  route?: string;
+};
+
+class StateGraph {
+  private readonly nodes = new Map<
+    string,
+    (state: SupervisorSnapshot) =>
+      | SupervisorSnapshot
+      | Promise<SupervisorSnapshot>
+  >();
+  private readonly edges = new Map<string, string[]>();
+  private readonly conditionals = new Map<
+    string,
+    (state: SupervisorSnapshot) => string
+  >();
+  private start: string | null = null;
+
+  constructor(private readonly stateShape: unknown) {
+    void this.stateShape;
+  }
+
+  addNode(
+    name: string,
+    handler: (state: SupervisorSnapshot) =>
+      | SupervisorSnapshot
+      | Promise<SupervisorSnapshot>
+  ) {
+    this.nodes.set(name, handler);
+    return this;
+  }
+
+  addEdge(from: typeof START | string, to: string | typeof END) {
+    if (from === START) {
+      this.start = typeof to === "string" ? to : null;
+      return this;
+    }
+    const list = this.edges.get(from) ?? [];
+    if (to !== END) {
+      list.push(to);
+    }
+    this.edges.set(from, list);
+    return this;
+  }
+
+  addConditionalEdges(
+    name: string,
+    router: (state: SupervisorSnapshot) => string
+  ) {
+    this.conditionals.set(name, router);
+    return this;
+  }
+
+  compile() {
+    const nodes = this.nodes;
+    const edges = this.edges;
+    const router = this.conditionals;
+    const startNode = this.start;
+
+    return {
+      invoke: async (input: SupervisorSnapshot) => {
+        let current = startNode;
+        let state: SupervisorSnapshot = {
+          messages: [...(input.messages ?? [])],
+          route: input.route,
+        };
+
+        while (current) {
+          const handler = nodes.get(current);
+          if (!handler) {
+            break;
+          }
+
+          const result = await handler({ ...state });
+          const nextMessages = result.messages ?? [];
+          state = {
+            ...state,
+            ...result,
+            messages: [...state.messages, ...nextMessages],
+          };
+
+          const conditional = router.get(current);
+          if (conditional) {
+            current = conditional(state);
+            continue;
+          }
+
+          const nextList = edges.get(current) ?? [];
+          current = nextList[0] ?? null;
+        }
+
+        return state;
+      },
+      getGraphAsync: async () => ({
+        drawMermaidPng: async () => ({
+          async arrayBuffer() {
+            return Buffer.from("graphviz");
+          },
+        }),
+      }),
+    };
+  }
+}
+
+const model = new ChatHeroku({
+  model: "demo",
+  apiKey: "demo",
+  temperature: 0,
+});
+
+const SupervisorState = Annotation.Root({
+  messages: {
+    reducer: (x, y) => ({
+      content: String(x?.content ?? "") + "\n" + String(y?.content ?? ""),
+    }),
+    default: () => ({ content: "" }),
+  },
+  route: {
+    reducer: (_x, y) => y,
+    default: () => "",
+  },
+});
+
+async function weatherAgent(state: SupervisorSnapshot) {
+  const response = await model.invoke([
+    new SystemMessage("You are a weather expert"),
+    new HumanMessage("Provide a brief weather update for today"),
+  ]);
+  return { messages: [{ content: response.content }] };
+}
+
+async function mathAgent(state: SupervisorSnapshot) {
+  const response = await model.invoke([
+    new SystemMessage("You are a mathematics expert. Give a known math fact"),
+    new HumanMessage("Share a short mathematical insight or identity"),
+  ]);
+  return { messages: [{ content: response.content }] };
+}
+
+async function generalAgent(state: SupervisorSnapshot) {
+  const response = await model.invoke([
+    new SystemMessage(
+      "You are a general knowledge expert. Answer very briefly"
+    ),
+    new HumanMessage("Who was Leonhard Euler?")
+  ]);
+  return { messages: [{ content: response.content }] };
+}
+
+async function supervisor(state: SupervisorSnapshot) {
+  const messages = state.messages ?? [];
+  const humanMessage = messages.find((m) => m instanceof HumanMessage) as
+    | HumanMessage
+    | undefined;
+
+  const routingPrompt = [
+    "Based on the following question, decide which agent should handle it:",
+    '- "weather" for weather-related questions',
+    '- "math" for mathematical problems or calculations',
+    '- "general" for general knowledge questions',
+    "",
+    "Question: " + (humanMessage?.content ?? ""),
+    "",
+    "Respond with only one word: weather, math, or general",
+  ].join("\n");
+
+  const response = await model.invoke([
+    new SystemMessage(
+      "You are a routing supervisor. Respond with only one word: weather, math, or general"
+    ),
+    new HumanMessage(routingPrompt),
+  ]);
+
+  const route = response.content?.toLowerCase().trim() || "general";
+
+  const routingMessage = new SystemMessage(
+    "Supervisor routed to: " + route + " agent"
+  );
+  return {
+    messages: [routingMessage],
+    route,
+  };
+}
+
+function route(state: SupervisorSnapshot) {
+  const routeDecision = state.route || "general";
+
+  if (routeDecision.includes("weather")) {
+    return "weather_agent";
+  }
+  if (routeDecision.includes("math")) {
+    return "math_agent";
+  }
+  return "general_agent";
+}
+
+function createSupervisorGraph() {
+  const workflow = new StateGraph(SupervisorState)
+    .addNode("supervisor", supervisor)
+    .addNode("weather_agent", weatherAgent)
+    .addNode("math_agent", mathAgent)
+    .addNode("general_agent", generalAgent)
+    .addEdge(START, "supervisor")
+    .addConditionalEdges("supervisor", route)
+    .addEdge("weather_agent", END)
+    .addEdge("math_agent", END)
+    .addEdge("general_agent", END);
+
+  return workflow.compile();
+}
+
+async function askSupervisorQuestion(question: string) {
+  if (!question || typeof question !== "string") {
+    throw new Error("Question must be a non-empty string");
+  }
+
+  const graph = createSupervisorGraph();
+
+  const result = await graph.invoke({
+    messages: [new HumanMessage(question)],
+  });
+
+  const agentResponse = result.messages[result.messages.length - 1];
+
+  if (!agentResponse || !agentResponse.content) {
+    throw new Error("No valid response received from agent");
+  }
+
+  return agentResponse.content;
+}
+
+async function generateSupervisorGraph() {
+  const graph = createSupervisorGraph();
+  const graphAsync = await graph.getGraphAsync();
+  const image = await graphAsync.drawMermaidPng();
+  const arrayBuffer = await image.arrayBuffer();
+  const base64 = Buffer.from(arrayBuffer).toString("base64");
+  return "data:image/png;base64," + base64;
+}
+
+const image = await generateSupervisorGraph();
+UiImage(image);
+
+const response = await askSupervisorQuestion("What is Euler?");
+UiMarkdown(response);

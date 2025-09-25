@@ -1,0 +1,271 @@
+import { fork, type ChildProcess } from "node:child_process";
+import { createRequire } from "node:module";
+import os from "node:os";
+import type { IpcEventMessage, IpcRunCell } from "@nodebooks/runtime-protocol";
+import { IpcEventMessageSchema } from "@nodebooks/runtime-protocol";
+import type { CodeCell, NotebookEnv } from "@nodebooks/notebook-schema";
+import { tryDecode, StreamKind } from "@nodebooks/runtime-protocol";
+
+export interface ExecuteOptions {
+  cell: CodeCell;
+  code: string;
+  notebookId: string;
+  env: NotebookEnv;
+  timeoutMs?: number;
+  onStdout?: (text: string) => void;
+  onStderr?: (text: string) => void;
+  onDisplay?: (obj: unknown) => void;
+}
+
+export interface ExecuteResult {
+  outputs: unknown[];
+  execution: {
+    started: number;
+    ended: number;
+    status: "ok" | "error" | "aborted";
+    error?: { name: string; message: string; stack?: string };
+  };
+}
+
+export interface WorkerPoolOptions {
+  size?: number;
+  memoryMb?: number; // passed via --max-old-space-size
+  perJobTimeoutMs?: number; // default if job doesn't specify
+  maxOutputBytes?: number; // cap for combined stdout/stderr/display frames
+  batchMs?: number; // forwarded to worker via env NB_BATCH_MS
+  cancelGraceMs?: number; // time from Cancel to kill
+}
+
+class WorkerHandle {
+  readonly child: ChildProcess;
+  busy = false;
+  crashed = false;
+
+  constructor(child: ChildProcess) {
+    this.child = child;
+    child.on("exit", () => {
+      this.crashed = true;
+    });
+  }
+}
+
+type ActiveEntry = {
+  worker: WorkerHandle;
+  resolve: (r: ExecuteResult) => void;
+  reject: (e: unknown) => void;
+  bytes: number;
+  cancelTimer?: NodeJS.Timeout;
+};
+
+export class WorkerPool {
+  private readonly size: number;
+  private readonly opts: Required<WorkerPoolOptions>;
+  private readonly workers: WorkerHandle[] = [];
+  private readonly queue: Array<() => void> = [];
+  private readonly active = new Map<string, ActiveEntry>();
+
+  constructor(
+    sizeOrOpts: number | WorkerPoolOptions = Math.max(
+      1,
+      Math.min(2, os.cpus().length)
+    )
+  ) {
+    const defaults: Required<WorkerPoolOptions> = {
+      size: Math.max(1, Math.min(2, os.cpus().length)),
+      memoryMb: 256,
+      perJobTimeoutMs: 10_000,
+      maxOutputBytes: 5_000_000,
+      batchMs: 25,
+      cancelGraceMs: 250,
+    };
+    const cfg =
+      typeof sizeOrOpts === "number"
+        ? { ...defaults, size: sizeOrOpts }
+        : { ...defaults, ...sizeOrOpts };
+    this.size = cfg.size;
+    this.opts = cfg;
+    for (let i = 0; i < this.size; i++) {
+      this.workers.push(new WorkerHandle(spawnWorker(this.opts)));
+    }
+  }
+
+  async run(jobId: string, opts: ExecuteOptions): Promise<ExecuteResult> {
+    const worker = await this.acquire();
+    try {
+      return await this.runOnWorker(worker, jobId, opts);
+    } finally {
+      this.release(worker);
+    }
+  }
+
+  cancel(jobId: string) {
+    const entry = this.active.get(jobId);
+    if (!entry) return;
+    try {
+      entry.worker.child.send({ type: "Cancel", jobId });
+    } catch {
+      /* noop */
+    }
+    const timer = setTimeout(() => {
+      try {
+        entry.worker.child.kill("SIGKILL");
+      } catch {
+        /* noop */
+      }
+      entry.reject(new Error("Job cancelled"));
+    }, this.opts.cancelGraceMs);
+    // If the job finishes before grace, clear timer in message handler
+    entry.cancelTimer = timer;
+  }
+
+  private async runOnWorker(
+    worker: WorkerHandle,
+    jobId: string,
+    opts: ExecuteOptions
+  ): Promise<ExecuteResult> {
+    const started = Date.now();
+    const child = worker.child;
+    const result = new Promise<ExecuteResult>((resolve, reject) => {
+      const onMessage = (raw: unknown) => {
+        if (raw && typeof raw === "object" && raw !== null && "type" in raw) {
+          const parsed = IpcEventMessageSchema.safeParse(raw);
+          if (!parsed.success) return;
+          const msg = parsed.data as IpcEventMessage;
+          switch (msg.type) {
+            case "Error":
+              cleanup();
+              reject(new Error(msg.message));
+              break;
+            case "Result":
+              cleanup();
+              resolve({ outputs: msg.outputs, execution: msg.execution });
+              break;
+          }
+          return;
+        }
+        if (raw instanceof Uint8Array || Buffer.isBuffer(raw)) {
+          const arr = raw instanceof Uint8Array ? raw : new Uint8Array(raw);
+          const frame = tryDecode(arr);
+          if (!frame) return;
+          // Output cap
+          const entry = this.active.get(jobId);
+          if (entry) {
+            entry.bytes += arr.byteLength;
+            if (entry.bytes > this.opts.maxOutputBytes) {
+              cleanup();
+              try {
+                child.kill("SIGKILL");
+              } catch {
+                /* noop */
+              }
+              reject(new Error("Output limit exceeded"));
+              return;
+            }
+          }
+          if (frame.kind === StreamKind.Display) {
+            opts.onDisplay?.((frame as { data: unknown }).data);
+          } else if (frame.kind === StreamKind.Stdout) {
+            opts.onStdout?.((frame as { text: string }).text);
+          } else if (frame.kind === StreamKind.Stderr) {
+            opts.onStderr?.((frame as { text: string }).text);
+          }
+        }
+      };
+
+      const cleanup = () => {
+        child.off("message", onMessage);
+        const entry = this.active.get(jobId);
+        if (entry?.cancelTimer) clearTimeout(entry.cancelTimer);
+        this.active.delete(jobId);
+      };
+
+      child.on("message", onMessage);
+
+      const payload: IpcRunCell = {
+        type: "RunCell",
+        jobId,
+        cell: opts.cell,
+        code: opts.code,
+        notebookId: opts.notebookId,
+        env: opts.env,
+        timeoutMs: opts.timeoutMs ?? this.opts.perJobTimeoutMs,
+      };
+      // Track active job
+      this.active.set(jobId, { worker, resolve, reject, bytes: 0 });
+      child.send(payload);
+    });
+
+    return await result.finally(() => {
+      const ended = Date.now();
+      void started;
+      void ended;
+    });
+  }
+
+  private async acquire(): Promise<WorkerHandle> {
+    const idle = this.workers.find((w) => !w.busy && !w.crashed);
+    if (idle) {
+      idle.busy = true;
+      return idle;
+    }
+    return await new Promise<WorkerHandle>((resolve) => {
+      this.queue.push(() => {
+        const next = this.workers.find((w) => !w.busy && !w.crashed)!;
+        next.busy = true;
+        resolve(next);
+      });
+    });
+  }
+
+  private release(worker: WorkerHandle) {
+    worker.busy = false;
+    if (worker.crashed) {
+      const idx = this.workers.indexOf(worker);
+      if (idx >= 0) {
+        this.workers[idx] = new WorkerHandle(spawnWorker(this.opts));
+      }
+    }
+    const next = this.queue.shift();
+    if (next) next();
+  }
+}
+
+const spawnWorker = (opts: Required<WorkerPoolOptions>): ChildProcess => {
+  const req = createRequire(import.meta.url);
+  const distPath = req.resolve("@nodebooks/runtime-node-worker/dist/worker.js");
+  const srcPath = (() => {
+    try {
+      return req.resolve("@nodebooks/runtime-node-worker/src/worker.ts");
+    } catch {
+      return null as unknown as string;
+    }
+  })();
+  type FsLike = { existsSync: (p: string) => boolean };
+  const fsMod = req("node:fs") as FsLike;
+  const useDist = !!distPath && fsMod.existsSync(distPath);
+  const entry = useDist && distPath ? distPath : srcPath!;
+
+  const loader = (() => {
+    try {
+      return req.resolve("tsx/dist/loader.mjs");
+    } catch {
+      return "tsx"; // fallback if resolution fails
+    }
+  })();
+  const child = fork(entry, {
+    stdio: ["ignore", "pipe", "pipe", "ipc"],
+    serialization: "advanced",
+    execArgv: useDist
+      ? [`--max-old-space-size=${opts.memoryMb}`]
+      : ["--loader", loader, `--max-old-space-size=${opts.memoryMb}`],
+    env: { ...process.env, NB_BATCH_MS: String(opts.batchMs) },
+  });
+
+  child.stdout?.on("data", (buf: Buffer) => {
+    process.stderr.write(`[worker:${child.pid}] ${buf}`);
+  });
+  child.stderr?.on("data", (buf: Buffer) => {
+    process.stderr.write(`[worker:${child.pid} ERR] ${buf}`);
+  });
+  return child;
+};

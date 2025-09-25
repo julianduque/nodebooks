@@ -38,9 +38,18 @@ importers:
       '@nodebooks/notebook-schema':
         specifier: workspace:*
         version: link:../../packages/notebook-schema
+      '@nodebooks/runtime-host':
+        specifier: workspace:*
+        version: link:../../packages/runtime-host
       '@nodebooks/runtime-node':
         specifier: workspace:*
         version: link:../../packages/runtime-node
+      '@nodebooks/runtime-node-worker':
+        specifier: workspace:*
+        version: link:../../packages/runtime-node-worker
+      '@nodebooks/runtime-protocol':
+        specifier: workspace:*
+        version: link:../../packages/runtime-protocol
       fastify:
         specifier: ^5.6.1
         version: 5.6.1
@@ -92,7 +101,7 @@ importers:
         version: 5.9.2
       vitest:
         specifier: ^3.2.4
-        version: 3.2.4(@types/node@24.5.2)(jiti@2.5.1)(jsdom@27.0.0)(lightningcss@1.30.1)(tsx@4.20.5)(yaml@2.8.1)
+        version: 3.2.4(@types/node@24.5.2)(jiti@2.5.1)(jsdom@27.0.0(postcss@8.5.6))(lightningcss@1.30.1)(tsx@4.20.5)(yaml@2.8.1)
 
   apps/client:
     dependencies:
@@ -207,7 +216,7 @@ importers:
         version: 5.9.2
       vitest:
         specifier: ^3.2.4
-        version: 3.2.4(@types/node@24.5.2)(jiti@2.5.1)(jsdom@27.0.0)(lightningcss@1.30.1)(tsx@4.20.5)(yaml@2.8.1)
+        version: 3.2.4(@types/node@24.5.2)(jiti@2.5.1)(jsdom@27.0.0(postcss@8.5.6))(lightningcss@1.30.1)(tsx@4.20.5)(yaml@2.8.1)
 
   packages/notebook-schema:
     dependencies:
@@ -226,7 +235,7 @@ importers:
         version: 5.9.2
       vitest:
         specifier: ^3.2.4
-        version: 3.2.4(@types/node@24.5.2)(jiti@2.5.1)(jsdom@27.0.0)(lightningcss@1.30.1)(tsx@4.20.5)(yaml@2.8.1)
+        version: 3.2.4(@types/node@24.5.2)(jiti@2.5.1)(jsdom@27.0.0(postcss@8.5.6))(lightningcss@1.30.1)(tsx@4.20.5)(yaml@2.8.1)
 
   packages/notebook-ui:
     dependencies:
@@ -274,6 +283,25 @@ importers:
         specifier: ^5.9.2
         version: 5.9.2
 
+  packages/runtime-host:
+    dependencies:
+      '@nodebooks/notebook-schema':
+        specifier: workspace:*
+        version: link:../notebook-schema
+      '@nodebooks/runtime-protocol':
+        specifier: workspace:*
+        version: link:../runtime-protocol
+    devDependencies:
+      '@types/node':
+        specifier: ^24.5.2
+        version: 24.5.2
+      typescript:
+        specifier: ^5.9.2
+        version: 5.9.2
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.4(@types/node@24.5.2)(jiti@2.5.1)(jsdom@27.0.0(postcss@8.5.6))(lightningcss@1.30.1)(tsx@4.20.5)(yaml@2.8.1)
+
   packages/runtime-node:
     dependencies:
       '@nodebooks/notebook-schema':
@@ -294,7 +322,48 @@ importers:
         version: 5.9.2
       vitest:
         specifier: ^3.2.4
-        version: 3.2.4(@types/node@24.5.2)(jiti@2.5.1)(jsdom@27.0.0)(lightningcss@1.30.1)(tsx@4.20.5)(yaml@2.8.1)
+        version: 3.2.4(@types/node@24.5.2)(jiti@2.5.1)(jsdom@27.0.0(postcss@8.5.6))(lightningcss@1.30.1)(tsx@4.20.5)(yaml@2.8.1)
+
+  packages/runtime-node-worker:
+    dependencies:
+      '@nodebooks/notebook-schema':
+        specifier: workspace:*
+        version: link:../notebook-schema
+      '@nodebooks/runtime-node':
+        specifier: workspace:*
+        version: link:../runtime-node
+      '@nodebooks/runtime-protocol':
+        specifier: workspace:*
+        version: link:../runtime-protocol
+    devDependencies:
+      '@types/node':
+        specifier: ^24.5.2
+        version: 24.5.2
+      typescript:
+        specifier: ^5.9.2
+        version: 5.9.2
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.4(@types/node@24.5.2)(jiti@2.5.1)(jsdom@27.0.0(postcss@8.5.6))(lightningcss@1.30.1)(tsx@4.20.5)(yaml@2.8.1)
+
+  packages/runtime-protocol:
+    dependencies:
+      '@nodebooks/notebook-schema':
+        specifier: workspace:*
+        version: link:../notebook-schema
+      zod:
+        specifier: ^4.1.11
+        version: 4.1.11
+    devDependencies:
+      '@types/node':
+        specifier: ^24.5.2
+        version: 24.5.2
+      typescript:
+        specifier: ^5.9.2
+        version: 5.9.2
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.4(@types/node@24.5.2)(jiti@2.5.1)(jsdom@27.0.0(postcss@8.5.6))(lightningcss@1.30.1)(tsx@4.20.5)(yaml@2.8.1)
 
 packages:
 
@@ -8244,7 +8313,7 @@ snapshots:
       tsx: 4.20.5
       yaml: 2.8.1
 
-  vitest@3.2.4(@types/node@24.5.2)(jiti@2.5.1)(jsdom@27.0.0)(lightningcss@1.30.1)(tsx@4.20.5)(yaml@2.8.1):
+  vitest@3.2.4(@types/node@24.5.2)(jiti@2.5.1)(jsdom@27.0.0(postcss@8.5.6))(lightningcss@1.30.1)(tsx@4.20.5)(yaml@2.8.1):
     dependencies:
       '@types/chai': 5.2.2
       '@vitest/expect': 3.2.4

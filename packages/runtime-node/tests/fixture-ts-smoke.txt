@@ -1,0 +1,23 @@
+interface EndpointSpec {
+  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+  path: string;
+  description: string;
+}
+
+const smokePlan: EndpointSpec[] = [
+  { method: "GET", path: "/status", description: "Health check" },
+  { method: "GET", path: "/users", description: "List users" },
+  { method: "POST", path: "/users", description: "Create user" },
+];
+
+async function runSmokePlan() {
+  for (const step of smokePlan) {
+    const response = await api.request({
+      method: step.method,
+      url: step.path,
+    });
+    console.log(step.path, response.status);
+  }
+}
+
+console.log("Invoke runSmokePlan() or build richer test flows.");
