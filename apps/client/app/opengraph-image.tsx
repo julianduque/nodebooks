@@ -47,7 +47,7 @@ export default async function Image() {
             fontWeight: 500,
           }}
         >
-          { /* nodebooks.dev */ }
+          {/* nodebooks.dev */}
         </div>
         <div
           style={{
