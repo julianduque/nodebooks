@@ -12,7 +12,8 @@
   },
   "dependencies": {
     "@nodebooks/runtime-protocol": "workspace:*",
-    "@nodebooks/notebook-schema": "workspace:*"
+    "@nodebooks/notebook-schema": "workspace:*",
+    "@nodebooks/runtime-node-worker": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.9.2",
