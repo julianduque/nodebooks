@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import NotebookView from "../../../components/NotebookView";
+import NotebookView from "../../../components/notebook-view";
 
 interface NotebookPageProps {
   params: Promise<{ id: string }>;

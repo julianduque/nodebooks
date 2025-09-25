@@ -2,11 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { OnMount } from "@monaco-editor/react";
-import MonacoEditor from "@/components/notebook/MonacoEditorClient";
+import MonacoEditor from "@/components/notebook/monaco-editor-client";
 import type { NotebookCell } from "@nodebooks/notebook-schema";
 import { Badge } from "@/components/ui/badge";
 import { Loader2, Zap } from "lucide-react";
-import OutputView from "@/components/notebook/OutputView";
+import OutputView from "@/components/notebook/output-view";
 
 interface CodeCellViewProps {
   cell: Extract<NotebookCell, { type: "code" }>;
@@ -131,7 +131,7 @@ const CodeCellView = ({
     undefined;
 
   return (
-    <div className="relative rounded-2xl bg-slate-950 text-slate-100 shadow-lg ring-1 ring-slate-900/60">
+    <div className="relative rounded-2xl bg-slate-900 text-slate-100 shadow-lg ring-1 ring-slate-900/60">
       <div className="pointer-events-none absolute left-1 top-1 z-10 flex items-center gap-2">
         {isRunning ? (
           <span className="inline-flex items-center gap-1 rounded-full bg-amber-400/20 px-2 py-0.5 text-[10px] font-semibold text-amber-200">
@@ -160,7 +160,7 @@ const CodeCellView = ({
           </Badge>
         ) : null}
         <Badge
-          variant="secondary"
+          variant="default"
           className="px-2 py-0.5 text-[10px] tracking-wide"
         >
           {cell.language.toUpperCase()}
@@ -191,7 +191,7 @@ const CodeCellView = ({
               wordWrap: "on",
               automaticLayout: true,
               readOnly: isRunning,
-              padding: { top: 18, bottom: 18 },
+              padding: { top: 22, bottom: 18 },
               scrollbar: {
                 vertical: "hidden",
                 horizontal: "auto",
@@ -205,7 +205,7 @@ const CodeCellView = ({
       ) : null}
 
       {(hideEditor || cell.outputs.length > 0) && (
-        <div className="space-y-2 border-t border-slate-800 bg-slate-900/60 p-4 text-sm text-slate-100">
+        <div className="space-y-2 bg-slate-900/60 p-4 text-sm text-slate-100">
           {cell.outputs.length > 0 ? (
             cell.outputs.map((output, index) => (
               <OutputView key={index} output={output} />
@@ -219,13 +219,13 @@ const CodeCellView = ({
         </div>
       )}
 
-      <div className="flex items-center justify-end border-t border-slate-800 px-4 py-2 text-xs uppercase tracking-[0.2em] text-slate-400">
-        {isRunning ? (
+      {isRunning && (
+        <div className="flex items-center justify-end px-4 py-2 text-xs tracking-[0.2em] text-slate-400">
           <span className="flex items-center gap-2 text-amber-400">
             <Loader2 className="h-3.5 w-3.5 animate-spin" /> Running…
           </span>
-        ) : null}
-      </div>
+        </div>
+      )}
     </div>
   );
 };

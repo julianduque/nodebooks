@@ -29,7 +29,7 @@ const resolveOrigin = async (): Promise<string | undefined> => {
 export async function generateMetadata(): Promise<Metadata> {
   const origin = await resolveOrigin();
   return {
-    metadataBase: origin ? new URL(origin) : undefined,
+    metadataBase: new URL(origin ?? "http://localhost:3000"),
     title: {
       default: "NodeBooks",
       template: "%s · NodeBooks",

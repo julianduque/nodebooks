@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import AppShell from "@/components/AppShell";
+import AppShell from "@/components/app-shell";
 import { cn } from "@/components/lib/utils";
 import { useTheme, type ThemeMode } from "@/components/theme-context";
 import { Card, CardContent } from "@/components/ui/card";

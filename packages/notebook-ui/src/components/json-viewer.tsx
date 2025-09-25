@@ -3,7 +3,7 @@ import React from "react";
 import { UiThemeContext } from "./theme";
 import type { UiJson } from "@nodebooks/notebook-schema";
 import { ChevronRight } from "lucide-react";
-import { CodeBlock } from "./codeBlock";
+import { CodeBlock } from "./code-block";
 
 type JsonViewerProps = Omit<UiJson, "ui"> & {
   className?: string;
@@ -20,7 +20,7 @@ const Toggle: React.FC<{
   <button
     onClick={onClick}
     type="button"
-    className={`inline-flex items-center justify-center rounded border px-1.5 py-0.5 transition-colors ${
+    className={`inline-flex items-center justify-center rounded border px-0.5 py-0.5 transition-colors ${
       mode === "light"
         ? "border-slate-300 bg-slate-100 text-slate-700 hover:bg-slate-200"
         : "border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700"
@@ -229,16 +229,16 @@ const Entry: React.FC<{
 
 export const JsonViewer: React.FC<JsonViewerProps> = ({
   json,
-  collapsed,
+  collapsed = false,
   maxDepth,
   className,
   themeMode,
 }) => {
   const ctx = React.useContext(UiThemeContext);
   const mode = themeMode ?? ctx ?? "light";
-  const [forceOpen, setForceOpen] = React.useState<null | boolean>(null);
+  const [forceOpen, setForceOpen] = React.useState<null | boolean>(true);
   const [version, setVersion] = React.useState(0);
-  const [allOpen, setAllOpen] = React.useState(false);
+  const [allOpen, setAllOpen] = React.useState(true);
   const [showRaw, setShowRaw] = React.useState(false);
 
   // Helper to broadcast expand/collapse to all entries
@@ -263,28 +263,30 @@ export const JsonViewer: React.FC<JsonViewerProps> = ({
           : undefined
       }
     >
-      <div className="mb-2 flex items-center justify-end gap-2">
-        <button
-          type="button"
-          onClick={() => {
-            const next = !allOpen;
-            setAllOpen(next);
-            broadcast(next);
-          }}
-          disabled={showRaw}
-          className={`inline-flex items-center rounded border px-2 py-1 text-xs ${
-            mode === "light"
-              ? "border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-              : "border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700 disabled:opacity-50"
-          }`}
-          aria-pressed={allOpen}
-        >
-          {allOpen ? "Collapse all" : "Expand all"}
-        </button>
+      <div className="mb-2 flex items-center justify-end gap-1 absolute right-1 top-2 z-10">
+        {!showRaw && (
+          <button
+            type="button"
+            onClick={() => {
+              const next = !allOpen;
+              setAllOpen(next);
+              broadcast(next);
+            }}
+            disabled={showRaw}
+            className={`inline-flex items-center rounded border px-2 py-1 text-xs ${
+              mode === "light"
+                ? "border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                : "border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700 disabled:opacity-50"
+            }`}
+            aria-pressed={allOpen}
+          >
+            {allOpen ? "Collapse all" : "Expand all"}
+          </button>
+        )}
         <button
           type="button"
           onClick={() => setShowRaw((s) => !s)}
-          className={`inline-flex items-center rounded border px-2 py-1 text-xs ${
+          className={`inline-flex items-center rounded-sm border px-2 py-1 text-xs ${
             mode === "light"
               ? showRaw
                 ? "border-slate-400 bg-slate-100 text-slate-800"
@@ -295,7 +297,7 @@ export const JsonViewer: React.FC<JsonViewerProps> = ({
           }`}
           aria-pressed={showRaw}
         >
-          Raw
+          {!showRaw ? "Raw" : "Viewer"}
         </button>
       </div>
       {showRaw ? (
