@@ -40,6 +40,25 @@ import type {
 const RUNTIME_CONFIG = loadRuntimeConfig();
 const DEFAULT_TIMEOUT_MS = RUNTIME_CONFIG.kernelTimeoutMs;
 
+const SANITIZED_GLOBAL_SUMMARY = "[NotebookGlobal]";
+const SANITIZED_PROCESS_SUMMARY = "[Sandboxed process]";
+const GLOBAL_CONTEXT_SENTINEL = Symbol("NotebookGlobalSentinel");
+
+const formatNotebookEnv = (env: Record<string, string>) => {
+  const entries = Object.entries(env)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([k, v]) => `${k}: ${inspect(v, { colors: false })}`);
+  return `NotebookEnv { ${entries.join(", ")} }`;
+};
+
+const ENV_PROXY_META = new WeakMap<
+  object,
+  {
+    maskedView: () => Record<string, string>;
+    maskedString: () => string;
+  }
+>();
+
 export interface NotebookRuntimeOptions {
   workspaceRoot?: string;
   installDependencies?: (
@@ -349,6 +368,7 @@ const rewriteTopLevelDeclarations = (source: string, _lang: "js" | "ts") => {
 class RuntimeConsole {
   private emitter: ((name: StreamOutput["name"], text: string) => void) | null =
     null;
+  private sanitizer: ((value: unknown) => unknown) | null = null;
 
   readonly proxy: Console = Object.assign(Object.create(console), {
     log: (...args: unknown[]) => {
@@ -374,14 +394,21 @@ class RuntimeConsole {
     this.emitter = emitter;
   }
 
+  setSanitizer(fn: ((value: unknown) => unknown) | null) {
+    this.sanitizer = fn;
+  }
+
   private emit(name: StreamOutput["name"], args: unknown[]) {
     if (!this.emitter) {
       return;
     }
 
+    const fn = this.sanitizer;
+    const processed = fn ? args.map((arg) => fn(arg)) : args;
+
     const text = `${formatWithOptions(
       { compact: false, breakLength: 80, colors: false },
-      ...args
+      ...(processed as unknown[])
     )}\n`;
     this.emitter(name, text);
   }
@@ -466,6 +493,7 @@ export class NotebookRuntime {
     packages: Record<string, string>
   ) => Promise<void>;
   private readonly processProxy: NodeJS.Process;
+  private readonly processInspectHandler: () => string;
   private sandboxDir: string | null = null;
   private sandboxRequire: NodeJS.Require | null = null;
   private sandboxFs: typeof fs | null = null;
@@ -488,10 +516,16 @@ export class NotebookRuntime {
       options.installDependencies ?? defaultInstallDependencies;
     fs.mkdirSync(this.workspaceRoot, { recursive: true });
 
+    const createProcessInspectHandler = () => SANITIZED_PROCESS_SUMMARY;
+    this.processInspectHandler = createProcessInspectHandler;
+
     this.processProxy = createProcessProxy(
       () => this.sandboxDir ?? this.workspaceRoot,
-      () => this.exposedEnv
+      () => this.exposedEnv,
+      this.processInspectHandler
     );
+
+    this.console.setSanitizer((value) => this.sanitizeForConsole(value));
 
     const placeholderRequire = createPlaceholderRequire();
 
@@ -536,6 +570,33 @@ export class NotebookRuntime {
 
     (this.context as Record<string, unknown>).global = this.context;
     (this.context as Record<string, unknown>).globalThis = this.context;
+
+    // Prevent leaking details when users log the global object.
+    try {
+      const tag =
+        (inspect as unknown as { custom?: symbol }).custom ||
+        Symbol.for("nodejs.util.inspect.custom");
+      Object.defineProperty(this.context as object, tag, {
+        value: () => SANITIZED_GLOBAL_SUMMARY,
+        configurable: true,
+        enumerable: false,
+        writable: true,
+      });
+      Object.defineProperty(this.context as object, "toString", {
+        value: () => SANITIZED_GLOBAL_SUMMARY,
+        configurable: true,
+        enumerable: false,
+        writable: true,
+      });
+      Object.defineProperty(this.context as object, GLOBAL_CONTEXT_SENTINEL, {
+        value: true,
+        configurable: false,
+        enumerable: false,
+        writable: false,
+      });
+    } catch {
+      /* noop */
+    }
 
     // Global UI helpers were moved to the '@nodebooks/ui' sandbox module.
     // Users should now `import { UiImage, UiMarkdown, UiHTML, UiJSON, UiCode } from "@nodebooks/ui"`.
@@ -624,6 +685,112 @@ export class NotebookRuntime {
       setInterval: wrappedSetInterval,
       clearInterval: wrappedClearInterval,
     };
+  }
+
+  private sanitizeForConsole(
+    value: unknown,
+    visited = new WeakMap<object, unknown>()
+  ): unknown {
+    if (value === null || typeof value === "undefined") {
+      return value;
+    }
+
+    if (value === this.processProxy) {
+      return SANITIZED_PROCESS_SUMMARY;
+    }
+
+    if (typeof value === "object") {
+      if (
+        value === this.context ||
+        Boolean(Reflect.get(value as object, GLOBAL_CONTEXT_SENTINEL))
+      ) {
+        return SANITIZED_GLOBAL_SUMMARY;
+      }
+
+      const envMeta = ENV_PROXY_META.get(value as object);
+      if (envMeta) {
+        return envMeta.maskedString();
+      }
+
+      if (Array.isArray(value)) {
+        if (visited.has(value as object)) {
+          return visited.get(value as object)!;
+        }
+        const arr: unknown[] = [];
+        visited.set(value as object, arr);
+        for (const item of value as unknown[]) {
+          arr.push(this.sanitizeForConsole(item, visited));
+        }
+        return arr;
+      }
+
+      if (visited.has(value as object)) {
+        return visited.get(value as object)!;
+      }
+
+      // If this is a process proxy instance, short-circuit
+      if (value && typeof value === "object") {
+        const maybeProcessInspect = Reflect.get(
+          value as Record<string, unknown>,
+          Symbol.for("nodejs.util.inspect.custom")
+        );
+        if (maybeProcessInspect === this.processInspectHandler) {
+          return SANITIZED_PROCESS_SUMMARY;
+        }
+      }
+
+      let mutated = false;
+      const clone: Record<string, unknown> = {};
+      visited.set(value as object, clone);
+
+      const source = value as Record<string, unknown>;
+      for (const key of Object.keys(source)) {
+        let original: unknown;
+        try {
+          original = source[key];
+        } catch {
+          continue;
+        }
+        const sanitized = this.sanitizeForConsole(original, visited);
+        if (sanitized !== original) {
+          mutated = true;
+        }
+        clone[key] = sanitized;
+      }
+
+      if (mutated) {
+        return clone;
+      }
+
+      visited.delete(value as object);
+    }
+
+    if (typeof value === "function") {
+      try {
+        const fn = value as unknown as { inspect?: () => unknown };
+        if (fn === this.processInspectHandler) {
+          return SANITIZED_PROCESS_SUMMARY;
+        }
+      } catch {
+        /* noop */
+      }
+    }
+
+    // If this is a string the user already produced, we also rewrite it if it
+    // matches the default util.inspect(process) prefix.
+    if (typeof value === "string") {
+      if (value.startsWith("process ")) {
+        return SANITIZED_PROCESS_SUMMARY;
+      }
+      if (value.startsWith("Context {") || value.includes("[globalThis]")) {
+        return SANITIZED_GLOBAL_SUMMARY;
+      }
+      if (value.startsWith("[Object: null prototype]")) {
+        return formatNotebookEnv(this.exposedEnv);
+      }
+    }
+
+    return value;
   }
 
   private maybeResolveTimeoutWaiters() {
@@ -2056,8 +2223,12 @@ const wrapDgramModule = (mod: Record<string, unknown>) => {
 
 const createProcessProxy = (
   getCwd: () => string,
-  getEnv: () => Record<string, string>
+  getEnv: () => Record<string, string>,
+  inspectHandler: () => string
 ): NodeJS.Process => {
+  const inspectSymbol =
+    (inspect as unknown as { custom?: symbol }).custom ||
+    Symbol.for("nodejs.util.inspect.custom");
   const ttyLike = <T extends NodeJS.WriteStream>(stream: T): T => {
     // Present a TTY-like stream to libraries that check isTTY
     return new Proxy(stream, {
@@ -2073,9 +2244,49 @@ const createProcessProxy = (
   };
 
   // A proxy for process.env that only exposes the provided env object.
-  const createEnvProxy = () =>
-    new Proxy(Object.create(null) as Record<string, string>, {
+  // Additionally, it masks values when inspected or JSON-serialized to avoid
+  // accidental secrets leakage via `console.log(globalThis)` or similar.
+  const createEnvProxy = () => {
+    const inspectSymbol =
+      (inspect as unknown as { custom?: symbol }).custom ||
+      Symbol.for("nodejs.util.inspect.custom");
+
+    // Build a stable snapshot of the current env for presentation
+    const maskedView = () => {
+      const env = getEnv();
+      const keys = Object.keys(env).sort();
+      const out: Record<string, string> = {};
+      for (const k of keys) {
+        out[k] = String(env[k]);
+      }
+      return out;
+    };
+    // Pretty string for console/inspect to avoid showing a null-prototype object
+    const maskedString = () => {
+      const snapshot = maskedView();
+      return `NotebookEnv ${inspect(snapshot, {
+        compact: true,
+        breakLength: 80,
+        colors: false,
+      })}`;
+    };
+
+    const target = Object.create(null) as Record<string, string> & {
+      toJSON?: () => Record<string, string>;
+      [key: symbol]: unknown;
+    };
+
+    const proxy = new Proxy(target, {
       get(_t, prop: string | symbol) {
+        if (prop === inspectSymbol) {
+          return () => maskedString();
+        }
+        if (prop === "toString") {
+          return () => maskedString();
+        }
+        if (prop === "toJSON") {
+          return () => maskedView();
+        }
         if (typeof prop !== "string") return undefined;
         const env = getEnv();
         return env[prop];
@@ -2094,7 +2305,6 @@ const createProcessProxy = (
       deleteProperty(_t, prop: string | symbol) {
         if (typeof prop !== "string") return false;
         const env = getEnv();
-
         delete env[prop];
         return true;
       },
@@ -2103,20 +2313,33 @@ const createProcessProxy = (
         return Reflect.ownKeys(env);
       },
       getOwnPropertyDescriptor(_t, prop: string | symbol) {
+        // Expose keys but avoid leaking values via descriptor enumeration.
         if (typeof prop !== "string") return undefined;
         const env = getEnv();
         if (!Object.prototype.hasOwnProperty.call(env, prop)) return undefined;
         return {
           configurable: true,
           enumerable: true,
-          writable: true,
-          value: env[prop],
-        };
+          // Present as accessor so util.inspect shows [Getter] rather than the value
+          get() {
+            return env[prop];
+          },
+        } as PropertyDescriptor;
       },
     });
+    ENV_PROXY_META.set(proxy, {
+      maskedView,
+      maskedString,
+    });
+    return proxy;
+  };
 
-  return new Proxy(process, {
+  const proxy = new Proxy(process, {
     get(target, prop, receiver) {
+      if (prop === inspectSymbol) {
+        // Avoid exposing internals when logging the whole process object
+        return inspectHandler;
+      }
       if (prop === "cwd") {
         return () => getCwd();
       }
@@ -2152,6 +2375,7 @@ const createProcessProxy = (
       return value;
     },
   });
+  return proxy;
 };
 
 const PATH_ARG_MAP: Record<string, number[]> = {
