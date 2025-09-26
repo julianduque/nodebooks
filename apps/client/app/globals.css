@@ -274,3 +274,12 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Ensure Monaco hover/suggest widgets render above cell toolbars */
+.monaco-editor .editor-widget,
+.monaco-editor .monaco-hover,
+.monaco-editor .suggest-widget,
+.monaco-editor .parameter-hints-widget,
+.monaco-editor-overlay {
+  z-index: 9999 !important;
+}

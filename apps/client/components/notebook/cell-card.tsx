@@ -35,6 +35,7 @@ interface CellCardProps {
   canMoveUp: boolean;
   canMoveDown: boolean;
   editorKey: string;
+  editorPath?: string;
   active: boolean;
   onActivate: () => void;
 }
@@ -89,6 +90,7 @@ const CellCard = ({
   canMoveUp,
   canMoveDown,
   editorKey,
+  editorPath,
   onActivate,
 }: CellCardProps) => {
   const isCode = cell.type === "code";
@@ -221,6 +223,7 @@ const CellCard = ({
       {isCode ? (
         <CodeCellView
           editorKey={editorKey}
+          path={editorPath}
           cell={cell}
           onChange={onChange}
           onRun={onRun}
@@ -230,6 +233,7 @@ const CellCard = ({
       ) : (
         <MarkdownCellView
           editorKey={editorKey}
+          path={editorPath}
           cell={cell}
           onChange={onChange}
         />

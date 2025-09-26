@@ -20,6 +20,7 @@ import { registerNotebookRoutes } from "./routes/notebooks.js";
 import { registerDependencyRoutes } from "./routes/dependencies.js";
 import { registerSessionRoutes } from "./routes/sessions.js";
 import { registerTemplateRoutes } from "./routes/templates.js";
+import { registerTypesRoutes } from "./routes/types.js";
 import { createKernelUpgradeHandler } from "./kernel/router.js";
 import {
   PASSWORD_COOKIE_NAME,
@@ -297,6 +298,7 @@ export const createServer = async ({
       registerDependencyRoutes(api, store);
       registerSessionRoutes(api, sessions);
       registerTemplateRoutes(api);
+      registerTypesRoutes(api);
     },
     { prefix: "/api" }
   );

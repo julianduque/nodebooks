@@ -57,12 +57,17 @@ import OutlinePanel from "@/components/notebook/outline-panel";
 import SetupPanel from "@/components/notebook/setup-panel";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import OutputView from "@/components/notebook/output-view";
+import { syncNotebookContext } from "@/components/notebook/monaco-context-sync";
+import { cellUri } from "@/components/notebook/monaco-models";
+import { setDiagnosticPolicy } from "@/components/notebook/monaco-setup";
+import { useSearchParams } from "next/navigation";
 
 import { clientConfig } from "@nodebooks/config/client";
 const API_BASE_URL = clientConfig().apiBaseUrl;
 
 const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [notebook, setNotebook] = useState<Notebook | null>(null);
   // list state is handled by App Router pages
   const [loading, setLoading] = useState(true);
@@ -167,6 +172,47 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     }
     document.title = `${notebook.name} · NodeBooks`;
   }, [notebook?.name]);
+
+  // Diagnostics policy via URL param: types=off|ignore|full
+  useEffect(() => {
+    const mode = searchParams?.get("types");
+    if (mode === "off") setDiagnosticPolicy({ mode: "off" });
+    else if (mode === "full") setDiagnosticPolicy({ mode: "full" });
+    else setDiagnosticPolicy({ mode: "ignore-list" });
+  }, [searchParams]);
+
+  // Keep Monaco context in sync with the notebook (globals, models, module shims)
+  useEffect(() => {
+    if (!notebook) return;
+    // Prefer running cell as current, else active editor
+    const current = runningCellId ?? activeCellId ?? null;
+    syncNotebookContext({
+      notebookId: notebook.id,
+      cells: notebook.cells,
+      currentCellId: current,
+    });
+  }, [notebook, activeCellId, runningCellId]);
+
+  // Re-sync once Monaco becomes ready (first editor mount)
+  useEffect(() => {
+    const handler = () => {
+      if (!notebook) return;
+      const current = runningCellId ?? activeCellId ?? null;
+      syncNotebookContext({
+        notebookId: notebook.id,
+        cells: notebook.cells,
+        currentCellId: current,
+      });
+    };
+    if (typeof window !== "undefined") {
+      window.addEventListener("nodebooks:monaco-ready", handler);
+    }
+    return () => {
+      if (typeof window !== "undefined") {
+        window.removeEventListener("nodebooks:monaco-ready", handler);
+      }
+    };
+  }, [notebook, activeCellId, runningCellId]);
 
   useEffect(() => {
     if (!notebook?.id) return;
@@ -1245,6 +1291,14 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
                   canMoveUp={index > 0}
                   canMoveDown={index < notebook.cells.length - 1}
                   editorKey={`${cell.id}:${index}`}
+                  editorPath={
+                    cell.type === "code"
+                      ? cellUri(notebook.id, index, {
+                          id: cell.id,
+                          language: cell.language === "ts" ? "ts" : "js",
+                        })
+                      : undefined
+                  }
                   active={activeCellId === cell.id}
                   onActivate={() => setActiveCellId(cell.id)}
                   onChange={(updater, options) =>
