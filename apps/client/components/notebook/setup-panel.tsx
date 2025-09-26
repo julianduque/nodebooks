@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Pencil, Trash2 } from "lucide-react";
@@ -12,6 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { setDiagnosticPolicy } from "@/components/notebook/monaco-setup";
 
 interface SetupPanelProps {
   env: Notebook["env"];
@@ -31,6 +32,21 @@ const SetupPanel = ({
   onRemoveVariable,
 }: SetupPanelProps) => {
   const [draft, setDraft] = useState("");
+  const [typingMode, setTypingMode] = useState<"ignore" | "off" | "full">(
+    "ignore"
+  );
+  useEffect(() => {
+    try {
+      const sp = new URLSearchParams(window.location.search);
+      const mode = sp.get("types");
+      if (mode === "off" || mode === "full" || mode === "ignore") {
+        setTypingMode(mode);
+        if (mode === "off") setDiagnosticPolicy({ mode: "off" });
+        else if (mode === "full") setDiagnosticPolicy({ mode: "full" });
+        else setDiagnosticPolicy({ mode: "ignore-list" });
+      }
+    } catch {}
+  }, []);
   // Variable modal state
   const [varModalOpen, setVarModalOpen] = useState(false);
   const [editOriginalName, setEditOriginalName] = useState<string | null>(null);
@@ -61,6 +77,31 @@ const SetupPanel = ({
           <Badge variant="secondary" className="uppercase tracking-[0.2em]">
             {env.runtime.toUpperCase()} {env.version}
           </Badge>
+        </div>
+        <div className="mt-3">
+          <label className="block text-xs font-semibold uppercase tracking-[0.3em] text-muted-foreground">
+            Typing Mode
+          </label>
+          <div className="mt-1">
+            <select
+              className="w-full rounded-md border border-input bg-background px-2 py-1 text-[13px] text-foreground focus:outline-none"
+              value={typingMode}
+              onChange={(e) => {
+                const val = e.target.value as "ignore" | "off" | "full";
+                setTypingMode(val);
+                if (val === "off") setDiagnosticPolicy({ mode: "off" });
+                else if (val === "full") setDiagnosticPolicy({ mode: "full" });
+                else setDiagnosticPolicy({ mode: "ignore-list" });
+              }}
+            >
+              <option value="ignore">Ignore noisy errors</option>
+              <option value="off">No diagnostics</option>
+              <option value="full">Full TypeScript checks</option>
+            </select>
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              Controls Monaco diagnostics in the editor.
+            </p>
+          </div>
         </div>
       </div>
       <p className="text-xs font-semibold uppercase tracking-[0.3em] text-muted-foreground">

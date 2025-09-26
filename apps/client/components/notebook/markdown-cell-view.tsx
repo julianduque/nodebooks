@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { OnMount } from "@monaco-editor/react";
+import type { BeforeMount, OnMount } from "@monaco-editor/react";
 import DOMPurify from "dompurify";
 import { marked, type Tokens } from "marked";
 import MonacoEditor from "@/components/notebook/monaco-editor-client";
+import { initMonaco } from "@/components/notebook/monaco-setup";
 import type { NotebookCell } from "@nodebooks/notebook-schema";
 
 const escapeHtml = (value: string) =>
@@ -17,6 +18,7 @@ const escapeHtml = (value: string) =>
 
 interface MarkdownCellViewProps {
   cell: Extract<NotebookCell, { type: "markdown" }>;
+  path?: string;
   onChange: (
     updater: (cell: NotebookCell) => NotebookCell,
     options?: { persist?: boolean; touch?: boolean }
@@ -49,6 +51,7 @@ marked.use({ renderer });
 
 const MarkdownCellView = ({
   cell,
+  path,
   onChange,
   editorKey,
 }: MarkdownCellViewProps) => {
@@ -236,19 +239,24 @@ const MarkdownCellView = ({
     [onChange, setEdit]
   );
 
+  const handleBeforeMount = useCallback<BeforeMount>((monaco) => {
+    initMonaco(monaco);
+  }, []);
+
   return (
     <div className="flex flex-col gap-3">
       {isEditing ? (
-        <div className="relative overflow-hidden rounded-xl border border-border bg-transparent">
+        <div className="relative rounded-xl border border-border bg-transparent">
           <MonacoEditor
             key={editorKey}
-            path={`${cell.id}.md`}
+            path={path ?? `${cell.id}.md`}
             height={editorHeight || 0}
             language="markdown"
             defaultLanguage="markdown"
             theme="vs-dark"
             value={cell.source}
             onMount={handleMount}
+            beforeMount={handleBeforeMount}
             onChange={(value) =>
               onChange((current) =>
                 current.type === "markdown"
@@ -263,6 +271,7 @@ const MarkdownCellView = ({
               scrollBeyondLastLine: false,
               wordWrap: "on",
               automaticLayout: true,
+              fixedOverflowWidgets: true,
               padding: { top: 12, bottom: 12 },
               scrollbar: {
                 vertical: "hidden",

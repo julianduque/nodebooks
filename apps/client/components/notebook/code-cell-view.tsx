@@ -1,15 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { OnMount } from "@monaco-editor/react";
+import type { BeforeMount, OnMount } from "@monaco-editor/react";
 import MonacoEditor from "@/components/notebook/monaco-editor-client";
 import type { NotebookCell } from "@nodebooks/notebook-schema";
 import { Badge } from "@/components/ui/badge";
 import { Loader2, Zap } from "lucide-react";
 import OutputView from "@/components/notebook/output-view";
+import { initMonaco } from "@/components/notebook/monaco-setup";
+import { useTheme } from "@/components/theme-context";
 
 interface CodeCellViewProps {
   cell: Extract<NotebookCell, { type: "code" }>;
+  path?: string;
   onChange: (
     updater: (cell: NotebookCell) => NotebookCell,
     options?: { persist?: boolean; touch?: boolean }
@@ -22,6 +25,7 @@ interface CodeCellViewProps {
 
 const CodeCellView = ({
   cell,
+  path,
   onChange,
   onRun,
   isRunning,
@@ -32,7 +36,8 @@ const CodeCellView = ({
   // Start at roughly one visual line + padding (updated on mount)
   const [editorHeight, setEditorHeight] = useState<number>(60);
   const heightRef = useRef(0);
-
+  const { theme } = useTheme();
+  const monacoTheme = theme === "dark" ? "vs-dark" : "vs-dark";
   useEffect(() => {
     runShortcutRef.current = onRun;
   }, [onRun]);
@@ -120,6 +125,10 @@ const CodeCellView = ({
     };
   }, []);
 
+  const handleBeforeMount = useCallback<BeforeMount>((monaco) => {
+    initMonaco(monaco);
+  }, []);
+
   const hideEditor = Boolean(
     (cell.metadata as { display?: { hideEditor?: boolean } })?.display
       ?.hideEditor
@@ -168,21 +177,23 @@ const CodeCellView = ({
       </div>
 
       {!hideEditor ? (
-        <div className="overflow-hidden rounded-2xl">
+        <div className="rounded-2xl p-2">
           <MonacoEditor
+            className="rounded-xl border border-slate-800"
             key={editorKey}
-            path={`${cell.id}.${cell.language === "ts" ? "ts" : "js"}`}
+            path={path ?? `${cell.id}.${cell.language === "ts" ? "ts" : "js"}`}
             height={editorHeight || 0}
             defaultLanguage={
               cell.language === "ts" ? "typescript" : "javascript"
             }
             language={cell.language === "ts" ? "typescript" : "javascript"}
-            theme="vs-dark"
+            theme={monacoTheme}
             value={cell.source}
             onChange={(value) =>
               onChange(() => ({ ...cell, source: value ?? "" }))
             }
             onMount={handleEditorMount}
+            beforeMount={handleBeforeMount}
             options={{
               minimap: { enabled: false },
               fontSize: 14,
@@ -191,6 +202,7 @@ const CodeCellView = ({
               wordWrap: "on",
               automaticLayout: true,
               readOnly: isRunning,
+              fixedOverflowWidgets: true,
               padding: { top: 22, bottom: 18 },
               scrollbar: {
                 vertical: "hidden",
@@ -205,7 +217,7 @@ const CodeCellView = ({
       ) : null}
 
       {(hideEditor || cell.outputs.length > 0) && (
-        <div className="space-y-2 bg-slate-900/60 p-4 text-sm text-slate-100">
+        <div className="space-y-2 rounded-b-2xl bg-slate-900/60 p-4 text-sm text-slate-100">
           {cell.outputs.length > 0 ? (
             cell.outputs.map((output, index) => (
               <OutputView key={index} output={output} />
