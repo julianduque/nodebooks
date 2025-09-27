@@ -12,10 +12,14 @@ import { z } from "zod";
 import {
   InMemoryNotebookStore,
   InMemorySessionManager,
+  InMemorySettingsStore,
 } from "./store/memory.js";
-import { SqliteNotebookStore } from "./store/sqlite.js";
-import { PostgresNotebookStore } from "./store/postgres.js";
-import type { NotebookStore } from "./types.js";
+import { SqliteNotebookStore, SqliteSettingsStore } from "./store/sqlite.js";
+import {
+  PostgresNotebookStore,
+  PostgresSettingsStore,
+} from "./store/postgres.js";
+import type { NotebookStore, SettingsStore } from "./types.js";
 import { registerNotebookRoutes } from "./routes/notebooks.js";
 import { registerDependencyRoutes } from "./routes/dependencies.js";
 import { registerSessionRoutes } from "./routes/sessions.js";
@@ -29,16 +33,24 @@ import {
 } from "./auth/password.js";
 import { registerSettingsRoutes } from "./routes/settings.js";
 import { loadServerConfig } from "@nodebooks/config";
+import type { ServerConfig } from "@nodebooks/config";
+import { SettingsService } from "./settings/service.js";
+import { setSettingsService } from "./settings/index.js";
 
 export interface CreateServerOptions {
   logger?: boolean;
 }
 
-const cfg = loadServerConfig();
-
 export const createServer = async ({
   logger = true,
 }: CreateServerOptions = {}) => {
+  const baseConfig = loadServerConfig();
+  const { store, settings, driver } = createNotebookStore({}, baseConfig);
+  const settingsService = new SettingsService(settings);
+  await settingsService.whenReady();
+  setSettingsService(settingsService);
+
+  const cfg = loadServerConfig(undefined, settingsService.getSettings());
   const isDev = cfg.isDev;
   const app = Fastify({ logger, pluginTimeout: isDev ? 120_000 : undefined });
 
@@ -50,19 +62,6 @@ export const createServer = async ({
   });
   // Do not register @fastify/websocket to avoid conflicting with Next HMR
 
-  const normalizePassword = (value?: string | null) => {
-    if (!value) {
-      return null;
-    }
-    const trimmed = value.trim();
-    return trimmed.length > 0 ? trimmed : null;
-  };
-
-  let currentPassword = normalizePassword(cfg.password);
-  let passwordToken = currentPassword
-    ? derivePasswordToken(currentPassword)
-    : null;
-
   const cookieOptions = {
     path: "/",
     httpOnly: true,
@@ -70,7 +69,10 @@ export const createServer = async ({
     secure: !isDev,
   };
 
-  const shouldBypassAuth = (request: FastifyRequest) => {
+  const shouldBypassAuth = (
+    request: FastifyRequest,
+    passwordToken: string | null
+  ) => {
     if (!passwordToken) {
       return true;
     }
@@ -128,20 +130,18 @@ export const createServer = async ({
     return reply;
   };
 
-  if (passwordToken) {
+  if (settingsService.getPasswordToken()) {
     app.log.info("Password protection enabled");
   }
 
   app.addHook("onRequest", async (request, reply) => {
-    if (!passwordToken) {
-      return;
-    }
-    if (shouldBypassAuth(request)) {
+    const passwordToken = settingsService.getPasswordToken();
+    if (shouldBypassAuth(request, passwordToken)) {
       return;
     }
 
     const token = request.cookies[PASSWORD_COOKIE_NAME];
-    if (isTokenValid(token, passwordToken)) {
+    if (isTokenValid(token, passwordToken ?? "")) {
       return;
     }
 
@@ -149,6 +149,7 @@ export const createServer = async ({
   });
 
   app.post("/auth/login", async (request, reply) => {
+    const passwordToken = settingsService.getPasswordToken();
     if (!passwordToken) {
       void reply
         .code(400)
@@ -172,28 +173,6 @@ export const createServer = async ({
     reply.setCookie(PASSWORD_COOKIE_NAME, passwordToken, cookieOptions);
     void reply.code(204).send();
   });
-
-  const updatePassword = (nextPassword: string | null): string | null => {
-    const normalized = normalizePassword(nextPassword);
-    if (normalized === currentPassword) {
-      return passwordToken;
-    }
-
-    currentPassword = normalized;
-    if (normalized) {
-      process.env.NODEBOOKS_PASSWORD = normalized;
-      passwordToken = derivePasswordToken(normalized);
-      app.log.info("Password protection enabled");
-      return passwordToken;
-    }
-
-    delete process.env.NODEBOOKS_PASSWORD;
-    if (passwordToken) {
-      app.log.info("Password protection disabled");
-    }
-    passwordToken = null;
-    return null;
-  };
 
   // Mount Next.js (apps/client) using Next's handler so UI is served by Fastify
   const embedNext = cfg.embedNext;
@@ -267,11 +246,6 @@ export const createServer = async ({
     }
   }
 
-  const { store, driver } = createNotebookStore({
-    driver: cfg.persistence.driver,
-    sqlitePath: cfg.persistence.sqlitePath,
-    databaseUrl: cfg.persistence.databaseUrl,
-  });
   const sessions = new InMemorySessionManager(store);
 
   const maybeClosable = store as { close?: () => Promise<void> | void };
@@ -289,8 +263,7 @@ export const createServer = async ({
   await app.register(
     async (api) => {
       await registerSettingsRoutes(api, {
-        getPasswordToken: () => passwordToken,
-        setPassword: updatePassword,
+        settings: settingsService,
         cookieOptions:
           cookieOptions as FastifyCookieNamespace.CookieSerializeOptions,
       });
@@ -318,7 +291,7 @@ export const createServer = async ({
 
   // Central upgrade handler: Next HMR and Kernel WS
   const kernelUpgrade = createKernelUpgradeHandler("/api", sessions, store, {
-    getPasswordToken: () => passwordToken,
+    getPasswordToken: () => settingsService.getPasswordToken(),
   });
   app.server.on(
     "upgrade",
@@ -356,6 +329,7 @@ interface CreateNotebookStoreOptions {
 
 interface NotebookStoreResult {
   store: NotebookStore;
+  settings: SettingsStore;
   driver: PersistenceDriver;
 }
 
@@ -378,26 +352,35 @@ const resolvePersistenceDriver = (
 };
 
 export const createNotebookStore = (
-  options: CreateNotebookStoreOptions = {}
+  options: CreateNotebookStoreOptions = {},
+  config: ServerConfig = loadServerConfig()
 ): NotebookStoreResult => {
   const driver = resolvePersistenceDriver(
-    options.driver ?? cfg.persistence.driver
+    options.driver ?? config.persistence.driver
   );
   switch (driver) {
     case "in-memory":
-      return { store: new InMemoryNotebookStore(), driver };
-    case "sqlite":
       return {
-        store: new SqliteNotebookStore({
-          databaseFile: options.sqlitePath ?? cfg.persistence.sqlitePath,
-        }),
+        store: new InMemoryNotebookStore(),
+        settings: new InMemorySettingsStore(),
+        driver,
+      };
+    case "sqlite":
+      const sqliteStore = new SqliteNotebookStore({
+        databaseFile: options.sqlitePath ?? config.persistence.sqlitePath,
+      });
+      return {
+        store: sqliteStore,
+        settings: new SqliteSettingsStore(sqliteStore),
         driver,
       };
     case "postgres":
+      const postgresStore = new PostgresNotebookStore({
+        connectionString: options.databaseUrl ?? config.persistence.databaseUrl,
+      });
       return {
-        store: new PostgresNotebookStore({
-          connectionString: options.databaseUrl ?? cfg.persistence.databaseUrl,
-        }),
+        store: postgresStore,
+        settings: new PostgresSettingsStore(postgresStore),
         driver,
       };
   }

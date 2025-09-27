@@ -19,3 +19,10 @@ export interface NotebookStore {
   save(notebook: Notebook): Promise<Notebook>;
   remove(id: string): Promise<Notebook | undefined>;
 }
+
+export interface SettingsStore {
+  all(): Promise<Record<string, unknown>>;
+  get<T = unknown>(key: string): Promise<T | undefined>;
+  set<T = unknown>(key: string, value: T): Promise<void>;
+  delete(key: string): Promise<void>;
+}
