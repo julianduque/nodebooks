@@ -1,9 +1,17 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, describe, it, expect } from "vitest";
 import {
   loadServerConfig,
   loadRuntimeConfig,
   loadClientConfig,
 } from "../src/index.js";
+
+const runtime = globalThis as typeof globalThis & {
+  __NODEBOOKS_SETTINGS__?: Record<string, unknown>;
+};
+
+afterEach(() => {
+  delete runtime.__NODEBOOKS_SETTINGS__;
+});
 
 describe("@nodebooks/config – loadServerConfig", () => {
   it("returns sane defaults when env is empty", () => {
@@ -40,7 +48,7 @@ describe("@nodebooks/config – loadServerConfig", () => {
     const cfg = loadServerConfig({
       NODEBOOKS_THEME: "dark",
       NODEBOOKS_KERNEL_TIMEOUT_MS: "15000",
-      KERNEL_WS_HEARTBEAT_MS: "30000",
+      NODEBOOKS_KERNEL_WS_HEARTBEAT_MS: "30000",
     } as NodeJS.ProcessEnv);
     expect(cfg.theme).toBe("dark");
     expect(cfg.kernelTimeoutMs).toBe(15_000);
@@ -60,6 +68,34 @@ describe("@nodebooks/config – loadServerConfig", () => {
     expect(cfg.persistence.sqlitePath).toBe("/tmp/file.sqlite");
     expect(cfg.templatesDir).toBe("./content/custom");
   });
+
+  it("prefers runtime overrides over environment variables", () => {
+    runtime.__NODEBOOKS_SETTINGS__ = {
+      theme: "dark",
+      kernelTimeoutMs: 42_000,
+      password: "stored-secret",
+    };
+    const cfg = loadServerConfig({
+      NODEBOOKS_THEME: "light",
+      NODEBOOKS_KERNEL_TIMEOUT_MS: "5000",
+      NODEBOOKS_PASSWORD: "env-secret",
+    } as NodeJS.ProcessEnv);
+    expect(cfg.theme).toBe("dark");
+    expect(cfg.kernelTimeoutMs).toBe(42_000);
+    expect(cfg.password).toBe("stored-secret");
+  });
+
+  it("honors explicit override argument", () => {
+    const cfg = loadServerConfig(
+      {
+        NODEBOOKS_THEME: "light",
+        NODEBOOKS_KERNEL_TIMEOUT_MS: "5000",
+      } as NodeJS.ProcessEnv,
+      { theme: "dark", kernelTimeoutMs: 33_000 }
+    );
+    expect(cfg.theme).toBe("dark");
+    expect(cfg.kernelTimeoutMs).toBe(33_000);
+  });
 });
 
 describe("@nodebooks/config – loadRuntimeConfig", () => {
@@ -68,6 +104,14 @@ describe("@nodebooks/config – loadRuntimeConfig", () => {
     expect(cfg.kernelTimeoutMs).toBe(10_000);
     expect(cfg.batchMs).toBe(25);
     expect(cfg.debug).toBe(false);
+  });
+
+  it("uses runtime overrides for kernel timeout", () => {
+    runtime.__NODEBOOKS_SETTINGS__ = { kernelTimeoutMs: 60_000 };
+    const cfg = loadRuntimeConfig({
+      NODEBOOKS_KERNEL_TIMEOUT_MS: "2000",
+    } as NodeJS.ProcessEnv);
+    expect(cfg.kernelTimeoutMs).toBe(60_000);
   });
 });
 

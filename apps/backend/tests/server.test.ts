@@ -3,9 +3,13 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Notebook } from "@nodebooks/notebook-schema";
 
 const sqliteCtor = vi.fn();
+const sqliteSettingsCtor = vi.fn();
 const memoryCtor = vi.fn();
+const memorySettingsCtor = vi.fn();
 const sessionCtor = vi.fn();
 const postgresCtor = vi.fn();
+const postgresSettingsCtor = vi.fn();
+const settingsServiceCtor = vi.fn();
 
 const originalPersistence = process.env.NODEBOOKS_PERSISTENCE;
 const originalDatabaseUrl = process.env.DATABASE_URL;
@@ -41,6 +45,19 @@ vi.mock("../src/store/sqlite.js", () => ({
     }
     async save() {}
   },
+  SqliteSettingsStore: class {
+    constructor(store: unknown) {
+      sqliteSettingsCtor(store);
+    }
+    async all() {
+      return {} as Record<string, unknown>;
+    }
+    async get() {
+      return undefined;
+    }
+    async set() {}
+    async delete() {}
+  },
 }));
 vi.mock("../src/store/memory.js", () => ({
   InMemoryNotebookStore: class {
@@ -53,12 +70,38 @@ vi.mock("../src/store/memory.js", () => ({
       sessionCtor(store);
     }
   },
+  InMemorySettingsStore: class {
+    constructor() {
+      memorySettingsCtor();
+    }
+    async all() {
+      return {} as Record<string, unknown>;
+    }
+    async get() {
+      return undefined;
+    }
+    async set() {}
+    async delete() {}
+  },
 }));
 vi.mock("../src/store/postgres.js", () => ({
   PostgresNotebookStore: class {
     constructor(options?: unknown) {
       postgresCtor(options);
     }
+  },
+  PostgresSettingsStore: class {
+    constructor(store: unknown) {
+      postgresSettingsCtor(store);
+    }
+    async all() {
+      return {} as Record<string, unknown>;
+    }
+    async get() {
+      return undefined;
+    }
+    async set() {}
+    async delete() {}
   },
 }));
 vi.mock("../src/routes/notebooks.js", () => ({
@@ -76,15 +119,36 @@ vi.mock("../src/kernel/router.js", () => ({
 vi.mock("../src/routes/settings.js", () => ({
   registerSettingsRoutes: () => {},
 }));
+vi.mock("../src/settings/service.js", () => ({
+  SettingsService: class {
+    constructor(store: unknown) {
+      settingsServiceCtor(store);
+    }
+    async whenReady() {}
+    getSettings() {
+      return {};
+    }
+    getPasswordToken() {
+      return null;
+    }
+  },
+}));
+vi.mock("../src/settings/index.js", () => ({
+  setSettingsService: () => {},
+}));
 
 import { createServer, createNotebookStore } from "../src/server.js";
 
 beforeEach(() => {
   handledPaths.length = 0;
   sqliteCtor.mockClear();
+  sqliteSettingsCtor.mockClear();
   memoryCtor.mockClear();
+  memorySettingsCtor.mockClear();
   sessionCtor.mockClear();
   postgresCtor.mockClear();
+  postgresSettingsCtor.mockClear();
+  settingsServiceCtor.mockClear();
   delete process.env.NODEBOOKS_PERSISTENCE;
   delete process.env.DATABASE_URL;
   delete process.env.NODEBOOKS_SQLITE_PATH;

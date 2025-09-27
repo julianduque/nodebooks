@@ -74,6 +74,7 @@ pnpm start
 - `NODEBOOKS_PASSWORD` – Password to protect the server (default `null`).
 - `NODEBOOKS_SQLITE_PATH` – Path to the SQLite file for notebooks storage.
 - `NODEBOOKS_KERNEL_TIMEOUT_MS` – Kernel execution timeout in ms (default `10000`).
+- `NODEBOOKS_KERNEL_WS_HEARTBEAT_MS` – Server→client WebSocket ping interval in ms to keep connections alive behind proxies with idle timeouts (default `25000`).
 - `NODEBOOKS_THEME` – Theme to use for the UI (default `light`). Supported values:
   - `light` – Light theme.
   - `dark` – Dark theme.
@@ -82,7 +83,6 @@ pnpm start
   - `postgres` – Use PostgreSQL via `DATABASE_URL`.
   - `in-memory` – Ephemeral storage useful for local smoke tests.
 - `DATABASE_URL` – PostgreSQL connection string used when `NODEBOOKS_PERSISTENCE=postgres`.
-- `KERNEL_WS_HEARTBEAT_MS` – Server→client WebSocket ping interval in ms to keep connections alive behind proxies with idle timeouts (default `25000`).
 
 ## Docker
 

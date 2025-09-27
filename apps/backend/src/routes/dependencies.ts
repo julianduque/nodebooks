@@ -8,6 +8,7 @@ import {
 import type { NotebookStore } from "../types.js";
 import { WorkerClient } from "@nodebooks/runtime-host";
 import { getWorkerPool } from "../kernel/runtime-pool.js";
+import { loadServerConfig } from "@nodebooks/config";
 
 const encodePackagePath = (name: string) => {
   // Encode each path component while preserving slashes
@@ -68,11 +69,13 @@ export const registerDependencyRoutes = (
     // Trigger install immediately using a throwaway runtime instance
     try {
       const runtime = new WorkerClient(getWorkerPool());
+      const { kernelTimeoutMs } = loadServerConfig();
       const result = await runtime.execute({
         cell: createCodeCell({ language: "js", source: "" }),
         code: "",
         notebookId: updated.id,
         env: updated.env,
+        timeoutMs: kernelTimeoutMs,
       });
       return { data: { env: updated.env, outputs: result.outputs } };
     } catch (error) {
@@ -127,11 +130,13 @@ export const registerDependencyRoutes = (
 
     try {
       const runtime = new WorkerClient(getWorkerPool());
+      const { kernelTimeoutMs } = loadServerConfig();
       const result = await runtime.execute({
         cell: createCodeCell({ language: "js", source: "" }),
         code: "",
         notebookId: updated.id,
         env: updated.env,
+        timeoutMs: kernelTimeoutMs,
       });
       return { data: { env: updated.env, outputs: result.outputs } };
     } catch (error) {

@@ -1,5 +1,7 @@
 export type PersistenceDriver = "sqlite" | "postgres" | "memory";
 
+export type ThemeMode = "light" | "dark";
+
 export interface ServerConfig {
   host: string;
   port: number;
@@ -17,6 +19,13 @@ export interface ServerConfig {
     databaseUrl?: string;
   };
   templatesDir?: string;
+}
+
+export interface GlobalSettings {
+  theme?: ThemeMode;
+  kernelTimeoutMs?: number;
+  password?: string | null;
+  [key: string]: unknown;
 }
 
 export interface ClientConfig {

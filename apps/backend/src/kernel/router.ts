@@ -26,7 +26,6 @@ import {
   parseCookieHeader,
 } from "../auth/password.js";
 
-const pool = getWorkerPool();
 const runtimes = new Map<string, WorkerClient>();
 
 // Heartbeat interval in ms to keep WebSocket connections alive behind proxies
@@ -366,12 +365,16 @@ const handleExecuteRequest = async ({
     };
   } | null = null;
   try {
+    const cfg = loadServerConfig();
+    const effectiveTimeoutMs = message.timeoutMs ?? cfg.kernelTimeoutMs;
+    // Touch the pool so per-job defaults stay in sync with latest config
+    void getWorkerPool();
     result = await runtime.execute({
       cell: runnableCell,
       code: message.code,
       notebookId: notebook.id,
       env: notebook.env,
-      timeoutMs: message.timeoutMs,
+      timeoutMs: effectiveTimeoutMs,
       onStream: (stream: {
         type: "stream";
         name: "stdout" | "stderr";
@@ -441,6 +444,7 @@ const handleExecuteRequest = async ({
 };
 
 const ensureRuntime = (sessionId: string) => {
+  const pool = getWorkerPool();
   let runtime = runtimes.get(sessionId);
   if (!runtime) {
     runtime = new WorkerClient(pool);

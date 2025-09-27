@@ -91,6 +91,11 @@ export class WorkerPool {
     }
   }
 
+  setPerJobTimeoutMs(timeoutMs: number) {
+    if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return;
+    this.opts.perJobTimeoutMs = timeoutMs;
+  }
+
   async run(jobId: string, opts: ExecuteOptions): Promise<ExecuteResult> {
     const worker = await this.acquire();
     try {

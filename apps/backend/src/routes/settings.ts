@@ -3,7 +3,7 @@ import type * as FastifyCookieNamespace from "@fastify/cookie";
 import { z } from "zod";
 
 import { PASSWORD_COOKIE_NAME } from "../auth/password.js";
-import { loadServerConfig } from "@nodebooks/config";
+import type { SettingsService, SettingsUpdate } from "../settings/service.js";
 
 const ThemeSchema = z.enum(["light", "dark"]);
 
@@ -22,18 +22,8 @@ const SettingsUpdateSchema = z
   })
   .strict();
 
-const resolveSettingsPayload = (options: RegisterSettingsRoutesOptions) => {
-  const cfg = loadServerConfig();
-  return {
-    theme: cfg.theme,
-    kernelTimeoutMs: cfg.kernelTimeoutMs,
-    passwordEnabled: options.getPasswordToken() !== null,
-  };
-};
-
 export interface RegisterSettingsRoutesOptions {
-  getPasswordToken: () => string | null;
-  setPassword: (password: string | null) => string | null;
+  settings: SettingsService;
   cookieOptions: FastifyCookieNamespace.CookieSerializeOptions;
 }
 
@@ -42,7 +32,7 @@ export const registerSettingsRoutes = async (
   options: RegisterSettingsRoutesOptions
 ) => {
   app.get("/settings", async (_request, _reply) => {
-    return { data: resolveSettingsPayload(options) };
+    return { data: options.settings.getSnapshot() };
   });
 
   app.put("/settings", async (request, reply) => {
@@ -53,30 +43,33 @@ export const registerSettingsRoutes = async (
     }
 
     const { theme, kernelTimeoutMs, password } = result.data;
-
-    if (theme) {
-      process.env.NODEBOOKS_THEME = theme;
+    const updates: SettingsUpdate = {};
+    if (theme !== undefined) {
+      updates.theme = theme;
+    }
+    if (kernelTimeoutMs !== undefined) {
+      updates.kernelTimeoutMs = kernelTimeoutMs;
+    }
+    if (password !== undefined) {
+      updates.password = password;
     }
 
-    if (kernelTimeoutMs !== undefined) {
-      process.env.NODEBOOKS_KERNEL_TIMEOUT_MS = String(kernelTimeoutMs);
+    let snapshot = options.settings.getSnapshot();
+    if (Object.keys(updates).length > 0) {
+      snapshot = await options.settings.apply(updates);
     }
 
     if (password !== undefined) {
-      let normalized: string | null = null;
-      if (typeof password === "string") {
-        const trimmed = password.trim();
-        normalized = trimmed.length > 0 ? trimmed : null;
-      }
-      const nextToken = options.setPassword(normalized);
-
+      const nextToken = options.settings.getPasswordToken();
       if (nextToken) {
         reply.setCookie(PASSWORD_COOKIE_NAME, nextToken, options.cookieOptions);
+        request.log.info("Password protection enabled");
       } else {
         reply.clearCookie(PASSWORD_COOKIE_NAME, options.cookieOptions);
+        request.log.info("Password protection disabled");
       }
     }
 
-    return { data: resolveSettingsPayload(options) };
+    return { data: snapshot };
   });
 };

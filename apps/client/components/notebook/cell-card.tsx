@@ -1,6 +1,7 @@
 "use client";
 
 import clsx from "clsx";
+import { useCallback, useState } from "react";
 import { Button } from "../ui/button";
 import {
   ArrowDown,
@@ -10,10 +11,19 @@ import {
   Loader2,
   Pencil,
   Play,
+  Settings as SettingsIcon,
   Trash2,
   Plus,
   XCircle,
 } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import type { NotebookCell } from "@nodebooks/notebook-schema";
 import CodeCellView from "./code-cell-view";
 import MarkdownCellView from "./markdown-cell-view";
@@ -39,6 +49,8 @@ interface CellCardProps {
   active: boolean;
   onActivate: () => void;
 }
+
+type CodeCellMetadata = Record<string, unknown> & { timeoutMs?: number };
 
 const AddCellMenu = ({
   onAdd,
@@ -94,6 +106,75 @@ const CellCard = ({
   onActivate,
 }: CellCardProps) => {
   const isCode = cell.type === "code";
+  const [showConfig, setShowConfig] = useState(false);
+  const [timeoutDraft, setTimeoutDraft] = useState("");
+  const [timeoutError, setTimeoutError] = useState<string | null>(null);
+
+  const openConfig = useCallback(() => {
+    if (!isCode) return;
+    const meta = cell.metadata as CodeCellMetadata;
+    const timeoutValue =
+      typeof meta?.timeoutMs === "number" ? String(meta.timeoutMs) : "";
+    setTimeoutDraft(timeoutValue);
+    setTimeoutError(null);
+    setShowConfig(true);
+  }, [cell, isCode]);
+
+  const handleTimeoutChange = useCallback((value: string) => {
+    setTimeoutDraft(value);
+    setTimeoutError(null);
+  }, []);
+
+  const handleConfigClose = useCallback(() => {
+    setShowConfig(false);
+    setTimeoutError(null);
+  }, []);
+
+  const handleTimeoutSave = useCallback(() => {
+    if (!isCode) {
+      handleConfigClose();
+      return;
+    }
+    const raw = timeoutDraft.trim();
+    if (raw.length === 0) {
+      onChange(
+        (current) => {
+          if (current.type !== "code") return current;
+          const meta = {
+            ...(current.metadata ?? {}),
+          } as CodeCellMetadata;
+          if (typeof meta.timeoutMs !== "undefined") {
+            delete meta.timeoutMs;
+          }
+          return { ...current, metadata: meta };
+        },
+        { persist: true }
+      );
+      handleConfigClose();
+      return;
+    }
+    const parsed = Number.parseInt(raw, 10);
+    if (!Number.isFinite(parsed)) {
+      setTimeoutError("Enter a valid number in milliseconds.");
+      return;
+    }
+    if (parsed < 1000 || parsed > 600_000) {
+      setTimeoutError("Choose a value between 1,000 and 600,000 milliseconds.");
+      return;
+    }
+    onChange(
+      (current) => {
+        if (current.type !== "code") return current;
+        const meta = {
+          ...(current.metadata ?? {}),
+        } as CodeCellMetadata;
+        meta.timeoutMs = parsed;
+        return { ...current, metadata: meta };
+      },
+      { persist: true }
+    );
+    handleConfigClose();
+  }, [handleConfigClose, isCode, onChange, timeoutDraft]);
   type MarkdownUIMeta = { ui?: { edit?: boolean } };
   const mdEditing =
     cell.type === "markdown" &&
@@ -153,6 +234,15 @@ const CellCard = ({
               title="Clear outputs"
             >
               <Eraser className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={openConfig}
+              aria-label="Configure cell"
+              title="Cell settings"
+            >
+              <SettingsIcon className="h-4 w-4" />
             </Button>
           </>
         ) : (
@@ -243,6 +333,69 @@ const CellCard = ({
       <div className="flex h-1 flex-1 mb-1 mt-1 justify-center overflow-hidden opacity-0 transition pointer-events-none group-hover/cell:h-10 group-focus-within/cell:h-10 group-hover/cell:opacity-100 group-focus-within/cell:opacity-100 group-hover/cell:pointer-events-auto group-focus-within/cell:pointer-events-auto">
         <AddCellMenu onAdd={onAddBelow} className="text-[11px]" />
       </div>
+      {isCode ? (
+        <Dialog
+          open={showConfig}
+          onOpenChange={(open) => (!open ? handleConfigClose() : undefined)}
+        >
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Cell timeout</DialogTitle>
+              <DialogDescription>
+                Set a custom execution limit for this cell. Leave blank to use
+                the workspace default.
+              </DialogDescription>
+            </DialogHeader>
+            <form
+              className="mt-2 space-y-3"
+              onSubmit={(event) => {
+                event.preventDefault();
+                handleTimeoutSave();
+              }}
+            >
+              <label className="block text-xs font-medium text-muted-foreground">
+                Timeout (ms)
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min={1000}
+                  max={600000}
+                  step={500}
+                  value={timeoutDraft}
+                  onChange={(event) => handleTimeoutChange(event.target.value)}
+                  placeholder="Use default"
+                  className="mt-1 w-full rounded-md border border-input bg-background px-2 py-1 text-[13px] text-foreground focus:outline-none"
+                />
+              </label>
+              {timeoutError ? (
+                <p className="text-xs font-medium text-rose-600 dark:text-rose-300">
+                  {timeoutError}
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Leave empty to use the workspace kernel timeout.
+                </p>
+              )}
+              <DialogFooter className="gap-2 sm:gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleConfigClose}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  variant="default"
+                  className="px-3 text-[11px]"
+                >
+                  Save
+                </Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
+      ) : null}
     </article>
   );
 };

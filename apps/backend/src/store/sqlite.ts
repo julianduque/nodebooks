@@ -10,7 +10,7 @@ import {
   NotebookSchema,
   type Notebook,
 } from "@nodebooks/notebook-schema";
-import type { NotebookStore } from "../types.js";
+import type { NotebookStore, SettingsStore } from "../types.js";
 
 export interface SqliteNotebookStoreOptions {
   databaseFile?: string;
@@ -97,7 +97,7 @@ export class SqliteNotebookStore implements NotebookStore {
     ]);
     statement.free();
 
-    await this.persist();
+    await this.persistToDisk();
     return parsed;
   }
 
@@ -112,8 +112,23 @@ export class SqliteNotebookStore implements NotebookStore {
     statement.run([id]);
     statement.free();
 
-    await this.persist();
+    await this.persistToDisk();
     return existing;
+  }
+
+  async ensureReady() {
+    await this.ready;
+  }
+
+  getDatabase(): SqlDatabase {
+    if (!this.db) {
+      throw new Error("SqliteNotebookStore database is not initialized yet");
+    }
+    return this.db;
+  }
+
+  async flush() {
+    await this.persistToDisk();
   }
 
   private async initialize() {
@@ -150,10 +165,23 @@ export class SqliteNotebookStore implements NotebookStore {
         ON notebooks (updated_at DESC)`
     );
 
-    await this.persist();
+    this.db.run(
+      `CREATE TABLE IF NOT EXISTS settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )`
+    );
+
+    this.db.run(
+      `CREATE INDEX IF NOT EXISTS idx_settings_updated_at
+        ON settings (updated_at DESC, key ASC)`
+    );
+
+    await this.persistToDisk();
   }
 
-  private async persist() {
+  private async persistToDisk() {
     if (this.file === ":memory:") {
       return;
     }
@@ -173,5 +201,86 @@ export class SqliteNotebookStore implements NotebookStore {
     } catch {
       return false;
     }
+  }
+}
+
+export class SqliteSettingsStore implements SettingsStore {
+  constructor(private readonly notebooks: SqliteNotebookStore) {}
+
+  private async getDb(): Promise<SqlDatabase> {
+    await this.notebooks.ensureReady();
+    return this.notebooks.getDatabase();
+  }
+
+  async all(): Promise<Record<string, unknown>> {
+    const db = await this.getDb();
+    const statement = db.prepare("SELECT key, value FROM settings");
+    const result: Record<string, unknown> = {};
+    try {
+      while (statement.step()) {
+        const row = statement.getAsObject() as { key?: string; value?: string };
+        if (!row.key) {
+          continue;
+        }
+        result[row.key] = row.value ? JSON.parse(row.value) : null;
+      }
+    } finally {
+      statement.free();
+    }
+    return result;
+  }
+
+  async get<T = unknown>(key: string): Promise<T | undefined> {
+    const db = await this.getDb();
+    const statement = db.prepare(
+      "SELECT value FROM settings WHERE key = ?1 LIMIT 1"
+    );
+    statement.bind([key]);
+    try {
+      if (!statement.step()) {
+        return undefined;
+      }
+      const row = statement.getAsObject() as { value?: string };
+      if (row.value == null) {
+        return undefined;
+      }
+      return JSON.parse(row.value) as T;
+    } finally {
+      statement.free();
+    }
+  }
+
+  async set<T = unknown>(key: string, value: T): Promise<void> {
+    if (value === undefined) {
+      await this.delete(key);
+      return;
+    }
+    const db = await this.getDb();
+    const statement = db.prepare(
+      `INSERT INTO settings (key, value, updated_at)
+       VALUES (?1, ?2, ?3)
+       ON CONFLICT(key) DO UPDATE SET
+         value = excluded.value,
+         updated_at = excluded.updated_at`
+    );
+    const payload = JSON.stringify(value ?? null);
+    const updatedAt = new Date().toISOString();
+    try {
+      statement.run([key, payload, updatedAt]);
+    } finally {
+      statement.free();
+    }
+    await this.notebooks.flush();
+  }
+
+  async delete(key: string): Promise<void> {
+    const db = await this.getDb();
+    const statement = db.prepare("DELETE FROM settings WHERE key = ?1");
+    try {
+      statement.run([key]);
+    } finally {
+      statement.free();
+    }
+    await this.notebooks.flush();
   }
 }

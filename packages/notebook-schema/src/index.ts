@@ -1,5 +1,18 @@
 import { z } from "zod";
 
+export const ThemeModeSchema = z.enum(["light", "dark"]);
+export type ThemeMode = z.infer<typeof ThemeModeSchema>;
+
+export const GlobalSettingsSchema = z
+  .object({
+    theme: ThemeModeSchema.optional(),
+    kernelTimeoutMs: z.number().int().min(1_000).max(600_000).optional(),
+    password: z.union([z.string(), z.null()]).optional(),
+  })
+  .catchall(z.unknown());
+
+export type GlobalSettings = z.infer<typeof GlobalSettingsSchema>;
+
 // Vendor MIME type for structured UI displays
 export const NODEBOOKS_UI_MIME = "application/vnd.nodebooks.ui+json" as const;
 

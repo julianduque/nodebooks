@@ -4,9 +4,6 @@
   "repository": "https://github.com/julianduque/nodebooks",
   "keywords": ["node", "notebook", "fastify", "nextjs", "typescript"],
   "env": {
-    "NODE_ENV": {
-      "value": "production"
-    },
     "NODEBOOKS_PERSISTENCE": {
       "description": "Notebook persistence driver: sqlite | postgres | in-memory",
       "value": "postgres",
@@ -19,10 +16,6 @@
     "NODEBOOKS_THEME": {
       "description": "UI theme: light | dark",
       "value": "light"
-    },
-    "KERNEL_WS_HEARTBEAT_MS": {
-      "description": "WS ping interval to keep connections alive (ms)",
-      "value": "25000"
     }
   },
   "buildpacks": [{ "url": "heroku/nodejs" }],

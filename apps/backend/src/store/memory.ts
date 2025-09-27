@@ -9,6 +9,7 @@ import type {
   NotebookStore,
   NotebookSession,
   SessionManager,
+  SettingsStore,
 } from "../types.js";
 
 const nanoid = customAlphabet("1234567890abcdefghijklmnopqrstuvwxyz", 12);
@@ -58,6 +59,26 @@ export class InMemoryNotebookStore implements NotebookStore {
     const notebook = this.notebooks.get(id);
     this.notebooks.delete(id);
     return notebook;
+  }
+}
+
+export class InMemorySettingsStore implements SettingsStore {
+  private readonly settings = new Map<string, unknown>();
+
+  async all(): Promise<Record<string, unknown>> {
+    return Object.fromEntries(this.settings.entries());
+  }
+
+  async get<T = unknown>(key: string): Promise<T | undefined> {
+    return this.settings.get(key) as T | undefined;
+  }
+
+  async set<T = unknown>(key: string, value: T): Promise<void> {
+    this.settings.set(key, value);
+  }
+
+  async delete(key: string): Promise<void> {
+    this.settings.delete(key);
   }
 }
 

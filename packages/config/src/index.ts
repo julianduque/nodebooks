@@ -1,10 +1,16 @@
 import { z } from "zod";
 import type {
   ClientConfig,
+  GlobalSettings,
   PersistenceDriver,
   RuntimeConfig,
   ServerConfig,
 } from "./types.js";
+
+declare global {
+  // eslint-disable-next-line no-var
+  var __NODEBOOKS_SETTINGS__: Partial<GlobalSettings> | undefined;
+}
 
 const bool = (v: string | undefined, fallback: boolean): boolean => {
   if (v == null) return fallback;
@@ -28,36 +34,89 @@ const persistenceSchema = z.object({
   databaseUrl: z.string().optional(),
 });
 
+const getRuntimeOverrides = (): Partial<GlobalSettings> => {
+  try {
+    const runtime = globalThis as typeof globalThis & {
+      __NODEBOOKS_SETTINGS__?: Partial<GlobalSettings>;
+    };
+    const overrides = runtime.__NODEBOOKS_SETTINGS__;
+    return overrides && typeof overrides === "object" ? overrides : {};
+  } catch {
+    return {};
+  }
+};
+
+const sanitizeKernelTimeout = (value: unknown): number | undefined => {
+  if (typeof value !== "number") {
+    return undefined;
+  }
+  if (!Number.isFinite(value)) {
+    return undefined;
+  }
+  const clamped = Math.min(Math.max(Math.trunc(value), 1_000), 600_000);
+  return clamped;
+};
+
+const isThemeMode = (value: unknown): value is "light" | "dark" => {
+  return value === "light" || value === "dark";
+};
+
 export function loadServerConfig(
-  env: NodeJS.ProcessEnv = process.env
+  env: NodeJS.ProcessEnv | undefined = process.env,
+  overrides?: Partial<GlobalSettings>
 ): ServerConfig {
-  const isProd = env.NODE_ENV === "production";
+  const resolvedEnv = env ?? process.env;
+  const isProd = resolvedEnv.NODE_ENV === "production";
   const isDev = !isProd;
 
   const driver =
-    (env.NODEBOOKS_PERSISTENCE as PersistenceDriver | undefined) ?? "sqlite";
+    (resolvedEnv.NODEBOOKS_PERSISTENCE as PersistenceDriver | undefined) ??
+    "sqlite";
 
   const persistence = persistenceSchema.parse({
     driver,
-    sqlitePath: env.NODEBOOKS_SQLITE_PATH ?? ".data/nodebooks.sqlite", // let store provide its internal default
-    databaseUrl: env.DATABASE_URL,
+    sqlitePath: resolvedEnv.NODEBOOKS_SQLITE_PATH ?? ".data/nodebooks.sqlite", // let store provide its internal default
+    databaseUrl: resolvedEnv.DATABASE_URL,
   });
 
-  const theme = env.NODEBOOKS_THEME === "dark" ? "dark" : "light";
+  const runtimeOverrides = {
+    ...getRuntimeOverrides(),
+    ...(overrides ?? {}),
+  };
+  const themeOverride = runtimeOverrides.theme;
+  const theme = isThemeMode(themeOverride)
+    ? themeOverride
+    : resolvedEnv.NODEBOOKS_THEME === "dark"
+      ? "dark"
+      : "light";
 
-  const kernelTimeoutMs = num(env.NODEBOOKS_KERNEL_TIMEOUT_MS) ?? 10_000;
-  const kernelWsHeartbeatMs = num(env.KERNEL_WS_HEARTBEAT_MS);
+  const kernelTimeoutOverride = sanitizeKernelTimeout(
+    runtimeOverrides.kernelTimeoutMs
+  );
+  const kernelTimeoutMs =
+    kernelTimeoutOverride ??
+    num(resolvedEnv.NODEBOOKS_KERNEL_TIMEOUT_MS) ??
+    10_000;
+  const kernelWsHeartbeatMs = num(resolvedEnv.NODEBOOKS_KERNEL_WS_HEARTBEAT_MS);
 
-  const templatesDir = env.NODEBOOKS_TEMPLATE_DIR;
+  const passwordOverride = runtimeOverrides.password;
+  const password =
+    typeof passwordOverride === "string" && passwordOverride.trim().length > 0
+      ? passwordOverride
+      : passwordOverride === null
+        ? undefined
+        : resolvedEnv.NODEBOOKS_PASSWORD;
+
+  const templatesDir = resolvedEnv.NODEBOOKS_TEMPLATE_DIR;
 
   return {
-    host: env.HOST ?? "0.0.0.0",
-    port: Number.parseInt(env.PORT ?? "4000", 10),
+    host: resolvedEnv.HOST ?? "0.0.0.0",
+    port: Number.parseInt(resolvedEnv.PORT ?? "4000", 10),
     isDev,
     isProd,
-    embedNext: bool(env.EMBED_NEXT, true),
-    keepClientCwd: bool(env.NEXT_KEEP_CLIENT_CWD, true),
-    password: env.NODEBOOKS_PASSWORD,
+    embedNext: bool(resolvedEnv.EMBED_NEXT, true),
+    keepClientCwd: bool(resolvedEnv.NEXT_KEEP_CLIENT_CWD, true),
+    password,
     theme,
     kernelTimeoutMs,
     kernelWsHeartbeatMs,
@@ -67,12 +126,24 @@ export function loadServerConfig(
 }
 
 export function loadRuntimeConfig(
-  env: NodeJS.ProcessEnv = process.env
+  env: NodeJS.ProcessEnv | undefined = process.env,
+  overrides?: Partial<GlobalSettings>
 ): RuntimeConfig {
+  const resolvedEnv = env ?? process.env;
+  const runtimeOverrides = {
+    ...getRuntimeOverrides(),
+    ...(overrides ?? {}),
+  };
+  const kernelTimeoutOverride = sanitizeKernelTimeout(
+    runtimeOverrides.kernelTimeoutMs
+  );
   return {
-    kernelTimeoutMs: num(env.NODEBOOKS_KERNEL_TIMEOUT_MS) ?? 10_000,
-    batchMs: num(env.NODEBOOKS_BATCH_MS) ?? 25,
-    debug: env.NODEBOOKS_DEBUG === "1",
+    kernelTimeoutMs:
+      kernelTimeoutOverride ??
+      num(resolvedEnv.NODEBOOKS_KERNEL_TIMEOUT_MS) ??
+      10_000,
+    batchMs: num(resolvedEnv.NODEBOOKS_BATCH_MS) ?? 25,
+    debug: resolvedEnv.NODEBOOKS_DEBUG === "1",
   } satisfies RuntimeConfig;
 }
 
@@ -86,4 +157,10 @@ export function loadClientConfig(
   } satisfies ClientConfig;
 }
 
-export type { ServerConfig, ClientConfig, RuntimeConfig, PersistenceDriver };
+export type {
+  ServerConfig,
+  ClientConfig,
+  RuntimeConfig,
+  PersistenceDriver,
+  GlobalSettings,
+};

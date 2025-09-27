@@ -913,8 +913,6 @@ export class NotebookRuntime {
       if (!key) continue;
       nextEnv[key] = String(v);
     }
-    // Provide non-sensitive defaults for better UX in console coloring
-    if (nextEnv.FORCE_COLOR === undefined) nextEnv.FORCE_COLOR = "1";
     this.exposedEnv = nextEnv;
 
     try {

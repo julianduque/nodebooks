@@ -4,7 +4,7 @@ import {
   NotebookSchema,
   type Notebook,
 } from "@nodebooks/notebook-schema";
-import type { NotebookStore } from "../types.js";
+import type { NotebookStore, SettingsStore } from "../types.js";
 import { loadServerConfig } from "@nodebooks/config";
 
 export interface PostgresNotebookStoreOptions {
@@ -139,6 +139,14 @@ export class PostgresNotebookStore implements NotebookStore {
     await this.pool.end();
   }
 
+  async ensureReady(): Promise<void> {
+    await this.ready;
+  }
+
+  getPool(): Pool {
+    return this.pool;
+  }
+
   private async initialize(): Promise<void> {
     await this.pool.query(`
       CREATE TABLE IF NOT EXISTS notebooks (
@@ -154,10 +162,74 @@ export class PostgresNotebookStore implements NotebookStore {
       CREATE INDEX IF NOT EXISTS idx_notebooks_updated_at
         ON notebooks (updated_at DESC, id ASC)
     `);
+
+    await this.pool.query(`
+      CREATE TABLE IF NOT EXISTS settings (
+        key TEXT PRIMARY KEY,
+        value JSONB NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL
+      )
+    `);
+
+    await this.pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_settings_updated_at
+        ON settings (updated_at DESC, key ASC)
+    `);
   }
 
   private deserialize(raw: unknown): Notebook {
     const value = typeof raw === "string" ? JSON.parse(raw) : raw;
     return ensureNotebookRuntimeVersion(NotebookSchema.parse(value));
+  }
+}
+
+export class PostgresSettingsStore implements SettingsStore {
+  constructor(private readonly notebooks: PostgresNotebookStore) {}
+
+  private async getPool(): Promise<Pool> {
+    await this.notebooks.ensureReady();
+    return this.notebooks.getPool();
+  }
+
+  async all(): Promise<Record<string, unknown>> {
+    const pool = await this.getPool();
+    const result = await pool.query<{ key: string; value: unknown }>(
+      "SELECT key, value FROM settings"
+    );
+    return result.rows.reduce<Record<string, unknown>>((acc, row) => {
+      acc[row.key] = row.value;
+      return acc;
+    }, {});
+  }
+
+  async get<T = unknown>(key: string): Promise<T | undefined> {
+    const pool = await this.getPool();
+    const result = await pool.query<{ value: unknown }>(
+      "SELECT value FROM settings WHERE key = $1 LIMIT 1",
+      [key]
+    );
+    const row = result.rows[0];
+    return (row?.value ?? undefined) as T | undefined;
+  }
+
+  async set<T = unknown>(key: string, value: T): Promise<void> {
+    if (value === undefined) {
+      await this.delete(key);
+      return;
+    }
+    const pool = await this.getPool();
+    await pool.query(
+      `INSERT INTO settings (key, value, updated_at)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (key) DO UPDATE SET
+         value = EXCLUDED.value,
+         updated_at = EXCLUDED.updated_at`,
+      [key, value ?? null, new Date().toISOString()]
+    );
+  }
+
+  async delete(key: string): Promise<void> {
+    const pool = await this.getPool();
+    await pool.query("DELETE FROM settings WHERE key = $1", [key]);
   }
 }
