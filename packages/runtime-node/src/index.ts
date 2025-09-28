@@ -30,6 +30,13 @@ import type {
   UiCode,
   UiTable,
   UiDataSummary,
+  UiVegaLite,
+  UiPlotly,
+  UiHeatmap,
+  UiNetworkGraph,
+  UiPlot3d,
+  UiMap,
+  UiGeoJson,
   UiAlert,
   UiBadge,
   UiMetric,
@@ -1757,6 +1764,60 @@ function UiDataSummary(opts) {
   if (opts && typeof opts === "object") { const o = Object.assign({ ui: "dataSummary" }, opts); __nb_emit(o); return o; }
   throw new Error("UiDataSummary expects an options object");
 }
+function UiVegaLite(specOrOpts, opts) {
+  if (specOrOpts && typeof specOrOpts === "object" && !Array.isArray(specOrOpts) && "spec" in specOrOpts) {
+    if (!specOrOpts.spec || typeof specOrOpts.spec !== "object") {
+      throw new Error("UiVegaLite expects a spec object");
+    }
+    const o = Object.assign({ ui: "vegaLite" }, specOrOpts); __nb_emit(o); return o;
+  }
+  if (!specOrOpts || typeof specOrOpts !== "object") { throw new Error("UiVegaLite expects a spec object"); }
+  const o = Object.assign({ ui: "vegaLite", spec: specOrOpts }, opts || {}); __nb_emit(o); return o;
+}
+function UiPlotly(dataOrOpts, opts) {
+  if (Array.isArray(dataOrOpts)) {
+    const o = Object.assign({ ui: "plotly", data: dataOrOpts }, opts || {}); __nb_emit(o); return o;
+  }
+  if (!dataOrOpts || typeof dataOrOpts !== "object" || !Array.isArray(dataOrOpts.data)) {
+    throw new Error("UiPlotly expects an array of traces in 'data'");
+  }
+  const o = Object.assign({ ui: "plotly" }, dataOrOpts); __nb_emit(o); return o;
+}
+function UiHeatmap(valuesOrOpts, opts) {
+  if (Array.isArray(valuesOrOpts)) {
+    const o = Object.assign({ ui: "heatmap", values: valuesOrOpts }, opts || {}); __nb_emit(o); return o;
+  }
+  if (!valuesOrOpts || typeof valuesOrOpts !== "object" || !Array.isArray(valuesOrOpts.values)) {
+    throw new Error("UiHeatmap expects a 2D number array in 'values'");
+  }
+  const o = Object.assign({ ui: "heatmap" }, valuesOrOpts); __nb_emit(o); return o;
+}
+function UiNetworkGraph(nodesOrOpts, links, opts) {
+  if (Array.isArray(nodesOrOpts) && Array.isArray(links)) {
+    const o = Object.assign({ ui: "networkGraph", nodes: nodesOrOpts, links }, opts || {}); __nb_emit(o); return o;
+  }
+  if (!nodesOrOpts || typeof nodesOrOpts !== "object" || !Array.isArray(nodesOrOpts.nodes) || !Array.isArray(nodesOrOpts.links)) {
+    throw new Error("UiNetworkGraph expects 'nodes' and 'links' arrays");
+  }
+  const o = Object.assign({ ui: "networkGraph" }, nodesOrOpts); __nb_emit(o); return o;
+}
+function UiPlot3d(opts) {
+  if (opts && typeof opts === "object") { const o = Object.assign({ ui: "plot3d" }, opts); __nb_emit(o); return o; }
+  const o = { ui: "plot3d" }; __nb_emit(o); return o;
+}
+function UiMap(opts) {
+  if (opts && typeof opts === "object") { const o = Object.assign({ ui: "map" }, opts); __nb_emit(o); return o; }
+  const o = { ui: "map" }; __nb_emit(o); return o;
+}
+function UiGeoJson(featureOrOpts, opts) {
+  if (featureOrOpts && typeof featureOrOpts === "object" && !Array.isArray(featureOrOpts) && featureOrOpts.type === "FeatureCollection") {
+    const o = Object.assign({ ui: "geoJson", featureCollection: featureOrOpts }, opts || {}); __nb_emit(o); return o;
+  }
+  if (!featureOrOpts || typeof featureOrOpts !== "object" || typeof featureOrOpts.featureCollection !== "object") {
+    throw new Error("UiGeoJson expects a GeoJSON FeatureCollection in 'featureCollection'");
+  }
+  const o = Object.assign({ ui: "geoJson" }, featureOrOpts); __nb_emit(o); return o;
+}
 function UiAlert(opts) {
   if (opts && typeof opts === "object") { const o = Object.assign({ ui: "alert" }, opts); __nb_emit(o); return o; }
   throw new Error("UiAlert expects an options object");
@@ -1783,7 +1844,7 @@ function UiSpinner(opts) {
   if (opts && typeof opts === "object") { const o = Object.assign({ ui: "spinner" }, opts); __nb_emit(o); return o; }
   const o = { ui: "spinner" }; __nb_emit(o); return o;
 }
-module.exports = { UiImage, UiMarkdown, UiHTML, UiJSON, UiCode, UiTable, UiDataSummary, UiAlert, UiBadge, UiMetric, UiProgress, UiSpinner };
+module.exports = { UiImage, UiMarkdown, UiHTML, UiJSON, UiCode, UiTable, UiDataSummary, UiVegaLite, UiPlotly, UiHeatmap, UiNetworkGraph, UiPlot3d, UiMap, UiGeoJson, UiAlert, UiBadge, UiMetric, UiProgress, UiSpinner };
 `;
 
   const indexDts = `export type UiImageOptions = {
@@ -1819,6 +1880,39 @@ export type UiDataSummaryOptions = {
   note?: string;
 };
 export declare function UiDataSummary(opts: UiDataSummaryOptions): { ui: "dataSummary" } & UiDataSummaryOptions;
+export type UiVegaLiteOptions = { height?: number; width?: number; renderer?: "canvas" | "svg"; actions?: boolean };
+export declare function UiVegaLite(spec: Record<string, unknown>, opts?: UiVegaLiteOptions): { ui: "vegaLite"; spec: Record<string, unknown> } & UiVegaLiteOptions;
+export declare function UiVegaLite(opts: { ui?: "vegaLite"; spec: Record<string, unknown> } & UiVegaLiteOptions): { ui: "vegaLite"; spec: Record<string, unknown> } & UiVegaLiteOptions;
+export type UiPlotlyOptions = { layout?: Record<string, unknown>; config?: Record<string, unknown>; responsive?: boolean };
+export declare function UiPlotly(data: unknown[], opts?: UiPlotlyOptions): { ui: "plotly"; data: unknown[] } & UiPlotlyOptions;
+export declare function UiPlotly(opts: { ui?: "plotly"; data: unknown[] } & UiPlotlyOptions): { ui: "plotly"; data: unknown[] } & UiPlotlyOptions;
+export type UiHeatmapOptions = { xLabels?: string[]; yLabels?: string[]; colorScale?: "viridis" | "plasma" | "magma" | "inferno" | "turbo" | "custom"; min?: number; max?: number; legend?: boolean };
+export declare function UiHeatmap(values: number[][], opts?: UiHeatmapOptions): { ui: "heatmap"; values: number[][] } & UiHeatmapOptions;
+export declare function UiHeatmap(opts: { ui?: "heatmap"; values: number[][] } & UiHeatmapOptions): { ui: "heatmap"; values: number[][] } & UiHeatmapOptions;
+export type UiNetworkGraphNode = { id: string; label?: string; group?: string; size?: number; color?: string };
+export type UiNetworkGraphLink = { source: string; target: string; value?: number; directed?: boolean; color?: string };
+export type UiNetworkGraphOptions = { physics?: { linkDistance?: number; chargeStrength?: number; linkStrength?: number }; layout?: "force" | "circular" | "grid" };
+export declare function UiNetworkGraph(nodes: UiNetworkGraphNode[], links: UiNetworkGraphLink[], opts?: UiNetworkGraphOptions): { ui: "networkGraph"; nodes: UiNetworkGraphNode[]; links: UiNetworkGraphLink[] } & UiNetworkGraphOptions;
+export declare function UiNetworkGraph(opts: { ui?: "networkGraph"; nodes: UiNetworkGraphNode[]; links: UiNetworkGraphLink[] } & UiNetworkGraphOptions): { ui: "networkGraph"; nodes: UiNetworkGraphNode[]; links: UiNetworkGraphLink[] } & UiNetworkGraphOptions;
+export type UiPlot3dVector = [number, number, number];
+export type UiPlot3dPoint = { position: UiPlot3dVector; color?: string; size?: number };
+export type UiPlot3dLine = { points: UiPlot3dVector[]; color?: string; width?: number };
+export type UiPlot3dSurface = { values: number[][]; xStep?: number; yStep?: number; colorScale?: "viridis" | "plasma" | "magma" | "inferno" | "turbo" | "grey" };
+export type UiPlot3dOptions = { points?: UiPlot3dPoint[]; lines?: UiPlot3dLine[]; surface?: UiPlot3dSurface; camera?: { position?: UiPlot3dVector; target?: UiPlot3dVector }; background?: string };
+export declare function UiPlot3d(opts?: UiPlot3dOptions): { ui: "plot3d" } & UiPlot3dOptions;
+export type UiMapLngLat = [number, number];
+export type UiMapBoundsPadding = number | [number, number, number, number];
+export type UiMapBounds = { sw: UiMapLngLat; ne: UiMapLngLat; padding?: UiMapBoundsPadding };
+export type UiGeoJsonGeometry = { type: string; coordinates: unknown };
+export type UiGeoJsonFeature = { type: "Feature"; geometry: UiGeoJsonGeometry; properties?: Record<string, unknown> };
+export type UiGeoJsonFeatureCollection = { type: "FeatureCollection"; features: UiGeoJsonFeature[] };
+export type UiMapMarker = { id?: string; coordinates: UiMapLngLat; color?: string; popup?: string };
+export type UiMapOptions = { center?: UiMapLngLat; zoom?: number; pitch?: number; bearing?: number; bounds?: UiMapBounds; markers?: UiMapMarker[]; style?: "streets" | "outdoors" | "light" | "dark" | "satellite" | "terrain" | string; attribution?: string; geojson?: UiGeoJsonFeatureCollection; height?: number };
+export declare function UiMap(opts?: UiMapOptions): { ui: "map" } & UiMapOptions;
+export type UiGeoJsonMapOptions = { center?: UiMapLngLat; zoom?: number; style?: "streets" | "outdoors" | "light" | "dark" | "satellite" | "terrain" | string; attribution?: string };
+export type UiGeoJsonOptions = { map?: UiGeoJsonMapOptions; fillColor?: string; lineColor?: string; lineWidth?: number; opacity?: number; showMarkers?: boolean; height?: number };
+export declare function UiGeoJson(featureCollection: UiGeoJsonFeatureCollection, opts?: UiGeoJsonOptions): { ui: "geoJson"; featureCollection: UiGeoJsonFeatureCollection } & UiGeoJsonOptions;
+export declare function UiGeoJson(opts: { ui?: "geoJson"; featureCollection: UiGeoJsonFeatureCollection } & UiGeoJsonOptions): { ui: "geoJson"; featureCollection: UiGeoJsonFeatureCollection } & UiGeoJsonOptions;
 export type UiAlertOptions = { level?: "info" | "success" | "warn" | "error"; title?: string; text?: string; html?: string };
 export declare function UiAlert(opts: UiAlertOptions): { ui: "alert" } & UiAlertOptions;
 export type UiBadgeOptions = { color?: "neutral" | "info" | "success" | "warn" | "error" };
@@ -1874,6 +1968,14 @@ type UiJsonOptions = Omit<UiJson, "ui" | "json">;
 type UiCodeOptions = Omit<UiCode, "ui" | "code">;
 type UiTableOptions = Omit<UiTable, "ui" | "rows">;
 type UiDataSummaryOptions = Omit<UiDataSummary, "ui">;
+type UiVegaLiteOptions = Omit<UiVegaLite, "ui" | "spec">;
+type UiPlotlyOptions = Omit<UiPlotly, "ui" | "data">;
+type UiHeatmapOptions = Omit<UiHeatmap, "ui" | "values">;
+type UiNetworkGraphOptions = Omit<UiNetworkGraph, "ui" | "nodes" | "links">;
+type UiPlot3dOptions = Omit<UiPlot3d, "ui">;
+type UiMapOptions = Omit<UiMap, "ui">;
+type UiGeoJsonOptions = Omit<UiGeoJson, "ui" | "featureCollection">;
+type UiGeoJsonFeatureCollection = UiGeoJson["featureCollection"];
 type UiAlertOptions = Omit<UiAlert, "ui">;
 type UiBadgeOptions = Omit<UiBadge, "ui" | "text">;
 type UiMetricOptions = Omit<UiMetric, "ui" | "value">;
@@ -1958,6 +2060,151 @@ const createSandboxRequire = (
         },
         UiDataSummary: (opts: UiDataSummaryOptions) => {
           const o = { ui: "dataSummary", ...(opts || {}) };
+          emit(o);
+          return tag(o);
+        },
+        UiVegaLite: (
+          specOrOpts:
+            | Record<string, unknown>
+            | ({ spec: Record<string, unknown> } & UiVegaLiteOptions),
+          opts?: UiVegaLiteOptions
+        ) => {
+          const isObj =
+            specOrOpts &&
+            typeof specOrOpts === "object" &&
+            !Array.isArray(specOrOpts);
+          if (isObj && "spec" in (specOrOpts as Record<string, unknown>)) {
+            const candidate = (specOrOpts as Record<string, unknown>).spec;
+            if (!candidate || typeof candidate !== "object") {
+              throw new Error("UiVegaLite expects a spec object");
+            }
+            const o = {
+              ui: "vegaLite",
+              ...(specOrOpts as Record<string, unknown>),
+            };
+            emit(o);
+            return tag(o);
+          }
+          if (!specOrOpts || typeof specOrOpts !== "object") {
+            throw new Error("UiVegaLite expects a spec object");
+          }
+          const o = {
+            ui: "vegaLite",
+            spec: specOrOpts as Record<string, unknown>,
+            ...(opts || {}),
+          };
+          emit(o);
+          return tag(o);
+        },
+        UiPlotly: (
+          dataOrOpts: unknown[] | ({ data: unknown[] } & UiPlotlyOptions),
+          opts?: UiPlotlyOptions
+        ) => {
+          if (Array.isArray(dataOrOpts)) {
+            const o = { ui: "plotly", data: dataOrOpts, ...(opts || {}) };
+            emit(o);
+            return tag(o);
+          }
+          const payload = dataOrOpts as Record<string, unknown> | undefined;
+          if (!payload || !Array.isArray(payload.data)) {
+            throw new Error("UiPlotly expects an array of traces in 'data'");
+          }
+          const o = { ui: "plotly", ...payload };
+          emit(o);
+          return tag(o);
+        },
+        UiHeatmap: (
+          valuesOrOpts:
+            | number[][]
+            | ({ values: number[][] } & UiHeatmapOptions),
+          opts?: UiHeatmapOptions
+        ) => {
+          if (Array.isArray(valuesOrOpts)) {
+            const o = { ui: "heatmap", values: valuesOrOpts, ...(opts || {}) };
+            emit(o);
+            return tag(o);
+          }
+          const payload = valuesOrOpts as Record<string, unknown> | undefined;
+          if (!payload || !Array.isArray(payload.values)) {
+            throw new Error("UiHeatmap expects a 2D number array in 'values'");
+          }
+          const o = { ui: "heatmap", ...payload };
+          emit(o);
+          return tag(o);
+        },
+        UiNetworkGraph: (
+          nodesOrOpts:
+            | Array<{ id: string }>
+            | ({
+                nodes: Array<{ id: string }>;
+                links: unknown[];
+              } & UiNetworkGraphOptions),
+          links?: unknown[],
+          opts?: UiNetworkGraphOptions
+        ) => {
+          if (Array.isArray(nodesOrOpts) && Array.isArray(links)) {
+            const o = {
+              ui: "networkGraph",
+              nodes: nodesOrOpts,
+              links,
+              ...(opts || {}),
+            };
+            emit(o);
+            return tag(o);
+          }
+          const payload = nodesOrOpts as Record<string, unknown> | undefined;
+          if (
+            !payload ||
+            !Array.isArray(payload.nodes) ||
+            !Array.isArray(payload.links)
+          ) {
+            throw new Error(
+              "UiNetworkGraph expects 'nodes' and 'links' arrays"
+            );
+          }
+          const o = { ui: "networkGraph", ...payload };
+          emit(o);
+          return tag(o);
+        },
+        UiPlot3d: (opts: UiPlot3dOptions) => {
+          const o = { ui: "plot3d", ...(opts || {}) };
+          emit(o);
+          return tag(o);
+        },
+        UiMap: (opts: UiMapOptions) => {
+          const o = { ui: "map", ...(opts || {}) };
+          emit(o);
+          return tag(o);
+        },
+        UiGeoJson: (
+          featureOrOpts:
+            | UiGeoJsonFeatureCollection
+            | ({
+                featureCollection: UiGeoJsonFeatureCollection;
+              } & UiGeoJsonOptions),
+          opts?: UiGeoJsonOptions
+        ) => {
+          const isFeatureCollection =
+            featureOrOpts &&
+            typeof featureOrOpts === "object" &&
+            !Array.isArray(featureOrOpts) &&
+            (featureOrOpts as { type?: unknown }).type === "FeatureCollection";
+          if (isFeatureCollection) {
+            const o = {
+              ui: "geoJson",
+              featureCollection: featureOrOpts as UiGeoJsonFeatureCollection,
+              ...(opts || {}),
+            };
+            emit(o);
+            return tag(o);
+          }
+          const payload = featureOrOpts as Record<string, unknown> | undefined;
+          if (!payload || typeof payload.featureCollection !== "object") {
+            throw new Error(
+              "UiGeoJson expects a GeoJSON FeatureCollection in 'featureCollection'"
+            );
+          }
+          const o = { ui: "geoJson", ...payload };
           emit(o);
           return tag(o);
         },

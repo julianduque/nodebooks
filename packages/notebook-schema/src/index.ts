@@ -147,6 +147,202 @@ export const UiDataSummarySchema = z.object({
   note: z.string().optional(),
 });
 
+// Charts & Visualization
+const VegaSpecSchema = z.record(z.string(), z.unknown());
+
+export const UiVegaLiteSchema = z.object({
+  ui: z.literal("vegaLite"),
+  spec: VegaSpecSchema,
+  height: z.number().positive().optional(),
+  width: z.number().positive().optional(),
+  renderer: z.enum(["canvas", "svg"]).optional(),
+  actions: z.boolean().optional(),
+});
+
+export const UiPlotlySchema = z.object({
+  ui: z.literal("plotly"),
+  data: z.array(z.unknown()),
+  layout: z.record(z.string(), z.unknown()).optional(),
+  config: z.record(z.string(), z.unknown()).optional(),
+  responsive: z.boolean().optional(),
+});
+
+export const UiHeatmapSchema = z.object({
+  ui: z.literal("heatmap"),
+  values: z.array(z.array(z.number())),
+  xLabels: z.array(z.string()).optional(),
+  yLabels: z.array(z.string()).optional(),
+  colorScale: z
+    .enum(["viridis", "plasma", "magma", "inferno", "turbo", "custom"])
+    .optional(),
+  min: z.number().optional(),
+  max: z.number().optional(),
+  legend: z.boolean().optional(),
+});
+
+const GraphNodeSchema = z.object({
+  id: z.string(),
+  label: z.string().optional(),
+  group: z.string().optional(),
+  size: z.number().positive().optional(),
+  color: z.string().optional(),
+});
+
+const GraphLinkSchema = z.object({
+  source: z.string(),
+  target: z.string(),
+  value: z.number().optional(),
+  directed: z.boolean().optional(),
+  color: z.string().optional(),
+});
+
+export const UiNetworkGraphSchema = z.object({
+  ui: z.literal("networkGraph"),
+  nodes: z.array(GraphNodeSchema),
+  links: z.array(GraphLinkSchema),
+  physics: z
+    .object({
+      linkDistance: z.number().positive().optional(),
+      chargeStrength: z.number().optional(),
+      linkStrength: z.number().optional(),
+    })
+    .optional(),
+  layout: z.enum(["force", "circular", "grid"]).optional(),
+});
+
+const ThreeVectorSchema = z.tuple([z.number(), z.number(), z.number()]);
+
+export const UiPlot3dSchema = z.object({
+  ui: z.literal("plot3d"),
+  points: z
+    .array(
+      z.object({
+        position: ThreeVectorSchema,
+        color: z.string().optional(),
+        size: z.number().positive().optional(),
+      })
+    )
+    .optional(),
+  lines: z
+    .array(
+      z.object({
+        points: z.array(ThreeVectorSchema).min(2),
+        color: z.string().optional(),
+        width: z.number().positive().optional(),
+      })
+    )
+    .optional(),
+  surface: z
+    .object({
+      values: z.array(z.array(z.number())),
+      xStep: z.number().positive().optional(),
+      yStep: z.number().positive().optional(),
+      colorScale: z
+        .enum(["viridis", "plasma", "magma", "inferno", "turbo", "grey"])
+        .optional(),
+    })
+    .optional(),
+  camera: z
+    .object({
+      position: ThreeVectorSchema.optional(),
+      target: ThreeVectorSchema.optional(),
+    })
+    .optional(),
+  background: z.string().optional(),
+});
+
+const LngLatTupleSchema = z.tuple([z.number(), z.number()]);
+
+const MapBoundsSchema = z.object({
+  sw: LngLatTupleSchema,
+  ne: LngLatTupleSchema,
+  padding: z
+    .union([
+      z.number().nonnegative(),
+      z.tuple([
+        z.number().nonnegative(),
+        z.number().nonnegative(),
+        z.number().nonnegative(),
+        z.number().nonnegative(),
+      ]),
+    ])
+    .optional(),
+});
+
+const MapMarkerSchema = z.object({
+  id: z.string().optional(),
+  coordinates: LngLatTupleSchema,
+  color: z.string().optional(),
+  popup: z.string().optional(),
+});
+
+const GeoJsonSchema = z.object({
+  type: z.literal("FeatureCollection"),
+  features: z.array(
+    z.object({
+      type: z.literal("Feature"),
+      geometry: z.object({
+        type: z.string(),
+        coordinates: z.unknown(),
+      }),
+      properties: z.record(z.string(), z.unknown()).optional(),
+    })
+  ),
+});
+
+export const UiMapSchema = z.object({
+  ui: z.literal("map"),
+  center: LngLatTupleSchema.optional(),
+  zoom: z.number().min(0).max(22).optional(),
+  pitch: z.number().min(0).max(85).optional(),
+  bearing: z.number().optional(),
+  bounds: MapBoundsSchema.optional(),
+  markers: z.array(MapMarkerSchema).optional(),
+  style: z
+    .union([
+      z.literal("streets"),
+      z.literal("outdoors"),
+      z.literal("light"),
+      z.literal("dark"),
+      z.literal("satellite"),
+      z.literal("terrain"),
+      z.string(),
+    ])
+    .optional(),
+  attribution: z.string().optional(),
+  geojson: GeoJsonSchema.optional(),
+  height: z.number().positive().optional(),
+});
+
+export const UiGeoJsonSchema = z.object({
+  ui: z.literal("geoJson"),
+  featureCollection: GeoJsonSchema,
+  map: z
+    .object({
+      center: LngLatTupleSchema.optional(),
+      zoom: z.number().min(0).max(22).optional(),
+      style: z
+        .union([
+          z.literal("streets"),
+          z.literal("outdoors"),
+          z.literal("light"),
+          z.literal("dark"),
+          z.literal("satellite"),
+          z.literal("terrain"),
+          z.string(),
+        ])
+        .optional(),
+      attribution: z.string().optional(),
+    })
+    .optional(),
+  fillColor: z.string().optional(),
+  lineColor: z.string().optional(),
+  lineWidth: z.number().positive().optional(),
+  opacity: z.number().min(0).max(1).optional(),
+  showMarkers: z.boolean().optional(),
+  height: z.number().positive().optional(),
+});
+
 // Status & Metrics
 export const UiAlertSchema = z.object({
   ui: z.literal("alert"),
@@ -195,6 +391,13 @@ export const UiDisplaySchema = z.discriminatedUnion("ui", [
   UiCodeSchema,
   UiTableSchema,
   UiDataSummarySchema,
+  UiVegaLiteSchema,
+  UiPlotlySchema,
+  UiHeatmapSchema,
+  UiNetworkGraphSchema,
+  UiPlot3dSchema,
+  UiMapSchema,
+  UiGeoJsonSchema,
   UiAlertSchema,
   UiBadgeSchema,
   UiMetricSchema,
@@ -209,6 +412,13 @@ export type UiJson = z.infer<typeof UiJsonSchema>;
 export type UiCode = z.infer<typeof UiCodeSchema>;
 export type UiTable = z.infer<typeof UiTableSchema>;
 export type UiDataSummary = z.infer<typeof UiDataSummarySchema>;
+export type UiVegaLite = z.infer<typeof UiVegaLiteSchema>;
+export type UiPlotly = z.infer<typeof UiPlotlySchema>;
+export type UiHeatmap = z.infer<typeof UiHeatmapSchema>;
+export type UiNetworkGraph = z.infer<typeof UiNetworkGraphSchema>;
+export type UiPlot3d = z.infer<typeof UiPlot3dSchema>;
+export type UiMap = z.infer<typeof UiMapSchema>;
+export type UiGeoJson = z.infer<typeof UiGeoJsonSchema>;
 export type UiAlert = z.infer<typeof UiAlertSchema>;
 export type UiBadge = z.infer<typeof UiBadgeSchema>;
 export type UiMetric = z.infer<typeof UiMetricSchema>;

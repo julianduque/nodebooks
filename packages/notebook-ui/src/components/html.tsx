@@ -29,7 +29,7 @@ export const HtmlBlock: React.FC<HtmlProps> = ({
       : undefined;
   return (
     <div
-      className={`relative rounded-md border p-3 ${className ?? ""} ${mode === "light" ? "bg-white border-slate-200" : "bg-slate-900 border-slate-800"}`}
+      className={`relative rounded-md border p-3 ${className ?? ""} ${mode === "light" ? "bg-slate-100 border-slate-200" : "bg-slate-900 border-slate-800"}`}
       style={{ color: "var(--foreground)", ...(darkVars ?? {}) }}
     >
       <div dangerouslySetInnerHTML={{ __html: safe }} />

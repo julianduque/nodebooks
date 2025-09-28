@@ -35,7 +35,7 @@ export const MetricTile: React.FC<MetricProps> = ({
     deltaNum === undefined ? "" : deltaNum > 0 ? "▲" : deltaNum < 0 ? "▼" : "→";
   return (
     <div
-      className={`relative rounded-lg border p-3 ${className ?? ""} ${mode === "light" ? "border-slate-200 bg-white" : "border-slate-800 bg-slate-900"}`}
+      className={`relative rounded-lg border p-3 ${className ?? ""} ${mode === "light" ? "border-slate-200 bg-slate-100" : "border-slate-800 bg-slate-900"}`}
     >
       {label && (
         <div
