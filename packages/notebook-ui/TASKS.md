@@ -17,11 +17,11 @@ Data & Tables
 
 Charts & Visualization
 
-- [ ] Vega-Lite Chart (declarative spec)
-- [ ] Plotly Chart (optional alternative)
-- [ ] Heatmap / Matrix
-- [ ] Network Graph (force-directed)
-- [ ] 3D Plot (Three.js/WebGL)
+- [x] Vega-Lite Chart (declarative spec)
+- [x] Plotly Chart (optional alternative)
+- [x] Heatmap / Matrix
+- [x] Network Graph (force-directed)
+- [x] 3D Plot (Three.js/WebGL)
 
 Media
 
@@ -34,8 +34,8 @@ Media
 
 Maps
 
-- [ ] Map (tiles + markers)
-- [ ] GeoJSON Layer (polylines/polygons)
+- [x] Map (tiles + markers)
+- [x] GeoJSON Layer (polylines/polygons)
 
 Text & Math
 

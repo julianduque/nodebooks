@@ -1,4 +1,10 @@
 import React from "react";
+import { UiThemeContext } from "./theme";
+
+export const useThemeMode = (override?: "light" | "dark") => {
+  const ctx = React.useContext(UiThemeContext);
+  return override ?? ctx ?? "light";
+};
 
 export const deriveColumns = (
   rows: Array<Record<string, unknown>>,

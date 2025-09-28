@@ -27,7 +27,7 @@ export const DataSummary: React.FC<DataSummaryProps> = ({
       return (
         <div
           className={`rounded border px-2 py-1 ${
-            mode === "light" ? "border-slate-200 bg-white" : "bg-slate-800"
+            mode === "light" ? "border-slate-200 bg-slate-100" : "bg-slate-800"
           }`}
           style={
             mode === "light" ? undefined : { borderColor: "var(--border)" }
@@ -58,7 +58,7 @@ export const DataSummary: React.FC<DataSummaryProps> = ({
       )}
       <div className="grid gap-4 md:grid-cols-2">
         <div
-          className={`rounded border ${mode === "light" ? "border-slate-200 bg-white" : "border-slate-800 bg-slate-900"}`}
+          className={`rounded border ${mode === "light" ? "border-slate-200 bg-slate-100" : "border-slate-800 bg-slate-900"}`}
         >
           <div
             className={`border-b px-3 py-2 text-sm font-semibold ${mode === "light" ? "border-slate-200 text-slate-700" : "border-slate-700 text-slate-200"}`}
@@ -141,7 +141,7 @@ export const DataSummary: React.FC<DataSummaryProps> = ({
         </div>
 
         <div
-          className={`rounded border ${mode === "light" ? "border-slate-200 bg-white" : "border-slate-800 bg-slate-900"}`}
+          className={`rounded border ${mode === "light" ? "border-slate-200 bg-slate-100" : "border-slate-800 bg-slate-900"}`}
         >
           <div
             className={`border-b px-3 py-2 text-sm font-semibold ${mode === "light" ? "border-slate-200 text-slate-700" : "border-slate-700 text-slate-200"}`}
@@ -154,7 +154,7 @@ export const DataSummary: React.FC<DataSummaryProps> = ({
                 {Object.entries(stats).map(([name, s]) => (
                   <div
                     key={name}
-                    className={`rounded border ${mode === "light" ? "border-slate-200 bg-white" : "border-slate-700 bg-slate-800"}`}
+                    className={`rounded border ${mode === "light" ? "border-slate-200 bg-slate-100" : "border-slate-700 bg-slate-800"}`}
                   >
                     <div
                       className={`border-b px-3 py-1 text-sm font-semibold ${mode === "light" ? "border-slate-200 text-slate-700" : "border-slate-700 text-slate-200"}`}
@@ -190,7 +190,7 @@ export const DataSummary: React.FC<DataSummaryProps> = ({
       </div>
 
       <div
-        className={`mt-4 rounded border ${mode === "light" ? "border-slate-200 bg-white" : "border-slate-800 bg-slate-900"}`}
+        className={`mt-4 rounded border ${mode === "light" ? "border-slate-200 bg-slate-100" : "border-slate-800 bg-slate-900"}`}
       >
         <div
           className={`border-b px-3 py-2 text-sm font-semibold ${mode === "light" ? "border-slate-200 text-slate-700" : "border-slate-700 text-slate-200"}`}

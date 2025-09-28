@@ -15,6 +15,12 @@ import { MetricTile } from "./components/metric";
 import { ProgressBar } from "./components/progress";
 import { Spinner } from "./components/spinner";
 import { UiCard } from "./components/ui-card";
+import { VegaLiteChart } from "./components/vega-lite";
+import { PlotlyChart } from "./components/plotly-chart";
+import { HeatmapMatrix } from "./components/heatmap";
+import { NetworkGraph } from "./components/network-graph";
+import { Plot3dScene } from "./components/plot3d";
+import { MapView, GeoJsonMap } from "./components/map";
 
 // UI Renderer
 export interface UiRendererProps {
@@ -49,6 +55,27 @@ export const UiRenderer: React.FC<UiRendererProps> = ({
     case "dataSummary":
       inner = <DataSummary {...display} className={className} />;
       break;
+    case "vegaLite":
+      inner = <VegaLiteChart {...display} className={className} />;
+      break;
+    case "plotly":
+      inner = <PlotlyChart {...display} className={className} />;
+      break;
+    case "heatmap":
+      inner = <HeatmapMatrix {...display} className={className} />;
+      break;
+    case "networkGraph":
+      inner = <NetworkGraph {...display} className={className} />;
+      break;
+    case "plot3d":
+      inner = <Plot3dScene {...display} className={className} />;
+      break;
+    case "map":
+      inner = <MapView {...display} className={className} />;
+      break;
+    case "geoJson":
+      inner = <GeoJsonMap {...display} className={className} />;
+      break;
     case "alert":
       inner = <AlertCallout {...display} className={className} />;
       break;
@@ -81,6 +108,12 @@ export { JsonViewer } from "./components/json-viewer";
 export { CodeBlock } from "./components/code-block";
 export { TableGrid } from "./components/table-grid";
 export { DataSummary } from "./components/data-summary";
+export { VegaLiteChart } from "./components/vega-lite";
+export { PlotlyChart } from "./components/plotly-chart";
+export { HeatmapMatrix } from "./components/heatmap";
+export { NetworkGraph } from "./components/network-graph";
+export { Plot3dScene } from "./components/plot3d";
+export { MapView, GeoJsonMap } from "./components/map";
 export { AlertCallout } from "./components/alert";
 export { BadgeTag } from "./components/badge";
 export { MetricTile } from "./components/metric";

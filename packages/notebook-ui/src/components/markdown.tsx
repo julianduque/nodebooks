@@ -26,7 +26,7 @@ export const Markdown: React.FC<MarkdownProps> = ({
       <div
         className={`markdown-preview rounded-md border p-3 ${
           mode === "light"
-            ? "bg-white text-slate-800 border-slate-200"
+            ? "bg-slate-100 text-slate-800 border-slate-200"
             : "bg-slate-900 text-slate-200 border-slate-800"
         }`}
         style={

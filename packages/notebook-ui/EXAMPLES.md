@@ -4,8 +4,8 @@ These snippets are meant to be pasted directly into a code cell. Return the help
 
 Import helpers from `@nodebooks/ui` or return the literal display object.
 
-- Helpers: `UiImage`, `UiMarkdown`, `UiHTML`, `UiJSON`, `UiCode`, `UiTable`, `UiDataSummary`
-- Literal objects: `{ ui: "image" | "markdown" | "html" | "json" | "code" | "table" | "dataSummary" | "alert" | "badge" | "metric" | "progress" | "spinner", ... }`
+- Helpers: `UiImage`, `UiMarkdown`, `UiHTML`, `UiJSON`, `UiCode`, `UiTable`, `UiDataSummary`, `UiVegaLite`, `UiPlotly`, `UiHeatmap`, `UiNetworkGraph`, `UiPlot3d`, `UiMap`, `UiGeoJson`
+- Literal objects: `{ ui: "image" | "markdown" | "html" | "json" | "code" | "table" | "dataSummary" | "vegaLite" | "plotly" | "heatmap" | "networkGraph" | "plot3d" | "map" | "geoJson" | "alert" | "badge" | "metric" | "progress" | "spinner", ... }`
 
 Note: For async work (like fetching an image and converting to base64), wrap in an async IIFE and return the result.
 
@@ -216,6 +216,240 @@ UiDataSummary({
   ],
   note: "Stats computed on 1,000 rows.",
 });
+```
+
+## Charts & Graphs
+
+### Vega-Lite chart
+
+```ts
+import { UiVegaLite } from "@nodebooks/ui";
+
+const spec = {
+  $schema: "https://vega.github.io/schema/vega-lite/v5.json",
+  description: "Monthly sales by channel",
+  data: {
+    values: [
+      { channel: "Web", month: "Jan", sales: 128 },
+      { channel: "Web", month: "Feb", sales: 144 },
+      { channel: "Retail", month: "Jan", sales: 96 },
+      { channel: "Retail", month: "Feb", sales: 102 },
+      { channel: "Partners", month: "Jan", sales: 72 },
+      { channel: "Partners", month: "Feb", sales: 88 },
+    ],
+  },
+  mark: "bar",
+  encoding: {
+    x: { field: "month", type: "ordinal", axis: { labelAngle: 0 } },
+    y: { field: "sales", type: "quantitative" },
+    color: { field: "channel", type: "nominal" },
+    tooltip: [
+      { field: "channel", type: "nominal" },
+      { field: "sales", type: "quantitative" },
+    ],
+  },
+};
+
+UiVegaLite(spec, { height: 320, actions: false });
+```
+
+### Plotly chart
+
+```ts
+import { UiPlotly } from "@nodebooks/ui";
+
+const hours = Array.from({ length: 24 }, (_, i) => i);
+const cpu = hours.map(
+  (hour) => 30 + Math.sin(hour / 2) * 18 + Math.random() * 4
+);
+const memory = hours.map(
+  (hour) => 48 + Math.cos(hour / 3) * 10 + Math.random() * 3
+);
+
+UiPlotly(
+  [
+    {
+      type: "scatter",
+      mode: "lines+markers",
+      name: "CPU",
+      x: hours,
+      y: cpu,
+      line: { color: "#0ea5e9", width: 2 },
+    },
+    {
+      type: "scatter",
+      mode: "lines",
+      name: "Memory",
+      x: hours,
+      y: memory,
+      line: { color: "#f97316", width: 2 },
+    },
+  ],
+  {
+    layout: {
+      title: "Cluster load (24h)",
+      margin: { t: 48, r: 16, b: 48, l: 56 },
+      xaxis: { title: "Hour" },
+      yaxis: { title: "% Utilization", range: [0, 100] },
+    },
+  }
+);
+```
+
+### Heatmap / matrix
+
+```ts
+import { UiHeatmap } from "@nodebooks/ui";
+
+const values = [
+  [64, 58, 70, 82, 75],
+  [42, 48, 55, 63, 60],
+  [80, 85, 92, 96, 101],
+  [22, 30, 34, 41, 44],
+];
+
+UiHeatmap(values, {
+  xLabels: ["Mon", "Tue", "Wed", "Thu", "Fri"],
+  yLabels: ["API", "Workers", "DB", "Cache"],
+  colorScale: "turbo",
+  legend: true,
+});
+```
+
+### Network graph
+
+```ts
+import { UiNetworkGraph } from "@nodebooks/ui";
+
+const nodes = [
+  { id: "api", label: "API" },
+  { id: "queue", label: "Queue" },
+  { id: "worker", label: "Worker" },
+  { id: "db", label: "DB" },
+  { id: "cache", label: "Cache" },
+];
+
+const links = [
+  { source: "api", target: "queue" },
+  { source: "queue", target: "worker" },
+  { source: "worker", target: "db" },
+  { source: "worker", target: "cache" },
+  { source: "cache", target: "api", directed: true },
+];
+
+UiNetworkGraph(nodes, links, {
+  physics: { linkDistance: 140, chargeStrength: -160 },
+  layout: "force",
+});
+```
+
+### 3D plot
+
+```ts
+import { UiPlot3d } from "@nodebooks/ui";
+
+const surface = Array.from({ length: 16 }, (_, y) =>
+  Array.from({ length: 16 }, (_, x) => {
+    const sx = (x - 8) / 3;
+    const sy = (y - 8) / 3;
+    return Math.sin(Math.sqrt(sx * sx + sy * sy));
+  })
+);
+
+UiPlot3d({
+  points: [
+    { position: [0, 0, 1.2], color: "#f97316", size: 1.6 },
+    { position: [2, -1.5, 0.4], color: "#0ea5e9", size: 1.2 },
+  ],
+  surface: {
+    values: surface,
+    colorScale: "magma",
+  },
+  camera: { position: [6, 6, 6], target: [0, 0, 0] },
+  background: "#0f172a",
+});
+```
+
+## Maps
+
+### Map with markers
+
+```ts
+import { UiMap } from "@nodebooks/ui";
+
+UiMap({
+  center: [-122.4194, 37.7749],
+  zoom: 11,
+  style: "streets",
+  markers: [
+    { coordinates: [-122.4194, 37.7749], popup: "San Francisco" },
+    { coordinates: [-122.4477, 37.7689], popup: "Golden Gate Park" },
+  ],
+  geojson: {
+    type: "FeatureCollection",
+    features: [
+      {
+        type: "Feature",
+        geometry: {
+          type: "LineString",
+          coordinates: [
+            [-122.4783, 37.8199],
+            [-122.475, 37.808],
+            [-122.4477, 37.7689],
+          ],
+        },
+      },
+    ],
+  },
+  height: 320,
+});
+```
+
+### GeoJSON overlay
+
+```ts
+import { UiGeoJson } from "@nodebooks/ui";
+
+UiGeoJson(
+  {
+    type: "FeatureCollection",
+    features: [
+      {
+        type: "Feature",
+        geometry: {
+          type: "Polygon",
+          coordinates: [
+            [
+              [-73.982, 40.768],
+              [-73.958, 40.768],
+              [-73.958, 40.785],
+              [-73.982, 40.785],
+              [-73.982, 40.768],
+            ],
+          ],
+        },
+        properties: { popup: "Central Park" },
+      },
+      {
+        type: "Feature",
+        geometry: {
+          type: "Point",
+          coordinates: [-73.974, 40.78],
+        },
+        properties: { popup: "The Lake" },
+      },
+    ],
+  },
+  {
+    fillColor: "#34d399",
+    lineColor: "#047857",
+    lineWidth: 2.5,
+    opacity: 0.4,
+    showMarkers: true,
+    map: { center: [-73.97, 40.78], zoom: 12, style: "terrain" },
+    height: 320,
+  }
+);
 ```
 
 ## Status & Metrics

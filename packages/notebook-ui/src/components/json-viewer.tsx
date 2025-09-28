@@ -275,7 +275,7 @@ export const JsonViewer: React.FC<JsonViewerProps> = ({
             disabled={showRaw}
             className={`inline-flex items-center rounded border px-2 py-1 text-xs ${
               mode === "light"
-                ? "border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                ? "border-slate-300 bg-slate-100 text-slate-700 hover:bg-slate-50 disabled:opacity-50"
                 : "border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700 disabled:opacity-50"
             }`}
             aria-pressed={allOpen}
@@ -290,7 +290,7 @@ export const JsonViewer: React.FC<JsonViewerProps> = ({
             mode === "light"
               ? showRaw
                 ? "border-slate-400 bg-slate-100 text-slate-800"
-                : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                : "border-slate-300 bg-slate-100 text-slate-700 hover:bg-slate-50"
               : showRaw
                 ? "border-slate-600 bg-slate-800 text-slate-200"
                 : "border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700"

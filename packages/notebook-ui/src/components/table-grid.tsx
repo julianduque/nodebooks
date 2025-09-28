@@ -77,7 +77,7 @@ export const TableGrid: React.FC<TableGridProps> = ({
       <div
         className={`overflow-auto rounded-md border ${
           mode === "light"
-            ? "border-slate-200 bg-white"
+            ? "border-slate-200 bg-slate-100"
             : "border-slate-800 bg-slate-900"
         }`}
       >
@@ -128,7 +128,7 @@ export const TableGrid: React.FC<TableGridProps> = ({
                 className={`${
                   mode === "light"
                     ? i % 2 === 0
-                      ? "bg-white"
+                      ? "bg-slate-100"
                       : "bg-slate-50"
                     : i % 2 === 0
                       ? "bg-slate-900"
@@ -189,7 +189,7 @@ export const TableGrid: React.FC<TableGridProps> = ({
             onClick={() => setPageIndex((p) => Math.max(0, p - 1))}
             className={`inline-flex h-8 items-center gap-1 rounded px-3 disabled:opacity-50 ${
               mode === "light"
-                ? "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                ? "border border-slate-300 bg-slate-100 text-slate-700 hover:bg-slate-50"
                 : "border border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700"
             }`}
             disabled={clampedIndex <= 0}
@@ -201,7 +201,7 @@ export const TableGrid: React.FC<TableGridProps> = ({
             onClick={() => setPageIndex((p) => Math.min(maxPage, p + 1))}
             className={`inline-flex h-8 items-center gap-1 rounded px-3 disabled:opacity-50 ${
               mode === "light"
-                ? "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                ? "border border-slate-300 bg-slate-100 text-slate-700 hover:bg-slate-50"
                 : "border border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700"
             }`}
             disabled={clampedIndex >= maxPage}
@@ -220,7 +220,7 @@ export const TableGrid: React.FC<TableGridProps> = ({
             <select
               className={`h-8 rounded px-2 ${
                 mode === "light"
-                  ? "border border-slate-300 bg-white text-slate-700"
+                  ? "border border-slate-300 bg-slate-100 text-slate-700"
                   : "border border-slate-700 bg-slate-800 text-slate-200"
               }`}
               value={pageSize}

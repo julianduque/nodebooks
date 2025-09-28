@@ -55,7 +55,7 @@ export const Image: React.FC<ImageProps> = ({
     <div
       className={`relative inline-block rounded-md border p-2 ${className ?? ""} ${
         mode === "light"
-          ? "bg-white border-slate-200"
+          ? "bg-slate-100 border-slate-200"
           : "bg-slate-900 border-slate-800"
       }`}
     >
