@@ -7,6 +7,7 @@ import { NotebookRuntime } from "../src/index.js";
 import type {
   DisplayDataOutput,
   NotebookOutput,
+  StreamOutput,
 } from "@nodebooks/notebook-schema";
 
 const isDisplayData = (output: NotebookOutput): output is DisplayDataOutput =>
@@ -132,8 +133,11 @@ describe("NotebookRuntime", () => {
 
         const display = result.outputs.find(isDisplayData);
         expect(display).toBeDefined();
-        const plain = display?.data?.["text/plain"];
-        expect(String(plain)).toContain("installed-package");
+        const payload = display?.data?.[NODEBOOKS_UI_MIME] as
+          | { ui?: string; json?: unknown }
+          | undefined;
+        expect(payload?.ui).toBe("json");
+        expect(String(payload?.json ?? "")).toContain("installed-package");
       }
     );
   });
@@ -161,8 +165,11 @@ describe("NotebookRuntime", () => {
 
         const display = result.outputs.find(isDisplayData);
         expect(display).toBeDefined();
-        const message = display?.data?.["text/plain"];
-        expect(String(message)).toContain("not allowed");
+        const payload = display?.data?.[NODEBOOKS_UI_MIME] as
+          | { ui?: string; json?: unknown }
+          | undefined;
+        expect(payload?.ui).toBe("json");
+        expect(String(payload?.json ?? "")).toContain("not allowed");
       }
     );
   });
@@ -180,8 +187,11 @@ describe("NotebookRuntime", () => {
 
       const display = result.outputs.find(isDisplayData);
       expect(display).toBeDefined();
-      const plain = display?.data?.["text/plain"];
-      expect(String(plain)).toContain("notebook-cwd");
+      const payload = display?.data?.[NODEBOOKS_UI_MIME] as
+        | { ui?: string; json?: unknown }
+        | undefined;
+      expect(payload?.ui).toBe("json");
+      expect(String(payload?.json ?? "")).toContain("notebook-cwd");
     });
   });
 
@@ -229,8 +239,11 @@ describe("NotebookRuntime", () => {
 
       const display = result.outputs.find(isDisplayData);
       expect(display).toBeDefined();
-      const message = String(display?.data?.["text/plain"]);
-      expect(message).toContain("SyntaxError");
+      const payload = display?.data?.[NODEBOOKS_UI_MIME] as
+        | { ui?: string; json?: unknown }
+        | undefined;
+      expect(payload?.ui).toBe("json");
+      expect(String(payload?.json ?? "")).toContain("SyntaxError");
     });
   });
 
@@ -247,8 +260,11 @@ describe("NotebookRuntime", () => {
 
       const display = result.outputs.find(isDisplayData);
       expect(display).toBeDefined();
-      const plain = display?.data?.["text/plain"];
-      expect(String(plain)).toContain("5");
+      const payload = display?.data?.[NODEBOOKS_UI_MIME] as
+        | { ui?: string; json?: unknown }
+        | undefined;
+      expect(payload?.ui).toBe("json");
+      expect(String(payload?.json ?? "")).toContain("5");
     });
   });
 
@@ -272,13 +288,153 @@ describe("NotebookRuntime", () => {
 
       const display = result.outputs.find(isDisplayData);
       expect(display).toBeDefined();
-      const json = display?.data?.["application/json"] as unknown;
-      const plain = String(display?.data?.["text/plain"]);
-      // Either structured UI object or plain object string should reflect the label
-      if (json && typeof json === "object") {
-        expect(json as Record<string, unknown>).toHaveProperty("ui");
-      }
-      expect(plain).toContain("z.txt");
+      const vendor = display?.data?.[NODEBOOKS_UI_MIME] as
+        | { ui?: string; label?: string; value?: number }
+        | undefined;
+      expect(vendor).toBeDefined();
+      expect(vendor?.ui).toBe("metric");
+      expect(String(vendor?.label ?? "")).toContain("z.txt");
+    });
+  });
+
+  it("returns primitive strings as UiJSON", async () => {
+    await withRuntime(undefined, async (runtime) => {
+      const cell = createCodeCell({
+        id: "cell-primitive-string",
+        language: "js",
+      });
+
+      const result = await runtime.execute({
+        cell,
+        code: 'const name = "Julian";\nname;',
+        notebookId: "notebook-primitive-string",
+        env: createEnv(),
+      });
+
+      expect(result.execution.status).toBe("ok");
+      const display = result.outputs.find(isDisplayData);
+      expect(display).toBeDefined();
+      expect(display?.data?.["text/plain"]).toBeUndefined();
+      const payload = display?.data?.[NODEBOOKS_UI_MIME] as
+        | { ui?: string; json?: unknown }
+        | undefined;
+      expect(payload?.ui).toBe("json");
+      expect(payload?.json).toBe("Julian");
+    });
+  });
+
+  it("returns plain objects as UiJSON", async () => {
+    await withRuntime(undefined, async (runtime) => {
+      const cell = createCodeCell({ id: "cell-plain-object", language: "js" });
+
+      const result = await runtime.execute({
+        cell,
+        code: ["const obj = { hello: 'name' };", "obj;"].join("\n"),
+        notebookId: "notebook-plain-object",
+        env: createEnv(),
+      });
+
+      expect(result.execution.status).toBe("ok");
+      const display = result.outputs.find(isDisplayData);
+      expect(display).toBeDefined();
+      expect(display?.data?.["text/plain"]).toBeUndefined();
+      const payload = display?.data?.[NODEBOOKS_UI_MIME] as
+        | { ui?: string; json?: unknown }
+        | undefined;
+      expect(payload?.ui).toBe("json");
+      expect(payload?.json).toEqual({ hello: "name" });
+    });
+  });
+
+  it("returns primitive numbers as UiJSON", async () => {
+    await withRuntime(undefined, async (runtime) => {
+      const cell = createCodeCell({
+        id: "cell-primitive-number",
+        language: "js",
+      });
+
+      const result = await runtime.execute({
+        cell,
+        code: "42;",
+        notebookId: "notebook-primitive-number",
+        env: createEnv(),
+      });
+
+      expect(result.execution.status).toBe("ok");
+      const display = result.outputs.find(isDisplayData);
+      expect(display).toBeDefined();
+      expect(display?.data?.["text/plain"]).toBeUndefined();
+      const payload = display?.data?.[NODEBOOKS_UI_MIME] as
+        | { ui?: string; json?: unknown }
+        | undefined;
+      expect(payload?.ui).toBe("json");
+      expect(payload?.json).toBe(42);
+    });
+  });
+
+  it("surfaces errors thrown inside setTimeout callbacks", async () => {
+    await withRuntime(undefined, async (runtime) => {
+      const cell = createCodeCell({
+        id: "cell-timeout-error",
+        language: "js",
+      });
+
+      const result = await runtime.execute({
+        cell,
+        code: [
+          "setTimeout(() => {",
+          "  throw new ReferenceError('timeout boom');",
+          "}, 0);",
+        ].join("\n"),
+        notebookId: "notebook-timeout-error",
+        env: createEnv(),
+      });
+
+      expect(result.execution.status).toBe("error");
+      const stderrText = result.outputs
+        .filter(
+          (output): output is StreamOutput =>
+            output.type === "stream" && output.name === "stderr"
+        )
+        .map((output) => output.text)
+        .join("");
+      expect(stderrText).toContain("timeout boom");
+      const err = result.outputs.find((output) => output.type === "error");
+      expect(err).toBeDefined();
+      expect(String(err?.evalue ?? "")).toContain("timeout boom");
+    });
+  });
+
+  it("surfaces errors thrown inside setInterval callbacks", async () => {
+    await withRuntime(undefined, async (runtime) => {
+      const cell = createCodeCell({
+        id: "cell-interval-error",
+        language: "js",
+      });
+
+      const result = await runtime.execute({
+        cell,
+        code: [
+          "setInterval(() => {",
+          "  throw new Error('interval boom');",
+          "}, 0);",
+        ].join("\n"),
+        notebookId: "notebook-interval-error",
+        env: createEnv(),
+      });
+
+      expect(result.execution.status).toBe("error");
+      const stderrText = result.outputs
+        .filter(
+          (output): output is StreamOutput =>
+            output.type === "stream" && output.name === "stderr"
+        )
+        .map((output) => output.text)
+        .join("");
+      expect(stderrText).toContain("interval boom");
+      const err = result.outputs.find((output) => output.type === "error");
+      expect(err).toBeDefined();
+      expect(String(err?.evalue ?? "")).toContain("interval boom");
     });
   });
 
@@ -303,8 +459,11 @@ describe("NotebookRuntime", () => {
 
       const display = result.outputs.find(isDisplayData);
       expect(display).toBeDefined();
-      const plain = String(display?.data?.["text/plain"]);
-      expect(plain).toContain("7");
+      const payload = display?.data?.[NODEBOOKS_UI_MIME] as
+        | { ui?: string; json?: unknown }
+        | undefined;
+      expect(payload?.ui).toBe("json");
+      expect(String(payload?.json ?? "")).toContain("7");
     });
   });
 
@@ -340,8 +499,11 @@ describe("NotebookRuntime", () => {
       expect(first.execution.status).toBe("ok");
       const firstDisplay = first.outputs.find(isDisplayData);
       expect(firstDisplay).toBeDefined();
-      const firstJson = firstDisplay?.data?.["application/json"] as unknown;
-      expect(firstJson).toEqual([1, 2, 3]);
+      const firstVendor = firstDisplay?.data?.[NODEBOOKS_UI_MIME] as
+        | { ui?: string; json?: unknown }
+        | undefined;
+      expect(firstVendor?.ui).toBe("json");
+      expect(firstVendor?.json).toEqual([1, 2, 3]);
 
       // Re-run the declaration to ensure idempotency and no syntax errors
       const second = await runtime.execute({
@@ -352,8 +514,11 @@ describe("NotebookRuntime", () => {
       });
       expect(second.execution.status).toBe("ok");
       const secondDisplay = second.outputs.find(isDisplayData);
-      const secondJson = secondDisplay?.data?.["application/json"] as unknown;
-      expect(secondJson).toEqual([1, 2, 3]);
+      const secondVendor = secondDisplay?.data?.[NODEBOOKS_UI_MIME] as
+        | { ui?: string; json?: unknown }
+        | undefined;
+      expect(secondVendor?.ui).toBe("json");
+      expect(secondVendor?.json).toEqual([1, 2, 3]);
 
       const useCell = createCodeCell({
         id: "cell-chain-use",
@@ -375,8 +540,11 @@ describe("NotebookRuntime", () => {
       expect(third.execution.status).toBe("ok");
       const thirdDisplay = third.outputs.find(isDisplayData);
       expect(thirdDisplay).toBeDefined();
-      const thirdJson = thirdDisplay?.data?.["application/json"] as unknown;
-      expect(thirdJson).toEqual([1, 2, 3, 4, 5]);
+      const thirdVendor = thirdDisplay?.data?.[NODEBOOKS_UI_MIME] as
+        | { ui?: string; json?: unknown }
+        | undefined;
+      expect(thirdVendor?.ui).toBe("json");
+      expect(thirdVendor?.json).toEqual([1, 2, 3, 4, 5]);
     });
   });
 
@@ -419,8 +587,11 @@ describe("NotebookRuntime", () => {
       expect(res.execution.status).toBe("ok");
       const d = res.outputs.find(isDisplayData);
       expect(d).toBeDefined();
-      const plain = String(d?.data?.["text/plain"] ?? "");
-      expect(plain).toContain("10");
+      const payload = d?.data?.[NODEBOOKS_UI_MIME] as
+        | { ui?: string; json?: unknown }
+        | undefined;
+      expect(payload?.ui).toBe("json");
+      expect(String(payload?.json ?? "")).toContain("10");
     });
   });
 

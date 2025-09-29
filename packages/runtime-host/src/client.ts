@@ -51,7 +51,12 @@ export class WorkerClient {
         onDisplay: (obj) => {
           try {
             const d = obj as DisplayDataOutput;
-            if (d && d.type === "display_data") {
+            if (
+              d &&
+              (d.type === "display_data" ||
+                d.type === "update_display_data" ||
+                d.type === "execute_result")
+            ) {
               opts.onDisplay?.(d);
             }
           } catch (err) {

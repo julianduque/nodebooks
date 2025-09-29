@@ -3,7 +3,57 @@ import React from "react";
 import { UiThemeContext } from "./theme";
 import type { UiMarkdown } from "@nodebooks/notebook-schema";
 import DOMPurify from "dompurify";
-import { marked } from "marked";
+import hljs from "highlight.js";
+import { Marked, Renderer, type Tokens } from "marked";
+
+const escapeHtml = (value: string) =>
+  value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+
+const normalizeLanguage = (lang?: string) => {
+  const language = lang?.trim().split(/\s+/)[0]?.toLowerCase();
+  if (!language) return undefined;
+  return /^[a-z0-9#+_-]+$/.test(language) ? language : undefined;
+};
+
+const highlightCode = (code: string, language?: string) => {
+  const lang = normalizeLanguage(language);
+  if (lang) {
+    try {
+      if (hljs.getLanguage(lang)) {
+        return hljs.highlight(code, { language: lang }).value;
+      }
+    } catch {
+      /* no-op */
+    }
+  }
+  try {
+    return hljs.highlightAuto(code).value;
+  } catch {
+    return escapeHtml(code);
+  }
+};
+
+const markdownRenderer = new Marked({
+  gfm: true,
+  breaks: true,
+});
+
+const renderer = new Renderer();
+
+renderer.code = ({ text, lang }: Tokens.Code) => {
+  const language = normalizeLanguage(lang);
+  const classNames = ["hljs"];
+  if (language) classNames.push(`language-${language}`);
+  const highlighted = highlightCode(text, language);
+  return `<pre><code class="${classNames.join(" ")}">${highlighted}</code></pre>`;
+};
+
+markdownRenderer.use({ renderer });
 
 type MarkdownProps = Omit<UiMarkdown, "ui"> & {
   className?: string;
@@ -16,7 +66,7 @@ export const Markdown: React.FC<MarkdownProps> = ({
 }) => {
   const ctx = React.useContext(UiThemeContext);
   const mode = themeMode ?? ctx ?? "light";
-  const html = marked.parse(markdown ?? "");
+  const html = markdownRenderer.parse(markdown ?? "", { async: false });
   const safe =
     typeof window === "undefined"
       ? String(html)

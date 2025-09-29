@@ -22,6 +22,7 @@
   },
   "dependencies": {
     "@nodebooks/config": "workspace:*",
+    "@nodebooks/notebook-ui": "workspace:*",
     "@nodebooks/notebook-schema": "workspace:*",
     "esbuild": "^0.25.10"
   },

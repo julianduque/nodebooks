@@ -189,7 +189,7 @@ const CodeCellView = ({
             language={cell.language === "ts" ? "typescript" : "javascript"}
             theme={monacoTheme}
             value={cell.source}
-            onChange={(value) =>
+            onChange={(value: string | undefined) =>
               onChange(() => ({ ...cell, source: value ?? "" }))
             }
             onMount={handleEditorMount}

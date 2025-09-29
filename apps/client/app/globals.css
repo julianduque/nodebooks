@@ -37,6 +37,17 @@
   --sidebar-accent-foreground: oklch(0.21 0.006 285.885);
   --sidebar-border: oklch(0.92 0.004 286.32);
   --sidebar-ring: oklch(0.723 0.219 149.579);
+  --hljs-background: #f8fafc;
+  --hljs-foreground: #0f172a;
+  --hljs-muted: #64748b;
+  --hljs-keyword: #1d4ed8;
+  --hljs-string: #15803d;
+  --hljs-number: #b45309;
+  --hljs-title: #0ea5e9;
+  --hljs-attribute: #9333ea;
+  --hljs-meta: #0c4a6e;
+  --hljs-addition: #166534;
+  --hljs-deletion: #b91c1c;
 }
 
 .dark {
@@ -72,6 +83,17 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.527 0.154 150.069);
+  --hljs-background: #0f172a;
+  --hljs-foreground: #e2e8f0;
+  --hljs-muted: #94a3b8;
+  --hljs-keyword: #93c5fd;
+  --hljs-string: #86efac;
+  --hljs-number: #f59e0b;
+  --hljs-title: #38bdf8;
+  --hljs-attribute: #c084fc;
+  --hljs-meta: #38bdf8;
+  --hljs-addition: #4ade80;
+  --hljs-deletion: #f87171;
 }
 
 /* Tailwind v4 inline theme mapping */
@@ -197,6 +219,86 @@
   font-family:
     "Fira Code", ui-monospace, Menlo, Monaco, Consolas, "Liberation Mono",
     "Courier New", monospace;
+}
+
+.markdown-preview pre {
+  background-color: var(--hljs-background);
+  border-radius: 0.75rem;
+  padding: 0.9rem 1rem;
+  overflow-x: auto;
+  margin: 1rem 0;
+  border: 1px solid color-mix(in oklch, var(--border) 50%, transparent);
+}
+
+.markdown-preview pre code {
+  background: transparent;
+  padding: 0;
+  display: block;
+  color: var(--hljs-foreground);
+  font-size: 0.95rem;
+}
+
+.markdown-preview .hljs-comment,
+.markdown-preview .hljs-quote {
+  color: var(--hljs-muted);
+  font-style: italic;
+}
+
+.markdown-preview .hljs-keyword,
+.markdown-preview .hljs-selector-tag,
+.markdown-preview .hljs-literal,
+.markdown-preview .hljs-type,
+.markdown-preview .hljs-type + .hljs-title {
+  color: var(--hljs-keyword);
+  font-weight: 600;
+}
+
+.markdown-preview .hljs-string,
+.markdown-preview .hljs-doctag,
+.markdown-preview .hljs-template-tag,
+.markdown-preview .hljs-template-variable,
+.markdown-preview .hljs-regexp,
+.markdown-preview .hljs-selector-attr {
+  color: var(--hljs-string);
+}
+
+.markdown-preview .hljs-number,
+.markdown-preview .hljs-symbol,
+.markdown-preview .hljs-bullet,
+.markdown-preview .hljs-link,
+.markdown-preview .hljs-meta .hljs-number {
+  color: var(--hljs-number);
+}
+
+.markdown-preview .hljs-title,
+.markdown-preview .hljs-section,
+.markdown-preview .hljs-name,
+.markdown-preview .hljs-selector-id,
+.markdown-preview .hljs-selector-class {
+  color: var(--hljs-title);
+}
+
+.markdown-preview .hljs-attribute,
+.markdown-preview .hljs-attr,
+.markdown-preview .hljs-built_in,
+.markdown-preview .hljs-variable,
+.markdown-preview .hljs-params,
+.markdown-preview .hljs-property {
+  color: var(--hljs-attribute);
+}
+
+.markdown-preview .hljs-meta,
+.markdown-preview .hljs-meta-string,
+.markdown-preview .hljs-meta .hljs-keyword {
+  color: var(--hljs-meta);
+}
+
+.markdown-preview .hljs-addition {
+  color: var(--hljs-addition);
+}
+
+.markdown-preview .hljs-deletion {
+  color: var(--hljs-deletion);
 }
 
 /* GitHub Flavored Markdown tables */

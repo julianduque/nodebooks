@@ -22,23 +22,23 @@
     "@nodebooks/notebook-schema": "workspace:*",
     "d3-force": "^3.0.0",
     "dompurify": "^3.2.7",
-    "lucide-react": "^0.469.0",
-    "maplibre-gl": "^3.6.2",
+    "highlight.js": "^11.11.1",
+    "lucide-react": "^0.544.0",
+    "maplibre-gl": "^5.7.3",
     "marked": "^16.3.0",
-    "plotly.js-dist-min": "^2.35.2",
-    "three": "^0.170.0",
-    "vega": "^5.30.0",
-    "vega-embed": "^6.26.0",
-    "vega-lite": "^5.20.0"
+    "plotly.js-dist-min": "^3.1.0",
+    "three": "^0.180.0",
+    "vega": "^6.2.0",
+    "vega-embed": "^7.0.2",
+    "vega-lite": "^6.4.1"
   },
   "devDependencies": {
     "@tailwindcss/cli": "^4.1.13",
     "@tailwindcss/postcss": "^4.1.13",
-    "@types/dompurify": "^3.2.0",
     "@types/d3-force": "^3.0.4",
     "@types/geojson": "^7946.0.14",
-    "@types/three": "^0.170.0",
-    "@types/react": "^19.1.13",
+    "@types/react": "^19.1.15",
+    "@types/three": "^0.180.0",
     "eslint": "^9.36.0",
     "npm-run-all": "^4.1.5",
     "tailwindcss": "^4.1.13",
@@ -53,6 +53,16 @@
       "types": "./src/index.tsx",
       "default": "./src/index.tsx"
     },
-    "./styles.css": "./dist/styles.css"
+    "./styles.css": "./dist/styles.css",
+    "./runtime/ui-helpers-dts": {
+      "types": "./src/runtime/ui-helpers-dts.d.ts",
+      "import": "./src/runtime/ui-helpers-dts.js",
+      "default": "./src/runtime/ui-helpers-dts.js"
+    },
+    "./runtime/ui-helpers-module": {
+      "types": "./src/runtime/ui-helpers-module.d.ts",
+      "import": "./src/runtime/ui-helpers-module.js",
+      "default": "./src/runtime/ui-helpers-module.js"
+    }
   }
 }

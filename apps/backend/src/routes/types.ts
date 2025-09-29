@@ -1,6 +1,10 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 
+const { uiHelpersModuleDts } = await import(
+  "@nodebooks/notebook-ui/runtime/ui-helpers-dts"
+);
+
 const SPEC_RE = /^[A-Za-z0-9@/_\-.~%]+$/;
 
 const SpecParam = z.object({ spec: z.string().min(1).regex(SPEC_RE) });
@@ -46,6 +50,13 @@ export const registerTypesRoutes = (app: FastifyInstance) => {
       return;
     }
     const rawSpec = parsed.data.spec;
+
+    if (rawSpec === "@nodebooks/ui") {
+      reply.header("Content-Type", "text/plain; charset=utf-8");
+      reply.header("Cache-Control", "public, max-age=3600");
+      void reply.send(uiHelpersModuleDts);
+      return;
+    }
 
     // Try package's own types via unpkg
     const pkgJsonUrl = `https://unpkg.com/${encodeURIComponent(rawSpec)}/package.json`;

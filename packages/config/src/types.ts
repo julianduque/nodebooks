@@ -36,5 +36,4 @@ export interface ClientConfig {
 export interface RuntimeConfig {
   kernelTimeoutMs: number;
   batchMs: number;
-  debug: boolean;
 }

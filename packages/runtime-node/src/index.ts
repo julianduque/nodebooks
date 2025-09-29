@@ -9,12 +9,17 @@ import { formatWithOptions, inspect, promisify } from "node:util";
 import vm from "node:vm";
 import { transform } from "esbuild";
 import { loadRuntimeConfig } from "@nodebooks/config";
+import { uiHelpersDts } from "@nodebooks/notebook-ui/runtime/ui-helpers-dts";
+import { uiHelpersModuleJs } from "@nodebooks/notebook-ui/runtime/ui-helpers-module";
 
 const execFileAsync = promisify(execFile);
 const DEFAULT_WORKSPACE_ROOT = join(tmpdir(), "nodebooks-runtime");
 // Hook used to stream UI display values from the sandboxed '@nodebooks/ui'
 // helper back to the host while a cell is running.
-type UiDisplayHook = ((value: unknown) => void) | null;
+interface DisplayEmitOptions {
+  displayId?: string;
+  update?: boolean;
+}
 import type {
   CodeCell,
   NotebookEnv,
@@ -24,25 +29,6 @@ import type {
   DisplayDataOutput,
 } from "@nodebooks/notebook-schema";
 import { UiDisplaySchema, NODEBOOKS_UI_MIME } from "@nodebooks/notebook-schema";
-import type {
-  UiImage,
-  UiJson,
-  UiCode,
-  UiTable,
-  UiDataSummary,
-  UiVegaLite,
-  UiPlotly,
-  UiHeatmap,
-  UiNetworkGraph,
-  UiPlot3d,
-  UiMap,
-  UiGeoJson,
-  UiAlert,
-  UiBadge,
-  UiMetric,
-  UiProgress,
-  UiSpinner,
-} from "@nodebooks/notebook-schema";
 
 const RUNTIME_CONFIG = loadRuntimeConfig();
 const DEFAULT_TIMEOUT_MS = RUNTIME_CONFIG.kernelTimeoutMs;
@@ -436,6 +422,90 @@ const createExecutionError = (error: unknown) => {
   };
 };
 
+const toUiDisplayOutput = (
+  value: unknown
+): (DisplayDataOutput & { metadata: Record<string, unknown> }) | null => {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const marker = (value as Record<string, unknown>).__nb_ui_emitted;
+  if (marker !== true) {
+    return null;
+  }
+  const cloned: Record<string, unknown> = { ...value };
+  delete cloned.__nb_ui_emitted;
+  delete cloned.update;
+  delete cloned.__nb_display_id;
+  const parsed = UiDisplaySchema.safeParse(cloned);
+  if (!parsed.success) {
+    return null;
+  }
+  const data: Record<string, unknown> = {
+    [NODEBOOKS_UI_MIME]: parsed.data,
+  };
+  return {
+    type: "display_data",
+    data,
+    metadata: {},
+  } satisfies DisplayDataOutput & { metadata: Record<string, unknown> };
+};
+
+const isPlainJsonCandidate = (value: unknown): boolean => {
+  if (value === null) {
+    return true;
+  }
+  if (Array.isArray(value)) {
+    return true;
+  }
+  if (typeof value === "string") {
+    return true;
+  }
+  if (typeof value === "boolean") {
+    return true;
+  }
+  if (typeof value === "number") {
+    return Number.isFinite(value);
+  }
+  if (typeof value === "object") {
+    const proto = Object.getPrototypeOf(value);
+    if (proto === null || proto === Object.prototype) {
+      return true;
+    }
+    const tag = Object.prototype.toString.call(value);
+    if (tag === "[object Object]") {
+      return true;
+    }
+    return false;
+  }
+  return false;
+};
+
+const toUiJsonDisplay = (value: unknown): DisplayDataOutput | null => {
+  if (!isPlainJsonCandidate(value)) {
+    return null;
+  }
+  try {
+    const serialized = JSON.stringify(value);
+    if (typeof serialized !== "string" || serialized.length === 0) {
+      return null;
+    }
+    const parsed = JSON.parse(serialized) as unknown;
+    const payload = {
+      ui: "json" as const,
+      json: parsed,
+    };
+    return {
+      type: "display_data",
+      data: {
+        [NODEBOOKS_UI_MIME]: payload,
+      },
+      metadata: {},
+    } satisfies DisplayDataOutput;
+  } catch {
+    return null;
+  }
+};
+
 const toDisplayData = (value: unknown) => {
   const outputs: NotebookOutput[] = [];
 
@@ -450,44 +520,27 @@ const toDisplayData = (value: unknown) => {
     return outputs;
   }
 
-  // If UI helpers already emitted this object during execution, skip
-  // adding it again as the final display value to avoid duplication.
-  if (
-    value &&
-    typeof value === "object" &&
-    (value as Record<string, unknown>).__nb_ui_emitted === true
-  ) {
+  const uiDisplay = toUiDisplayOutput(value);
+  if (uiDisplay) {
+    outputs.push(uiDisplay);
+    return outputs;
+  }
+
+  const uiJson = toUiJsonDisplay(value);
+  if (uiJson) {
+    outputs.push(uiJson);
     return outputs;
   }
 
   const plain = inspect(value, { depth: 4, colors: false });
 
-  const data: Record<string, unknown> = {
-    "text/plain": plain,
-  };
-
-  try {
-    const json = JSON.stringify(value);
-    if (json) {
-      data["application/json"] = JSON.parse(json);
-    }
-  } catch {
-    // Ignore JSON serialization errors.
-  }
-
-  // If value conforms to the structured UI spec, add vendor MIME as well
-  const uiParsed = UiDisplaySchema.safeParse(value);
-  if (uiParsed.success) {
-    data[NODEBOOKS_UI_MIME] = uiParsed.data;
-  }
-
-  const display: NotebookOutput = {
+  outputs.push({
     type: "display_data",
-    data,
+    data: {
+      "text/plain": plain,
+    },
     metadata: {},
-  };
-
-  outputs.push(display);
+  });
   return outputs;
 };
 
@@ -516,6 +569,7 @@ export class NotebookRuntime {
   private timeoutWaiters: Array<() => void> = [];
   private intervalWaiters: Array<() => void> = [];
   private intervalDoneWaiters: Array<() => void> = [];
+  private pendingAsyncErrors: Error[] = [];
 
   constructor(options: NotebookRuntimeOptions = {}) {
     this.workspaceRoot = options.workspaceRoot ?? DEFAULT_WORKSPACE_ROOT;
@@ -604,9 +658,6 @@ export class NotebookRuntime {
     } catch {
       /* noop */
     }
-
-    // Global UI helpers were moved to the '@nodebooks/ui' sandbox module.
-    // Users should now `import { UiImage, UiMarkdown, UiHTML, UiJSON, UiCode } from "@nodebooks/ui"`.
   }
 
   private createTimerAPI() {
@@ -636,6 +687,8 @@ export class NotebookRuntime {
       const runner = (...cbArgs: unknown[]) => {
         try {
           fn(...cbArgs);
+        } catch (error) {
+          this.recordAsyncError(error);
         } finally {
           deleteTimeout(handle);
         }
@@ -664,6 +717,14 @@ export class NotebookRuntime {
       const runner = (...cbArgs: unknown[]) => {
         try {
           fn(...cbArgs);
+        } catch (error) {
+          this.recordAsyncError(error);
+          deleteInterval(handle);
+          try {
+            hostClearInterval(handle as NodeJS.Timeout);
+          } catch {
+            /* noop */
+          }
         } finally {
           if (!fired) {
             fired = true;
@@ -800,6 +861,27 @@ export class NotebookRuntime {
     return value;
   }
 
+  private recordAsyncError(error: unknown) {
+    let normalized: Error;
+    if (error instanceof Error) {
+      normalized = error;
+    } else {
+      const description =
+        typeof error === "string"
+          ? error
+          : inspect(error, { depth: 4, colors: false });
+      normalized = new Error(description);
+    }
+
+    this.pendingAsyncErrors.push(normalized);
+
+    try {
+      this.console.proxy.error(normalized);
+    } catch {
+      /* noop */
+    }
+  }
+
   private maybeResolveTimeoutWaiters() {
     if (this.pendingTimeouts.size === 0 && this.timeoutWaiters.length > 0) {
       const waiters = this.timeoutWaiters.slice();
@@ -907,6 +989,7 @@ export class NotebookRuntime {
     const started = Date.now();
     const timeout = timeoutMs ?? cell.metadata.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     let softWaitTimedOut = false;
+    this.pendingAsyncErrors = [];
 
     this.console.setEmitter((name, text) => {
       const stream: StreamOutput = { type: "stream", name, text };
@@ -930,10 +1013,6 @@ export class NotebookRuntime {
         cell.language === "ts"
           ? wrapForTopLevelAwaitTsCapture(rewritten)
           : wrapForTopLevelAwait(rewritten);
-      if (RUNTIME_CONFIG.debug) {
-        this.console.proxy.log("[debug] rewritten code:\n" + rewritten);
-        this.console.proxy.log("[debug] wrapped code:\n" + wrapped);
-      }
       const compiled = await transform(wrapped, {
         loader: cell.language === "ts" ? "ts" : "js",
         format: "cjs",
@@ -955,17 +1034,43 @@ export class NotebookRuntime {
       (this.context as Record<string, unknown>).__dirname = dirname(filename);
       (module as Record<string, unknown>).require = this.sandboxRequire;
 
-      // Provide a display hook so UI helpers can push outputs mid-cell
       // Provide a display hook for streaming UI from helpers
-      const streamDisplay = (value: unknown) => {
+      const streamDisplay = (value: unknown, options?: DisplayEmitOptions) => {
         try {
+          const uiOutput = toUiDisplayOutput(value);
+          if (uiOutput) {
+            const meta = uiOutput.metadata ?? {};
+            if (options?.displayId) {
+              meta.display_id = options.displayId;
+            }
+            meta.streamed = true;
+            uiOutput.metadata = meta;
+            if (options?.update) {
+              uiOutput.type = "update_display_data";
+            }
+
+            try {
+              onDisplay?.(uiOutput);
+            } catch (err) {
+              void err;
+            }
+            outputs.push(uiOutput);
+            return;
+          }
           const ds = toDisplayData(value);
           for (const d of ds) {
             if (d.type === "display_data") {
-              (d as DisplayDataOutput).metadata = {
+              const meta = {
                 ...((d as DisplayDataOutput).metadata ?? {}),
-                streamed: true,
               };
+              if (options?.displayId) {
+                meta.display_id = options.displayId;
+              }
+              meta.streamed = true;
+              (d as DisplayDataOutput).metadata = meta;
+              if (options?.update) {
+                (d as DisplayDataOutput).type = "update_display_data";
+              }
               try {
                 onDisplay?.(d as DisplayDataOutput);
               } catch (err) {
@@ -978,14 +1083,30 @@ export class NotebookRuntime {
           void err;
         }
       };
-      (this.context as Record<string, unknown>).__nodebooks_display =
-        streamDisplay;
-      // Also set the hook for our intercepted '@nodebooks/ui' module
-      (
-        this.sandboxRequire as unknown as {
-          setUiDisplayHook?: (fn: UiDisplayHook) => void;
-        }
-      ).setUiDisplayHook?.(streamDisplay);
+      (this.context as Record<string, unknown>).__nodebooks_display = (
+        value: unknown,
+        options?: DisplayEmitOptions
+      ) => {
+        streamDisplay(value, options);
+      };
+      (this.context as Record<string, unknown>).__nodebooks_update_display = (
+        value: unknown,
+        options?: DisplayEmitOptions
+      ) => {
+        streamDisplay(value, { ...(options ?? {}), update: true });
+      };
+      (globalThis as Record<string, unknown>).__nodebooks_display = (
+        value: unknown,
+        options?: DisplayEmitOptions
+      ) => {
+        streamDisplay(value, options);
+      };
+      (globalThis as Record<string, unknown>).__nodebooks_update_display = (
+        value: unknown,
+        options?: DisplayEmitOptions
+      ) => {
+        streamDisplay(value, { ...(options ?? {}), update: true });
+      };
 
       const script = new vm.Script(compiled.code, {
         filename,
@@ -1051,6 +1172,11 @@ export class NotebookRuntime {
         }
       }
 
+      if (this.pendingAsyncErrors.length > 0) {
+        const firstError = this.pendingAsyncErrors[0];
+        throw firstError;
+      }
+
       const displayOutputs = toDisplayData(result);
       outputs.push(...displayOutputs);
 
@@ -1113,13 +1239,14 @@ export class NotebookRuntime {
       } catch (err) {
         void err;
       }
+      this.pendingAsyncErrors = [];
       this.console.setEmitter(null);
-      // Clean up display hook
+      // Clean up display hooks
       delete (this.context as Record<string, unknown>).__nodebooks_display;
-      const reqForCleanup = this.sandboxRequire as unknown as {
-        setUiDisplayHook?: (fn: UiDisplayHook) => void;
-      } | null;
-      reqForCleanup?.setUiDisplayHook?.(null);
+      delete (this.context as Record<string, unknown>)
+        .__nodebooks_update_display;
+      delete (globalThis as Record<string, unknown>).__nodebooks_display;
+      delete (globalThis as Record<string, unknown>).__nodebooks_update_display;
     }
   }
 
@@ -1733,204 +1860,9 @@ const writeUiHelpersModule = async (sandboxDir: string) => {
     types: "index.d.ts",
   };
 
-  const indexJs = `"use strict";
-function __nb_emit(obj){
-  try {
-    const f = globalThis && (globalThis).___unused ? null : (globalThis.__nodebooks_display);
-    if (typeof f === "function") { f(obj); try { if (obj && typeof obj === "object") { obj.__nb_ui_emitted = true; } } catch {}
-    }
-  } catch {}
-}
-function UiImage(srcOrOpts, opts) {
-  if (srcOrOpts && typeof srcOrOpts === "object" && !Array.isArray(srcOrOpts) && "src" in srcOrOpts) {
-    const o = Object.assign({ ui: "image" }, srcOrOpts); __nb_emit(o); return o;
-  }
-  const o = Object.assign({ ui: "image", src: srcOrOpts }, opts || {}); __nb_emit(o); return o;
-}
-function UiMarkdown(markdown) { const o = { ui: "markdown", markdown }; __nb_emit(o); return o; }
-function UiHTML(html) { const o = { ui: "html", html }; __nb_emit(o); return o; }
-function UiJSON(json, opts) { const o = Object.assign({ ui: "json", json }, opts || {}); __nb_emit(o); return o; }
-function UiCode(code, opts) { const o = Object.assign({ ui: "code", code }, opts || {}); __nb_emit(o); return o; }
-function UiTable(rowsOrOpts, opts) {
-  if (Array.isArray(rowsOrOpts)) {
-    const o = Object.assign({ ui: "table", rows: rowsOrOpts }, opts || {}); __nb_emit(o); return o;
-  }
-  if (rowsOrOpts && typeof rowsOrOpts === "object" && "rows" in rowsOrOpts) {
-    const o = Object.assign({ ui: "table" }, rowsOrOpts); __nb_emit(o); return o;
-  }
-  throw new Error("UiTable expects an array of rows or an options object with { rows }");
-}
-function UiDataSummary(opts) {
-  if (opts && typeof opts === "object") { const o = Object.assign({ ui: "dataSummary" }, opts); __nb_emit(o); return o; }
-  throw new Error("UiDataSummary expects an options object");
-}
-function UiVegaLite(specOrOpts, opts) {
-  if (specOrOpts && typeof specOrOpts === "object" && !Array.isArray(specOrOpts) && "spec" in specOrOpts) {
-    if (!specOrOpts.spec || typeof specOrOpts.spec !== "object") {
-      throw new Error("UiVegaLite expects a spec object");
-    }
-    const o = Object.assign({ ui: "vegaLite" }, specOrOpts); __nb_emit(o); return o;
-  }
-  if (!specOrOpts || typeof specOrOpts !== "object") { throw new Error("UiVegaLite expects a spec object"); }
-  const o = Object.assign({ ui: "vegaLite", spec: specOrOpts }, opts || {}); __nb_emit(o); return o;
-}
-function UiPlotly(dataOrOpts, opts) {
-  if (Array.isArray(dataOrOpts)) {
-    const o = Object.assign({ ui: "plotly", data: dataOrOpts }, opts || {}); __nb_emit(o); return o;
-  }
-  if (!dataOrOpts || typeof dataOrOpts !== "object" || !Array.isArray(dataOrOpts.data)) {
-    throw new Error("UiPlotly expects an array of traces in 'data'");
-  }
-  const o = Object.assign({ ui: "plotly" }, dataOrOpts); __nb_emit(o); return o;
-}
-function UiHeatmap(valuesOrOpts, opts) {
-  if (Array.isArray(valuesOrOpts)) {
-    const o = Object.assign({ ui: "heatmap", values: valuesOrOpts }, opts || {}); __nb_emit(o); return o;
-  }
-  if (!valuesOrOpts || typeof valuesOrOpts !== "object" || !Array.isArray(valuesOrOpts.values)) {
-    throw new Error("UiHeatmap expects a 2D number array in 'values'");
-  }
-  const o = Object.assign({ ui: "heatmap" }, valuesOrOpts); __nb_emit(o); return o;
-}
-function UiNetworkGraph(nodesOrOpts, links, opts) {
-  if (Array.isArray(nodesOrOpts) && Array.isArray(links)) {
-    const o = Object.assign({ ui: "networkGraph", nodes: nodesOrOpts, links }, opts || {}); __nb_emit(o); return o;
-  }
-  if (!nodesOrOpts || typeof nodesOrOpts !== "object" || !Array.isArray(nodesOrOpts.nodes) || !Array.isArray(nodesOrOpts.links)) {
-    throw new Error("UiNetworkGraph expects 'nodes' and 'links' arrays");
-  }
-  const o = Object.assign({ ui: "networkGraph" }, nodesOrOpts); __nb_emit(o); return o;
-}
-function UiPlot3d(opts) {
-  if (opts && typeof opts === "object") { const o = Object.assign({ ui: "plot3d" }, opts); __nb_emit(o); return o; }
-  const o = { ui: "plot3d" }; __nb_emit(o); return o;
-}
-function UiMap(opts) {
-  if (opts && typeof opts === "object") { const o = Object.assign({ ui: "map" }, opts); __nb_emit(o); return o; }
-  const o = { ui: "map" }; __nb_emit(o); return o;
-}
-function UiGeoJson(featureOrOpts, opts) {
-  if (featureOrOpts && typeof featureOrOpts === "object" && !Array.isArray(featureOrOpts) && featureOrOpts.type === "FeatureCollection") {
-    const o = Object.assign({ ui: "geoJson", featureCollection: featureOrOpts }, opts || {}); __nb_emit(o); return o;
-  }
-  if (!featureOrOpts || typeof featureOrOpts !== "object" || typeof featureOrOpts.featureCollection !== "object") {
-    throw new Error("UiGeoJson expects a GeoJSON FeatureCollection in 'featureCollection'");
-  }
-  const o = Object.assign({ ui: "geoJson" }, featureOrOpts); __nb_emit(o); return o;
-}
-function UiAlert(opts) {
-  if (opts && typeof opts === "object") { const o = Object.assign({ ui: "alert" }, opts); __nb_emit(o); return o; }
-  throw new Error("UiAlert expects an options object");
-}
-function UiBadge(textOrOpts, opts) {
-  if (textOrOpts && typeof textOrOpts === "object" && "text" in textOrOpts) {
-    const o = Object.assign({ ui: "badge" }, textOrOpts); __nb_emit(o); return o;
-  }
-  const o = Object.assign({ ui: "badge", text: String(textOrOpts ?? "") }, opts || {}); __nb_emit(o); return o;
-}
-function UiMetric(valueOrOpts, opts) {
-  if (valueOrOpts && typeof valueOrOpts === "object" && "value" in valueOrOpts) {
-    const o = Object.assign({ ui: "metric" }, valueOrOpts); __nb_emit(o); return o;
-  }
-  const o = Object.assign({ ui: "metric", value: valueOrOpts }, opts || {}); __nb_emit(o); return o;
-}
-function UiProgress(valueOrOpts, opts) {
-  if (valueOrOpts && typeof valueOrOpts === "object") {
-    const o = Object.assign({ ui: "progress" }, valueOrOpts); __nb_emit(o); return o;
-  }
-  const o = Object.assign({ ui: "progress", value: valueOrOpts }, opts || {}); __nb_emit(o); return o;
-}
-function UiSpinner(opts) {
-  if (opts && typeof opts === "object") { const o = Object.assign({ ui: "spinner" }, opts); __nb_emit(o); return o; }
-  const o = { ui: "spinner" }; __nb_emit(o); return o;
-}
-module.exports = { UiImage, UiMarkdown, UiHTML, UiJSON, UiCode, UiTable, UiDataSummary, UiVegaLite, UiPlotly, UiHeatmap, UiNetworkGraph, UiPlot3d, UiMap, UiGeoJson, UiAlert, UiBadge, UiMetric, UiProgress, UiSpinner };
-`;
-
-  const indexDts = `export type UiImageOptions = {
-  alt?: string;
-  width?: number | string;
-  height?: number | string;
-  fit?: "contain" | "cover" | "fill" | "none" | "scale-down";
-  borderRadius?: number;
-  mimeType?: string;
-};
-export declare function UiImage(src: string, opts?: UiImageOptions): { ui: "image" } & UiImageOptions & { src: string };
-export declare function UiImage(opts: { ui?: "image"; src: string } & UiImageOptions): { ui: "image" } & UiImageOptions & { src: string };
-export declare function UiMarkdown(markdown: string): { ui: "markdown"; markdown: string };
-export declare function UiHTML(html: string): { ui: "html"; html: string };
-export type UiJsonOptions = { collapsed?: boolean; maxDepth?: number };
-export declare function UiJSON(json: unknown, opts?: UiJsonOptions): { ui: "json"; json: unknown } & UiJsonOptions;
-export type UiCodeOptions = { language?: string; wrap?: boolean };
-export declare function UiCode(code: string, opts?: UiCodeOptions): { ui: "code"; code: string } & UiCodeOptions;
-export type UiTableColumn = { key: string; label?: string; align?: "left" | "center" | "right" };
-export type UiTableOptions = {
-  columns?: UiTableColumn[];
-  sort?: { key: string; direction?: "asc" | "desc" };
-  page?: { index?: number; size?: number };
-  density?: "compact" | "normal" | "spacious";
-};
-export declare function UiTable(rows: Array<Record<string, unknown>>, opts?: UiTableOptions): { ui: "table"; rows: Array<Record<string, unknown>> } & UiTableOptions;
-export declare function UiTable(opts: { ui?: "table"; rows: Array<Record<string, unknown>> } & UiTableOptions): { ui: "table"; rows: Array<Record<string, unknown>> } & UiTableOptions;
-export type UiDataSummaryOptions = {
-  title?: string;
-  schema?: Array<{ name: string; type: string; nullable?: boolean }>;
-  stats?: Record<string, { count?: number; distinct?: number; min?: number; max?: number; mean?: number; median?: number; p25?: number; p75?: number; stddev?: number; nulls?: number }>;
-  sample?: Array<Record<string, unknown>>;
-  note?: string;
-};
-export declare function UiDataSummary(opts: UiDataSummaryOptions): { ui: "dataSummary" } & UiDataSummaryOptions;
-export type UiVegaLiteOptions = { height?: number; width?: number; renderer?: "canvas" | "svg"; actions?: boolean };
-export declare function UiVegaLite(spec: Record<string, unknown>, opts?: UiVegaLiteOptions): { ui: "vegaLite"; spec: Record<string, unknown> } & UiVegaLiteOptions;
-export declare function UiVegaLite(opts: { ui?: "vegaLite"; spec: Record<string, unknown> } & UiVegaLiteOptions): { ui: "vegaLite"; spec: Record<string, unknown> } & UiVegaLiteOptions;
-export type UiPlotlyOptions = { layout?: Record<string, unknown>; config?: Record<string, unknown>; responsive?: boolean };
-export declare function UiPlotly(data: unknown[], opts?: UiPlotlyOptions): { ui: "plotly"; data: unknown[] } & UiPlotlyOptions;
-export declare function UiPlotly(opts: { ui?: "plotly"; data: unknown[] } & UiPlotlyOptions): { ui: "plotly"; data: unknown[] } & UiPlotlyOptions;
-export type UiHeatmapOptions = { xLabels?: string[]; yLabels?: string[]; colorScale?: "viridis" | "plasma" | "magma" | "inferno" | "turbo" | "custom"; min?: number; max?: number; legend?: boolean };
-export declare function UiHeatmap(values: number[][], opts?: UiHeatmapOptions): { ui: "heatmap"; values: number[][] } & UiHeatmapOptions;
-export declare function UiHeatmap(opts: { ui?: "heatmap"; values: number[][] } & UiHeatmapOptions): { ui: "heatmap"; values: number[][] } & UiHeatmapOptions;
-export type UiNetworkGraphNode = { id: string; label?: string; group?: string; size?: number; color?: string };
-export type UiNetworkGraphLink = { source: string; target: string; value?: number; directed?: boolean; color?: string };
-export type UiNetworkGraphOptions = { physics?: { linkDistance?: number; chargeStrength?: number; linkStrength?: number }; layout?: "force" | "circular" | "grid" };
-export declare function UiNetworkGraph(nodes: UiNetworkGraphNode[], links: UiNetworkGraphLink[], opts?: UiNetworkGraphOptions): { ui: "networkGraph"; nodes: UiNetworkGraphNode[]; links: UiNetworkGraphLink[] } & UiNetworkGraphOptions;
-export declare function UiNetworkGraph(opts: { ui?: "networkGraph"; nodes: UiNetworkGraphNode[]; links: UiNetworkGraphLink[] } & UiNetworkGraphOptions): { ui: "networkGraph"; nodes: UiNetworkGraphNode[]; links: UiNetworkGraphLink[] } & UiNetworkGraphOptions;
-export type UiPlot3dVector = [number, number, number];
-export type UiPlot3dPoint = { position: UiPlot3dVector; color?: string; size?: number };
-export type UiPlot3dLine = { points: UiPlot3dVector[]; color?: string; width?: number };
-export type UiPlot3dSurface = { values: number[][]; xStep?: number; yStep?: number; colorScale?: "viridis" | "plasma" | "magma" | "inferno" | "turbo" | "grey" };
-export type UiPlot3dOptions = { points?: UiPlot3dPoint[]; lines?: UiPlot3dLine[]; surface?: UiPlot3dSurface; camera?: { position?: UiPlot3dVector; target?: UiPlot3dVector }; background?: string };
-export declare function UiPlot3d(opts?: UiPlot3dOptions): { ui: "plot3d" } & UiPlot3dOptions;
-export type UiMapLngLat = [number, number];
-export type UiMapBoundsPadding = number | [number, number, number, number];
-export type UiMapBounds = { sw: UiMapLngLat; ne: UiMapLngLat; padding?: UiMapBoundsPadding };
-export type UiGeoJsonGeometry = { type: string; coordinates: unknown };
-export type UiGeoJsonFeature = { type: "Feature"; geometry: UiGeoJsonGeometry; properties?: Record<string, unknown> };
-export type UiGeoJsonFeatureCollection = { type: "FeatureCollection"; features: UiGeoJsonFeature[] };
-export type UiMapMarker = { id?: string; coordinates: UiMapLngLat; color?: string; popup?: string };
-export type UiMapOptions = { center?: UiMapLngLat; zoom?: number; pitch?: number; bearing?: number; bounds?: UiMapBounds; markers?: UiMapMarker[]; style?: "streets" | "outdoors" | "light" | "dark" | "satellite" | "terrain" | string; attribution?: string; geojson?: UiGeoJsonFeatureCollection; height?: number };
-export declare function UiMap(opts?: UiMapOptions): { ui: "map" } & UiMapOptions;
-export type UiGeoJsonMapOptions = { center?: UiMapLngLat; zoom?: number; style?: "streets" | "outdoors" | "light" | "dark" | "satellite" | "terrain" | string; attribution?: string };
-export type UiGeoJsonOptions = { map?: UiGeoJsonMapOptions; fillColor?: string; lineColor?: string; lineWidth?: number; opacity?: number; showMarkers?: boolean; height?: number };
-export declare function UiGeoJson(featureCollection: UiGeoJsonFeatureCollection, opts?: UiGeoJsonOptions): { ui: "geoJson"; featureCollection: UiGeoJsonFeatureCollection } & UiGeoJsonOptions;
-export declare function UiGeoJson(opts: { ui?: "geoJson"; featureCollection: UiGeoJsonFeatureCollection } & UiGeoJsonOptions): { ui: "geoJson"; featureCollection: UiGeoJsonFeatureCollection } & UiGeoJsonOptions;
-export type UiAlertOptions = { level?: "info" | "success" | "warn" | "error"; title?: string; text?: string; html?: string };
-export declare function UiAlert(opts: UiAlertOptions): { ui: "alert" } & UiAlertOptions;
-export type UiBadgeOptions = { color?: "neutral" | "info" | "success" | "warn" | "error" };
-export declare function UiBadge(text: string, opts?: UiBadgeOptions): { ui: "badge"; text: string } & UiBadgeOptions;
-export declare function UiBadge(opts: { ui?: "badge"; text: string } & UiBadgeOptions): { ui: "badge"; text: string } & UiBadgeOptions;
-export type UiMetricOptions = { label?: string; unit?: string; delta?: number; helpText?: string };
-export declare function UiMetric(value: string | number, opts?: UiMetricOptions): { ui: "metric"; value: string | number } & UiMetricOptions;
-export declare function UiMetric(opts: { ui?: "metric"; value: string | number } & UiMetricOptions): { ui: "metric"; value: string | number } & UiMetricOptions;
-export type UiProgressOptions = { label?: string; max?: number; indeterminate?: boolean };
-export declare function UiProgress(value: number, opts?: UiProgressOptions): { ui: "progress"; value: number } & UiProgressOptions;
-export declare function UiProgress(opts: { ui?: "progress"; value?: number; max?: number; indeterminate?: boolean }): { ui: "progress" } & UiProgressOptions & { value?: number };
-export type UiSpinnerOptions = { label?: string; size?: number | "sm" | "md" | "lg" };
-export declare function UiSpinner(opts?: UiSpinnerOptions): { ui: "spinner" } & UiSpinnerOptions;
-`;
-
   await fsPromises.writeFile(pkgJsonPath, JSON.stringify(pkgJson, null, 2));
-  await fsPromises.writeFile(indexPath, indexJs);
-  await fsPromises.writeFile(dtsPath, indexDts);
+  await fsPromises.writeFile(indexPath, uiHelpersModuleJs);
+  await fsPromises.writeFile(dtsPath, uiHelpersDts);
 };
 
 const pathExists = async (filePath: string) => {
@@ -1962,305 +1894,17 @@ const createPlaceholderRequire = (): NodeJS.Require => {
   return placeholder;
 };
 
-// Option types derived from the shared schema to avoid duplication
-type UiImageOptions = Omit<UiImage, "ui" | "src">;
-type UiJsonOptions = Omit<UiJson, "ui" | "json">;
-type UiCodeOptions = Omit<UiCode, "ui" | "code">;
-type UiTableOptions = Omit<UiTable, "ui" | "rows">;
-type UiDataSummaryOptions = Omit<UiDataSummary, "ui">;
-type UiVegaLiteOptions = Omit<UiVegaLite, "ui" | "spec">;
-type UiPlotlyOptions = Omit<UiPlotly, "ui" | "data">;
-type UiHeatmapOptions = Omit<UiHeatmap, "ui" | "values">;
-type UiNetworkGraphOptions = Omit<UiNetworkGraph, "ui" | "nodes" | "links">;
-type UiPlot3dOptions = Omit<UiPlot3d, "ui">;
-type UiMapOptions = Omit<UiMap, "ui">;
-type UiGeoJsonOptions = Omit<UiGeoJson, "ui" | "featureCollection">;
-type UiGeoJsonFeatureCollection = UiGeoJson["featureCollection"];
-type UiAlertOptions = Omit<UiAlert, "ui">;
-type UiBadgeOptions = Omit<UiBadge, "ui" | "text">;
-type UiMetricOptions = Omit<UiMetric, "ui" | "value">;
-type UiProgressOptions = Omit<UiProgress, "ui" | "value">;
-type UiSpinnerOptions = Omit<UiSpinner, "ui">;
-
 const createSandboxRequire = (
   root: string,
   fsModule: typeof fs,
   processProxy: NodeJS.Process
-): NodeJS.Require & { setUiDisplayHook: (fn: UiDisplayHook) => void } => {
+): NodeJS.Require => {
   const entry = join(root, "__runtime__.cjs");
   const base = createRequire(entry);
-  let uiDisplayHook: UiDisplayHook = null;
 
   const sandboxRequire = ((specifier: string) => {
-    // Intercept our virtual UI helper package to inject a live display hook
     if (specifier === "@nodebooks/ui") {
-      const emit = (obj: unknown) => {
-        try {
-          uiDisplayHook?.(obj);
-        } catch {
-          /* noop */
-        }
-      };
-      const tag = <T>(o: T) => {
-        try {
-          if (o && typeof o === "object") {
-            (o as Record<string, unknown>).__nb_ui_emitted = true;
-          }
-        } catch (err) {
-          void err;
-        }
-        return o;
-      };
-      return {
-        UiImage: (
-          srcOrOpts: string | ({ src: string } & UiImageOptions),
-          opts?: UiImageOptions
-        ) => {
-          const o =
-            srcOrOpts &&
-            typeof srcOrOpts === "object" &&
-            !Array.isArray(srcOrOpts) &&
-            "src" in srcOrOpts
-              ? { ui: "image", ...srcOrOpts }
-              : { ui: "image", src: srcOrOpts, ...(opts || {}) };
-          emit(o);
-          return tag(o);
-        },
-        UiMarkdown: (markdown: string) => {
-          const o = { ui: "markdown", markdown };
-          emit(o);
-          return tag(o);
-        },
-        UiHTML: (html: string) => {
-          const o = { ui: "html", html };
-          emit(o);
-          return tag(o);
-        },
-        UiJSON: (json: unknown, opts?: UiJsonOptions) => {
-          const o = { ui: "json", json, ...(opts || {}) };
-          emit(o);
-          return tag(o);
-        },
-        UiCode: (code: string, opts?: UiCodeOptions) => {
-          const o = { ui: "code", code, ...(opts || {}) };
-          emit(o);
-          return tag(o);
-        },
-        UiTable: (
-          rowsOrOpts:
-            | Array<Record<string, unknown>>
-            | ({ rows: Array<Record<string, unknown>> } & UiTableOptions),
-          opts?: UiTableOptions
-        ) => {
-          const o = Array.isArray(rowsOrOpts)
-            ? { ui: "table", rows: rowsOrOpts, ...(opts || {}) }
-            : { ui: "table", ...(rowsOrOpts || {}) };
-          emit(o);
-          return tag(o);
-        },
-        UiDataSummary: (opts: UiDataSummaryOptions) => {
-          const o = { ui: "dataSummary", ...(opts || {}) };
-          emit(o);
-          return tag(o);
-        },
-        UiVegaLite: (
-          specOrOpts:
-            | Record<string, unknown>
-            | ({ spec: Record<string, unknown> } & UiVegaLiteOptions),
-          opts?: UiVegaLiteOptions
-        ) => {
-          const isObj =
-            specOrOpts &&
-            typeof specOrOpts === "object" &&
-            !Array.isArray(specOrOpts);
-          if (isObj && "spec" in (specOrOpts as Record<string, unknown>)) {
-            const candidate = (specOrOpts as Record<string, unknown>).spec;
-            if (!candidate || typeof candidate !== "object") {
-              throw new Error("UiVegaLite expects a spec object");
-            }
-            const o = {
-              ui: "vegaLite",
-              ...(specOrOpts as Record<string, unknown>),
-            };
-            emit(o);
-            return tag(o);
-          }
-          if (!specOrOpts || typeof specOrOpts !== "object") {
-            throw new Error("UiVegaLite expects a spec object");
-          }
-          const o = {
-            ui: "vegaLite",
-            spec: specOrOpts as Record<string, unknown>,
-            ...(opts || {}),
-          };
-          emit(o);
-          return tag(o);
-        },
-        UiPlotly: (
-          dataOrOpts: unknown[] | ({ data: unknown[] } & UiPlotlyOptions),
-          opts?: UiPlotlyOptions
-        ) => {
-          if (Array.isArray(dataOrOpts)) {
-            const o = { ui: "plotly", data: dataOrOpts, ...(opts || {}) };
-            emit(o);
-            return tag(o);
-          }
-          const payload = dataOrOpts as Record<string, unknown> | undefined;
-          if (!payload || !Array.isArray(payload.data)) {
-            throw new Error("UiPlotly expects an array of traces in 'data'");
-          }
-          const o = { ui: "plotly", ...payload };
-          emit(o);
-          return tag(o);
-        },
-        UiHeatmap: (
-          valuesOrOpts:
-            | number[][]
-            | ({ values: number[][] } & UiHeatmapOptions),
-          opts?: UiHeatmapOptions
-        ) => {
-          if (Array.isArray(valuesOrOpts)) {
-            const o = { ui: "heatmap", values: valuesOrOpts, ...(opts || {}) };
-            emit(o);
-            return tag(o);
-          }
-          const payload = valuesOrOpts as Record<string, unknown> | undefined;
-          if (!payload || !Array.isArray(payload.values)) {
-            throw new Error("UiHeatmap expects a 2D number array in 'values'");
-          }
-          const o = { ui: "heatmap", ...payload };
-          emit(o);
-          return tag(o);
-        },
-        UiNetworkGraph: (
-          nodesOrOpts:
-            | Array<{ id: string }>
-            | ({
-                nodes: Array<{ id: string }>;
-                links: unknown[];
-              } & UiNetworkGraphOptions),
-          links?: unknown[],
-          opts?: UiNetworkGraphOptions
-        ) => {
-          if (Array.isArray(nodesOrOpts) && Array.isArray(links)) {
-            const o = {
-              ui: "networkGraph",
-              nodes: nodesOrOpts,
-              links,
-              ...(opts || {}),
-            };
-            emit(o);
-            return tag(o);
-          }
-          const payload = nodesOrOpts as Record<string, unknown> | undefined;
-          if (
-            !payload ||
-            !Array.isArray(payload.nodes) ||
-            !Array.isArray(payload.links)
-          ) {
-            throw new Error(
-              "UiNetworkGraph expects 'nodes' and 'links' arrays"
-            );
-          }
-          const o = { ui: "networkGraph", ...payload };
-          emit(o);
-          return tag(o);
-        },
-        UiPlot3d: (opts: UiPlot3dOptions) => {
-          const o = { ui: "plot3d", ...(opts || {}) };
-          emit(o);
-          return tag(o);
-        },
-        UiMap: (opts: UiMapOptions) => {
-          const o = { ui: "map", ...(opts || {}) };
-          emit(o);
-          return tag(o);
-        },
-        UiGeoJson: (
-          featureOrOpts:
-            | UiGeoJsonFeatureCollection
-            | ({
-                featureCollection: UiGeoJsonFeatureCollection;
-              } & UiGeoJsonOptions),
-          opts?: UiGeoJsonOptions
-        ) => {
-          const isFeatureCollection =
-            featureOrOpts &&
-            typeof featureOrOpts === "object" &&
-            !Array.isArray(featureOrOpts) &&
-            (featureOrOpts as { type?: unknown }).type === "FeatureCollection";
-          if (isFeatureCollection) {
-            const o = {
-              ui: "geoJson",
-              featureCollection: featureOrOpts as UiGeoJsonFeatureCollection,
-              ...(opts || {}),
-            };
-            emit(o);
-            return tag(o);
-          }
-          const payload = featureOrOpts as Record<string, unknown> | undefined;
-          if (!payload || typeof payload.featureCollection !== "object") {
-            throw new Error(
-              "UiGeoJson expects a GeoJSON FeatureCollection in 'featureCollection'"
-            );
-          }
-          const o = { ui: "geoJson", ...payload };
-          emit(o);
-          return tag(o);
-        },
-        UiAlert: (opts: UiAlertOptions) => {
-          const o = { ui: "alert", ...(opts || {}) };
-          emit(o);
-          return tag(o);
-        },
-        UiBadge: (
-          textOrOpts: string | ({ text: string } & UiBadgeOptions),
-          opts?: UiBadgeOptions
-        ) => {
-          const o =
-            textOrOpts && typeof textOrOpts === "object" && "text" in textOrOpts
-              ? { ui: "badge", ...textOrOpts }
-              : {
-                  ui: "badge",
-                  text: String(textOrOpts ?? ""),
-                  ...(opts || {}),
-                };
-          emit(o);
-          return tag(o);
-        },
-        UiMetric: (
-          valueOrOpts:
-            | string
-            | number
-            | ({ value: string | number } & UiMetricOptions),
-          opts?: UiMetricOptions
-        ) => {
-          const o =
-            valueOrOpts &&
-            typeof valueOrOpts === "object" &&
-            "value" in valueOrOpts
-              ? { ui: "metric", ...valueOrOpts }
-              : { ui: "metric", value: valueOrOpts, ...(opts || {}) };
-          emit(o);
-          return tag(o);
-        },
-        UiProgress: (
-          valueOrOpts: number | (UiProgressOptions & { value?: number }),
-          opts?: UiProgressOptions
-        ) => {
-          const o =
-            valueOrOpts && typeof valueOrOpts === "object"
-              ? { ui: "progress", ...valueOrOpts }
-              : { ui: "progress", value: valueOrOpts, ...(opts || {}) };
-          emit(o);
-          return tag(o);
-        },
-        UiSpinner: (opts?: UiSpinnerOptions) => {
-          const o = { ui: "spinner", ...(opts || {}) };
-          emit(o);
-          return tag(o);
-        },
-      } as unknown;
+      return base(specifier);
     }
     if (specifier === "fs" || specifier === "node:fs") {
       return fsModule;
@@ -2276,7 +1920,6 @@ const createSandboxRequire = (
         "Access to child_process is disabled in NodeBooks runtime"
       );
     }
-    // Allow outbound networking modules but block server/bind APIs.
     if (specifier === "http" || specifier === "node:http") {
       const mod = base("node:http");
       return wrapHttpModule(mod);
@@ -2302,9 +1945,7 @@ const createSandboxRequire = (
       return wrapDgramModule(mod);
     }
     return base(specifier);
-  }) as unknown as NodeJS.Require & {
-    setUiDisplayHook?: (fn: UiDisplayHook) => void;
-  };
+  }) as unknown as NodeJS.Require;
 
   const resolveFn = ((request: string, options?: unknown) => {
     return base.resolve(request, options as never);
@@ -2317,17 +1958,7 @@ const createSandboxRequire = (
   sandboxRequire.cache = base.cache;
   sandboxRequire.main = base.main;
   sandboxRequire.extensions = base.extensions;
-  // Allow runtime to set the UI hook for streaming
-  (
-    sandboxRequire as unknown as {
-      setUiDisplayHook: (fn: UiDisplayHook) => void;
-    }
-  ).setUiDisplayHook = (fn: UiDisplayHook) => {
-    uiDisplayHook = fn ?? null;
-  };
-  return sandboxRequire as NodeJS.Require & {
-    setUiDisplayHook: (fn: UiDisplayHook) => void;
-  };
+  return sandboxRequire;
 };
 
 // --- Network module wrappers: allow client connections, block server/bind. ---

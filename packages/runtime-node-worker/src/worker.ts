@@ -8,7 +8,6 @@ import {
   type IpcControlMessage,
   type IpcRunCell,
   type IpcCancel,
-  packDisplay,
   packText,
   StreamKind,
 } from "@nodebooks/runtime-protocol";
@@ -76,8 +75,11 @@ const handleRun = async (payload: IpcRunCell) => {
       },
       onDisplay: (display) => {
         if (current?.cancelled) return;
-        const frame = packDisplay(jobIdNum, display, false);
-        safeSend(frame);
+        safeSend({
+          kind: "display",
+          jobId: jobIdNum,
+          data: display,
+        });
       },
     });
     if (stdoutBuf) {

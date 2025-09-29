@@ -3,7 +3,19 @@
   "compilerOptions": {
     "rootDir": ".",
     "outDir": "dist",
-    "types": ["node"]
+    "types": ["node"],
+    "paths": {
+      "@nodebooks/notebook-ui/runtime/ui-helpers-dts": [
+        "../notebook-ui/src/runtime/ui-helpers-dts.d.ts"
+      ],
+      "@nodebooks/notebook-ui/runtime/ui-helpers-dts.js": [
+        "../notebook-ui/src/runtime/ui-helpers-dts.js"
+      ],
+      "@nodebooks/notebook-ui/runtime/ui-helpers-module": [
+        "../notebook-ui/src/runtime/ui-helpers-module.d.ts",
+        "../notebook-ui/src/runtime/ui-helpers-module.js"
+      ]
+    }
   },
   "include": ["src/**/*.ts", "tests/**/*.ts"],
   "exclude": ["dist", "node_modules"]

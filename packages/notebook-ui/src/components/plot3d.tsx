@@ -190,7 +190,7 @@ export const Plot3dScene: React.FC<Plot3dProps> = ({
               point.position[1],
               point.position[2]
             );
-        scene.add(sphere);
+            scene.add(sphere);
           }
         }
 

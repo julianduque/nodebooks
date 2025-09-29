@@ -22,7 +22,7 @@ export const UiCard: React.FC<UiCardProps> = ({
   return (
     <UiThemeContext.Provider value={mode}>
       <div
-        className={`relative rounded-lg bg-card text-card-foreground border-border ${className ?? ""}`}
+        className={`relativ p-2 rounded-lg bg-card text-card-foreground border-border ${className ?? ""}`}
       >
         {/* Inject theme only into composite components (not DOM elements) */}
         {React.isValidElement(children) && typeof children.type !== "string"

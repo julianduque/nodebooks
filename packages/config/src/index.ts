@@ -8,7 +8,6 @@ import type {
 } from "./types.js";
 
 declare global {
-  // eslint-disable-next-line no-var
   var __NODEBOOKS_SETTINGS__: Partial<GlobalSettings> | undefined;
 }
 
@@ -143,7 +142,6 @@ export function loadRuntimeConfig(
       num(resolvedEnv.NODEBOOKS_KERNEL_TIMEOUT_MS) ??
       10_000,
     batchMs: num(resolvedEnv.NODEBOOKS_BATCH_MS) ?? 25,
-    debug: resolvedEnv.NODEBOOKS_DEBUG === "1",
   } satisfies RuntimeConfig;
 }
 
