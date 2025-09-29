@@ -213,8 +213,8 @@ const AppShell = ({
       {secondarySidebar ? (
         <aside
           className={cn(
-            "hidden h-screen shrink-0 border-r border-border bg-card py-6 lg:flex overflow-hidden transition-[width] duration-200 ease-linear",
-            secondaryCollapsed ? "w-0 px-0" : "w-96 px-5"
+            "h-screen shrink-0 border-r border-border bg-card py-6 lg:flex overflow-hidden transition-[width] duration-200 ease-linear",
+            secondaryCollapsed ? "w-0 px-0" : "w-92 px-5"
           )}
         >
           <div className="flex h-full w-full flex-col">

@@ -78,7 +78,6 @@ export const UiCodeSchema = z.object({
   ui: z.literal("code"),
   code: z.string(),
   language: z.string().optional(),
-  wrap: z.boolean().optional(),
 });
 
 // Data & Tables

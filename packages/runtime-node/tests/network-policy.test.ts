@@ -1,6 +1,10 @@
 import { describe, it, expect } from "vitest";
 import { NotebookRuntime } from "@nodebooks/runtime-node";
-import { createCodeCell, NotebookEnvSchema } from "@nodebooks/notebook-schema";
+import {
+  NODEBOOKS_UI_MIME,
+  createCodeCell,
+  NotebookEnvSchema,
+} from "@nodebooks/notebook-schema";
 import type { DisplayDataOutput } from "@nodebooks/notebook-schema";
 
 const makeEnv = () =>
@@ -21,8 +25,11 @@ describe("runtime-node network policy", () => {
     const out = res.outputs.find((o) => o.type === "display_data") as
       | DisplayDataOutput
       | undefined;
-    const text = out?.data?.["text/plain"] as string;
-    expect(text).toMatch(/function\|function/);
+    const payload = out?.data?.[NODEBOOKS_UI_MIME] as
+      | { ui?: string; json?: unknown }
+      | undefined;
+    expect(payload?.ui).toBe("json");
+    expect(String(payload?.json ?? "")).toMatch(/function\|function/);
 
     // Attempt to create server should throw
     res = await rt.execute({

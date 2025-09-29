@@ -11,6 +11,7 @@ import {
 } from "d3-force";
 import type { SimulationLinkDatum, SimulationNodeDatum } from "d3-force";
 import { UiThemeContext } from "./theme";
+import colors from "tailwindcss/colors";
 
 export type NetworkGraphProps = Omit<UiNetworkGraph, "ui"> & {
   className?: string;
@@ -220,7 +221,7 @@ export const NetworkGraph: React.FC<NetworkGraphProps> = ({
           >
             <polygon
               points="0 0, 10 3.5, 0 7"
-              fill={mode === "light" ? "#1d4ed8" : "#38bdf8"}
+              fill={mode === "light" ? colors.blue[500] : colors.blue[500]}
             />
           </marker>
         </defs>
@@ -231,7 +232,10 @@ export const NetworkGraph: React.FC<NetworkGraphProps> = ({
             y1={link.source.y ?? 0}
             x2={link.target.x ?? 0}
             y2={link.target.y ?? 0}
-            stroke={link.color ?? (mode === "light" ? "#94a3b8" : "#64748b")}
+            stroke={
+              link.color ??
+              (mode === "light" ? colors.slate[500] : colors.slate[500])
+            }
             strokeWidth={(link.value ?? 1) * 1.5}
             opacity={0.85}
             markerEnd={
@@ -246,7 +250,12 @@ export const NetworkGraph: React.FC<NetworkGraphProps> = ({
           >
             <circle
               r={Math.max(12, node.size ?? 12)}
-              fill={node.color ?? (mode === "light" ? "#1d4ed8" : "#38bdf8")}
+              fill={
+                node.color ??
+                (mode === "light" ? colors.blue[500] : colors.blue[500])
+              }
+              stroke={mode === "light" ? colors.slate[800] : colors.slate[300]}
+              strokeWidth={1}
               opacity={0.9}
             />
             <text
@@ -254,8 +263,8 @@ export const NetworkGraph: React.FC<NetworkGraphProps> = ({
               y={4}
               textAnchor="middle"
               fontSize={12}
-              fill={mode === "light" ? "#f8fafc" : "#0f172a"}
-              fontWeight={600}
+              fill={mode === "light" ? colors.slate[800] : colors.slate[300]}
+              fontWeight={500}
             >
               {node.label ?? node.id}
             </text>

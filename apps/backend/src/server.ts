@@ -365,7 +365,7 @@ export const createNotebookStore = (
         settings: new InMemorySettingsStore(),
         driver,
       };
-    case "sqlite":
+    case "sqlite": {
       const sqliteStore = new SqliteNotebookStore({
         databaseFile: options.sqlitePath ?? config.persistence.sqlitePath,
       });
@@ -374,7 +374,8 @@ export const createNotebookStore = (
         settings: new SqliteSettingsStore(sqliteStore),
         driver,
       };
-    case "postgres":
+    }
+    case "postgres": {
       const postgresStore = new PostgresNotebookStore({
         connectionString: options.databaseUrl ?? config.persistence.databaseUrl,
       });
@@ -383,5 +384,6 @@ export const createNotebookStore = (
         settings: new PostgresSettingsStore(postgresStore),
         driver,
       };
+    }
   }
 };

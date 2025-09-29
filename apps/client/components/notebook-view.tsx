@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
+import { useTheme } from "@/components/theme-context";
 import {
   Check,
   Loader2,
@@ -63,9 +64,37 @@ import { setDiagnosticPolicy } from "@/components/notebook/monaco-setup";
 import { useSearchParams } from "next/navigation";
 
 import { clientConfig } from "@nodebooks/config/client";
+import { AlertCallout } from "@nodebooks/notebook-ui";
 const API_BASE_URL = clientConfig().apiBaseUrl;
 
+interface StatusDotProps {
+  colorClass: string;
+  label: string;
+  text?: string;
+  showText?: boolean;
+}
+
+const StatusDot = ({
+  colorClass,
+  label,
+  text,
+  showText = false,
+}: StatusDotProps) => (
+  <span className="flex items-center gap-1" title={label}>
+    <span
+      className={clsx("h-2.5 w-2.5 rounded-full transition-colors", colorClass)}
+      aria-hidden="true"
+    />
+    {showText ? (
+      <span>{text ?? label}</span>
+    ) : (
+      <span className="sr-only">{label}</span>
+    )}
+  </span>
+);
+
 const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
+  const { theme } = useTheme();
   const router = useRouter();
   const searchParams = useSearchParams();
   const [notebook, setNotebook] = useState<Notebook | null>(null);
@@ -486,14 +515,52 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
             if (cell.type !== "code") {
               return cell;
             }
-            const output: NotebookOutput = {
-              type: message.type,
-              data: message.data,
-              metadata: message.metadata ?? {},
+            const metadata: Record<string, unknown> = {
+              ...(message.metadata ?? {}),
             };
+            const metaId =
+              typeof metadata["display_id"] === "string"
+                ? (metadata["display_id"] as string)
+                : undefined;
+            const outputType: NotebookOutput["type"] =
+              message.type === "update_display_data"
+                ? "display_data"
+                : message.type;
+            if (metaId) {
+              metadata["display_id"] = metaId;
+            }
+            const nextOutput: NotebookOutput = {
+              type: outputType,
+              data: message.data,
+              metadata,
+            };
+            if (metaId) {
+              const existingIndex = cell.outputs.findIndex((existing) => {
+                if (
+                  existing.type === "display_data" ||
+                  existing.type === "execute_result" ||
+                  existing.type === "update_display_data"
+                ) {
+                  const existingId =
+                    typeof existing.metadata?.["display_id"] === "string"
+                      ? (existing.metadata?.["display_id"] as string)
+                      : undefined;
+                  return existingId === metaId;
+                }
+                return false;
+              });
+              if (existingIndex >= 0) {
+                const outputs = cell.outputs.slice();
+                outputs[existingIndex] = nextOutput;
+                return {
+                  ...cell,
+                  outputs,
+                };
+              }
+            }
             return {
               ...cell,
-              outputs: [...cell.outputs, output],
+              outputs: [...cell.outputs, nextOutput],
             };
           },
           { persist: false }
@@ -1208,7 +1275,14 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
               <p className="text-lg font-semibold text-foreground">
                 Select a notebook to begin.
               </p>
-              {error && <p className="text-sm text-rose-600">{error}</p>}
+              {error ? (
+                <AlertCallout
+                  level="error"
+                  text={error}
+                  className="text-left"
+                  themeMode={theme}
+                />
+              ) : null}
             </CardContent>
           </Card>
         </div>
@@ -1218,14 +1292,15 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     return (
       <div className="flex min-h-full flex-1 flex-col">
         <div className="flex flex-1 overflow-hidden">
-          <div className="flex-1 bg-muted/20 px-2 py-2">
-            {error && (
-              <Card className="mb-6 border-rose-200 bg-rose-50">
-                <CardContent className="text-sm text-rose-700">
-                  {error}
-                </CardContent>
-              </Card>
-            )}
+          <div className="flex-1 px-2 py-2">
+            {error ? (
+              <AlertCallout
+                level="error"
+                text={error}
+                className="mb-6"
+                themeMode={theme}
+              />
+            ) : null}
             {/* Installation output shown at the top of the notebook */}
             {(depBusy || depOutputs.length > 0 || depError) && (
               <div className="mb-4 rounded-lg border border-border bg-card p-2 text-card-foreground shadow-sm">
@@ -1341,12 +1416,13 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     handleClearDepOutputs,
     handleAbortInstall,
     handleInterruptKernel,
+    theme,
   ]);
 
   const topbarMain = useMemo(() => {
     if (!notebook) return null;
     return (
-      <div className="flex min-w-0 items-center gap-2">
+      <div className="flex w-full flex-wrap items-center gap-2 sm:flex-nowrap">
         {isRenaming ? (
           <input
             ref={renameInputRef}
@@ -1354,13 +1430,13 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
             onChange={(event) => setRenameDraft(event.target.value)}
             onBlur={handleRenameCommit}
             onKeyDown={handleRenameKeyDown}
-            className="min-w-[260px] max-w-sm truncate rounded-md border border-input bg-background px-2 py-1 text-sm font-semibold text-foreground focus:outline-none"
+            className="min-w-0 flex-1 rounded-md border border-input bg-background px-2 py-1 text-sm font-semibold text-foreground focus:outline-none sm:w-auto sm:min-w-[220px] sm:max-w-sm"
             aria-label="Notebook name"
           />
         ) : (
           <button
             type="button"
-            className="truncate text-left text-base font-semibold text-foreground"
+            className="min-w-0 flex-1 truncate text-left text-base font-semibold text-foreground"
             onClick={handleRenameStart}
             title={notebook.name}
           >
@@ -1370,6 +1446,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         <Button
           variant="ghost"
           size="icon"
+          className="shrink-0"
           onClick={isRenaming ? handleRenameCommit : handleRenameStart}
           aria-label="Rename notebook"
         >
@@ -1395,111 +1472,127 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         ? notebook.env.version
         : `v${notebook.env.version}`
       : "unknown";
+    const kernelStatusLabel = socketReady
+      ? "Kernel connected"
+      : sessionId
+        ? "Kernel disconnected"
+        : "Kernel connecting";
+    const kernelStatusText = socketReady
+      ? "Kernel connected"
+      : sessionId
+        ? "Kernel disconnected"
+        : "Kernel connecting";
+    const kernelStatusColor = socketReady ? "bg-emerald-500" : "bg-amber-500";
+    const saveStatusLabel = dirty
+      ? "You have unsaved changes"
+      : "All changes saved";
+    const saveStatusText = dirty ? "Unsaved" : "Saved";
+    const saveStatusColor = dirty ? "bg-amber-500" : "bg-emerald-500";
     return (
-      <div className="flex items-center gap-2">
-        <Badge
-          variant="secondary"
-          className="text-xs font-semibold md:text-[11px]"
-        >
-          {runtimeName} {versionLabel}
-        </Badge>
-        <span className="hidden items-center gap-2 text-[11px] text-muted-foreground md:flex">
-          <span className="flex items-center gap-1">
-            <span
-              className={clsx(
-                "h-2 w-2 rounded-full",
-                socketReady ? "bg-emerald-500" : "bg-amber-500"
-              )}
+      <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
+        <div className="flex items-center gap-2">
+          <Badge
+            variant="secondary"
+            className="shrink-0 text-xs font-semibold sm:text-[11px]"
+          >
+            {runtimeName} {versionLabel}
+          </Badge>
+          <div className="items-center gap-2 text-[11px] text-muted-foreground sm:flex">
+            <StatusDot
+              colorClass={kernelStatusColor}
+              label={kernelStatusLabel}
+              text={kernelStatusText}
+              showText
             />
-            {socketReady ? "Kernel connected" : "Kernel connecting"}
-          </span>
-          <span className="flex items-center gap-1">
-            <span
-              className={clsx(
-                "h-2 w-2 rounded-full",
-                dirty ? "bg-amber-500" : "bg-emerald-500"
-              )}
+            <StatusDot
+              colorClass={saveStatusColor}
+              label={saveStatusLabel}
+              text={saveStatusText}
+              showText
             />
-            {dirty ? "Unsaved" : "Saved"}
-          </span>
-        </span>
-        <Button
-          variant={dirty ? "secondary" : "ghost"}
-          size="icon"
-          onClick={handleSaveNow}
-          disabled={!dirty}
-          aria-label="Save notebook"
-          title={dirty ? "Save notebook" : "Saved"}
-        >
-          {dirty ? (
-            <Save className="h-4 w-4" />
-          ) : (
-            <Check className="h-4 w-4 text-emerald-500" />
-          )}
-        </Button>
-        <Button
-          variant="default"
-          size="icon"
-          onClick={handleRunAll}
-          disabled={!socketReady}
-          aria-label="Run all cells"
-          title="Run all cells"
-        >
-          <PlayCircle className="h-4 w-4" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => setConfirmClearOutputsOpen(true)}
-          aria-label="Clear all outputs"
-          title="Clear all outputs"
-        >
-          <Eraser className="h-4 w-4" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={handleReconnectKernel}
-          aria-label="Reconnect kernel"
-          title="Reconnect kernel"
-          disabled={!sessionId}
-        >
-          <RefreshCw className="h-4 w-4" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => setConfirmRestartOpen(true)}
-          aria-label="Restart kernel"
-          title="Restart kernel"
-        >
-          <RotateCcw className="h-4 w-4" />
-        </Button>
-        <Button
-          variant={shareStatus === "error" ? "destructive" : "ghost"}
-          size="icon"
-          onClick={handleShare}
-          aria-label={
-            shareStatus === "copied" ? "Notebook link copied" : "Share notebook"
-          }
-          title="Share notebook link"
-        >
-          {shareStatus === "copied" ? (
-            <Check className="h-4 w-4 text-emerald-500" />
-          ) : (
-            <Share2 className="h-4 w-4" />
-          )}
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="text-rose-600 hover:text-rose-700"
-          onClick={() => setConfirmDeleteOpen(true)}
-          aria-label="Delete notebook"
-          title="Delete notebook"
-        >
-          <Trash2 className="h-4 w-4" />
-        </Button>
+          </div>
+        </div>
+        <div className="flex flex-1 flex-wrap items-center justify-end gap-1.5 sm:flex-none sm:gap-2">
+          <Button
+            variant={dirty ? "secondary" : "ghost"}
+            size="icon"
+            onClick={handleSaveNow}
+            disabled={!dirty}
+            aria-label="Save notebook"
+            title={dirty ? "Save notebook" : "Saved"}
+          >
+            {dirty ? (
+              <Save className="h-4 w-4" />
+            ) : (
+              <Check className="h-4 w-4 text-emerald-500" />
+            )}
+          </Button>
+          <Button
+            variant="default"
+            size="icon"
+            onClick={handleRunAll}
+            disabled={!socketReady}
+            aria-label="Run all cells"
+            title="Run all cells"
+          >
+            <PlayCircle className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setConfirmClearOutputsOpen(true)}
+            aria-label="Clear all outputs"
+            title="Clear all outputs"
+          >
+            <Eraser className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={handleReconnectKernel}
+            aria-label="Reconnect kernel"
+            title="Reconnect kernel"
+            disabled={!sessionId}
+          >
+            <RefreshCw className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setConfirmRestartOpen(true)}
+            aria-label="Restart kernel"
+            title="Restart kernel"
+          >
+            <RotateCcw className="h-4 w-4" />
+          </Button>
+          <Button
+            variant={shareStatus === "error" ? "destructive" : "ghost"}
+            size="icon"
+            onClick={handleShare}
+            aria-label={
+              shareStatus === "copied"
+                ? "Notebook link copied"
+                : "Share notebook"
+            }
+            title="Share notebook link"
+          >
+            {shareStatus === "copied" ? (
+              <Check className="h-4 w-4 text-emerald-500" />
+            ) : (
+              <Share2 className="h-4 w-4" />
+            )}
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="text-rose-600 hover:text-rose-700"
+            onClick={() => setConfirmDeleteOpen(true)}
+            aria-label="Delete notebook"
+            title="Delete notebook"
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
     );
   }, [
@@ -1573,7 +1666,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
       title={notebook?.name ?? "Notebook"}
       onNewNotebook={() => void handleCreateNotebook()}
       secondarySidebar={secondarySidebar}
-      defaultCollapsed
+      defaultCollapsed={false}
       secondaryHeader={secondaryHeader}
       headerMain={topbarMain}
       headerRight={topbarRight}

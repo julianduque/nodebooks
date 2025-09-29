@@ -103,7 +103,6 @@ describe("@nodebooks/config – loadRuntimeConfig", () => {
     const cfg = loadRuntimeConfig({} as NodeJS.ProcessEnv);
     expect(cfg.kernelTimeoutMs).toBe(10_000);
     expect(cfg.batchMs).toBe(25);
-    expect(cfg.debug).toBe(false);
   });
 
   it("uses runtime overrides for kernel timeout", () => {

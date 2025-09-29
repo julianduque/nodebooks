@@ -2,3 +2,86 @@
 
 /* Generate the utilities used by this package */
 @import "tailwindcss";
+
+.markdown-preview pre {
+  background-color: var(--hljs-background, #f8fafc);
+  border-radius: 0.75rem;
+  padding: 0.9rem 1rem;
+  overflow-x: auto;
+  margin: 1rem 0;
+  border: 1px solid color-mix(in oklch, var(--border, #e2e8f0) 50%, transparent);
+}
+
+.markdown-preview pre code {
+  background: transparent;
+  padding: 0;
+  display: block;
+  color: var(--hljs-foreground, #0f172a);
+  font-size: 0.95rem;
+  font-family:
+    "Fira Code", ui-monospace, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
+}
+
+.markdown-preview .hljs-comment,
+.markdown-preview .hljs-quote {
+  color: var(--hljs-muted, #64748b);
+  font-style: italic;
+}
+
+.markdown-preview .hljs-keyword,
+.markdown-preview .hljs-selector-tag,
+.markdown-preview .hljs-literal,
+.markdown-preview .hljs-type,
+.markdown-preview .hljs-type + .hljs-title {
+  color: var(--hljs-keyword, #1d4ed8);
+  font-weight: 600;
+}
+
+.markdown-preview .hljs-string,
+.markdown-preview .hljs-doctag,
+.markdown-preview .hljs-template-tag,
+.markdown-preview .hljs-template-variable,
+.markdown-preview .hljs-regexp,
+.markdown-preview .hljs-selector-attr {
+  color: var(--hljs-string, #15803d);
+}
+
+.markdown-preview .hljs-number,
+.markdown-preview .hljs-symbol,
+.markdown-preview .hljs-bullet,
+.markdown-preview .hljs-link,
+.markdown-preview .hljs-meta .hljs-number {
+  color: var(--hljs-number, #b45309);
+}
+
+.markdown-preview .hljs-title,
+.markdown-preview .hljs-section,
+.markdown-preview .hljs-name,
+.markdown-preview .hljs-selector-id,
+.markdown-preview .hljs-selector-class {
+  color: var(--hljs-title, #0ea5e9);
+}
+
+.markdown-preview .hljs-attribute,
+.markdown-preview .hljs-attr,
+.markdown-preview .hljs-built_in,
+.markdown-preview .hljs-variable,
+.markdown-preview .hljs-params,
+.markdown-preview .hljs-property {
+  color: var(--hljs-attribute, #9333ea);
+}
+
+.markdown-preview .hljs-meta,
+.markdown-preview .hljs-meta-string,
+.markdown-preview .hljs-meta .hljs-keyword {
+  color: var(--hljs-meta, #0c4a6e);
+}
+
+.markdown-preview .hljs-addition {
+  color: var(--hljs-addition, #166534);
+}
+
+.markdown-preview .hljs-deletion {
+  color: var(--hljs-deletion, #b91c1c);
+}

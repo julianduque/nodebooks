@@ -133,7 +133,7 @@ Helper with language
 import { UiCode } from "@nodebooks/ui";
 UiCode(
   `function greet(name) {\n  return \`Hello, \${name}\`;\n}\nconsole.log(greet("Nodebooks"));`,
-  { language: "js", wrap: false }
+  { language: "js" }
 );
 ```
 
@@ -143,7 +143,6 @@ Wrapped long code lines
 import { UiCode } from "@nodebooks/ui";
 UiCode("const text = 'a'.repeat(200)\nconsole.log(text)", {
   language: "js",
-  wrap: true,
 });
 ```
 

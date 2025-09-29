@@ -382,13 +382,16 @@ const handleExecuteRequest = async ({
       }) => {
         sendMessage(connection, { ...stream, cellId: cell.id });
       },
-      onDisplay: (display: {
-        type: "display_data" | "execute_result" | "update_display_data";
-        data: Record<string, unknown>;
-        metadata?: Record<string, unknown>;
-      }) => {
+      onDisplay: (display) => {
         // Stream UI displays as they are emitted
-        sendMessage(connection, { ...display, cellId: cell.id });
+        const enriched = {
+          ...display,
+          metadata: {
+            ...display.metadata,
+            __serverSentAt: Date.now(),
+          },
+        };
+        sendMessage(connection, { ...enriched, cellId: cell.id });
       },
     });
   } catch (e) {
@@ -409,11 +412,8 @@ const handleExecuteRequest = async ({
     if (output.type === "stream") {
       continue;
     }
-    if (output.type === "display_data") {
-      const streamedFlag = output.metadata?.["streamed"];
-      if (typeof streamedFlag === "boolean" && streamedFlag) {
-        continue;
-      }
+    if (output.type === "display_data" && output.metadata?.["streamed"]) {
+      continue;
     }
     sendMessage(connection, { ...output, cellId: cell.id });
   }

@@ -1,9 +1,22 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
+    "baseUrl": ".",
     "rootDir": "src",
     "outDir": "dist",
-    "noEmit": false
+    "noEmit": false,
+    "paths": {
+      "@nodebooks/notebook-ui/runtime/ui-helpers-dts": [
+        "../../packages/notebook-ui/src/runtime/ui-helpers-dts.d.ts"
+      ],
+      "@nodebooks/notebook-ui/runtime/ui-helpers-dts.js": [
+        "../../packages/notebook-ui/src/runtime/ui-helpers-dts.js"
+      ],
+      "@nodebooks/notebook-ui/runtime/ui-helpers-module": [
+        "../../packages/notebook-ui/src/runtime/ui-helpers-module.d.ts",
+        "../../packages/notebook-ui/src/runtime/ui-helpers-module.js"
+      ]
+    }
   },
   "include": ["src/**/*.ts"],
   "exclude": ["node_modules", "dist"]

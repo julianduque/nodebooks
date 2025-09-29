@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { BeforeMount, OnMount } from "@monaco-editor/react";
 import DOMPurify from "dompurify";
-import { marked, type Tokens } from "marked";
+import hljs from "highlight.js";
+import { Marked, Renderer, type Tokens } from "marked";
 import MonacoEditor from "@/components/notebook/monaco-editor-client";
 import { initMonaco } from "@/components/notebook/monaco-setup";
 import type { NotebookCell } from "@nodebooks/notebook-schema";
@@ -26,28 +27,50 @@ interface MarkdownCellViewProps {
   editorKey: string;
 }
 
-// Configure marked once for GFM support and soft-break handling
-marked.use({
+const markdownRenderer = new Marked({
   gfm: true,
   breaks: true,
 });
 
-const renderer = new marked.Renderer();
-const originalCodeRenderer = renderer.code.bind(renderer);
+const normalizeLanguage = (lang?: string) => {
+  const language = lang?.trim().split(/\s+/)[0]?.toLowerCase();
+  if (!language) return undefined;
+  return /^[a-z0-9#+_-]+$/.test(language) ? language : undefined;
+};
 
-// Marked v16 passes a single token object into renderer.code
-renderer.code = (token: Tokens.Code) => {
-  const { text, lang } = token;
-  const language = (lang ?? "").trim();
-  const languageId = language.split(/\s+/)[0]?.toLowerCase();
-  if (languageId === "mermaid") {
+const highlightCode = (code: string, language?: string) => {
+  const lang = normalizeLanguage(language);
+  if (lang) {
+    try {
+      if (hljs.getLanguage(lang)) {
+        return hljs.highlight(code, { language: lang }).value;
+      }
+    } catch {
+      /* no-op */
+    }
+  }
+  try {
+    return hljs.highlightAuto(code).value;
+  } catch {
+    return escapeHtml(code);
+  }
+};
+
+const renderer = new Renderer();
+
+renderer.code = ({ text, lang }: Tokens.Code) => {
+  const language = normalizeLanguage(lang);
+  if (language === "mermaid") {
     const encoded = encodeURIComponent(text);
     return `<pre class="mermaid" data-definition="${encoded}">${escapeHtml(text)}</pre>`;
   }
-  return originalCodeRenderer(token);
+  const classNames = ["hljs"];
+  if (language) classNames.push(`language-${language}`);
+  const highlighted = highlightCode(text, language);
+  return `<pre><code class="${classNames.join(" ")}">${highlighted}</code></pre>`;
 };
 
-marked.use({ renderer });
+markdownRenderer.use({ renderer });
 
 const MarkdownCellView = ({
   cell,
@@ -65,7 +88,7 @@ const MarkdownCellView = ({
     setPreviewEl(node);
   }, []);
   const html = useMemo(() => {
-    const parsed = marked.parse(cell.source ?? "", { async: false });
+    const parsed = markdownRenderer.parse(cell.source ?? "", { async: false });
     const rendered = typeof parsed === "string" ? parsed : "";
     return DOMPurify.sanitize(rendered);
   }, [cell.source]);
@@ -257,7 +280,7 @@ const MarkdownCellView = ({
             value={cell.source}
             onMount={handleMount}
             beforeMount={handleBeforeMount}
-            onChange={(value) =>
+            onChange={(value: string | undefined) =>
               onChange((current) =>
                 current.type === "markdown"
                   ? { ...current, source: value ?? "" }

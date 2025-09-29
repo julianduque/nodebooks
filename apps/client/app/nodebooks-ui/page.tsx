@@ -76,7 +76,7 @@ const demoStats: Record<string, any> = {
 };
 
 const vegaLiteSpec = {
-  $schema: "https://vega.github.io/schema/vega-lite/v5.json",
+  $schema: "https://vega.github.io/schema/vega-lite/v6.json",
   data: {
     values: [
       { month: "Jan", channel: "Web", revenue: 128 },

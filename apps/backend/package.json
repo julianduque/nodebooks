@@ -21,6 +21,7 @@
     "@nodebooks/runtime-host": "workspace:*",
     "@nodebooks/runtime-protocol": "workspace:*",
     "@nodebooks/runtime-node-worker": "workspace:*",
+    "@nodebooks/notebook-ui": "workspace:*",
     "fastify": "^5.6.1",
     "nanoid": "^5.1.6",
     "next": "^15.5.4",

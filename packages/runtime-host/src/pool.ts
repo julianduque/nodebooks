@@ -7,6 +7,7 @@ import type { IpcEventMessage, IpcRunCell } from "@nodebooks/runtime-protocol";
 import { IpcEventMessageSchema } from "@nodebooks/runtime-protocol";
 import type { CodeCell, NotebookEnv } from "@nodebooks/notebook-schema";
 import { tryDecode, StreamKind } from "@nodebooks/runtime-protocol";
+import type { DisplayDataOutput } from "@nodebooks/notebook-schema";
 
 export interface ExecuteOptions {
   cell: CodeCell;
@@ -134,6 +135,15 @@ export class WorkerPool {
     const child = worker.child;
     const result = new Promise<ExecuteResult>((resolve, reject) => {
       const onMessage = (raw: unknown) => {
+        if (raw && typeof raw === "object" && raw !== null) {
+          if ("kind" in raw && (raw as { kind?: unknown }).kind === "display") {
+            const payload = raw as { data?: unknown };
+            if (payload.data) {
+              opts.onDisplay?.(payload.data as DisplayDataOutput);
+            }
+            return;
+          }
+        }
         if (raw && typeof raw === "object" && raw !== null && "type" in raw) {
           const parsed = IpcEventMessageSchema.safeParse(raw);
           if (!parsed.success) return;
@@ -254,6 +264,18 @@ export class WorkerPool {
         rejectCurrent = reject;
         let bytes = 0;
         const onMessage = (raw: unknown) => {
+          if (raw && typeof raw === "object" && raw !== null) {
+            if (
+              "kind" in raw &&
+              (raw as { kind?: unknown }).kind === "display"
+            ) {
+              const payload = raw as { data?: unknown };
+              if (payload.data) {
+                opts.onDisplay?.(payload.data as DisplayDataOutput);
+              }
+              return;
+            }
+          }
           if (raw && typeof raw === "object" && raw !== null && "type" in raw) {
             const parsed = IpcEventMessageSchema.safeParse(raw);
             if (!parsed.success) return;
