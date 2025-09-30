@@ -1,10 +1,12 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+import YAML from "yaml";
 import {
   ensureNotebookRuntimeVersion,
   NotebookCellSchema,
   NotebookEnvSchema,
   NotebookSchema,
+  NotebookFileSchema,
   type NotebookEnv,
 } from "@nodebooks/notebook-schema";
 import type { Notebook } from "@nodebooks/notebook-schema";
@@ -13,6 +15,10 @@ import {
   createNotebookFromTemplate,
   TemplateNotFoundError,
 } from "../templates/index.js";
+import {
+  createNotebookFromFileDefinition,
+  serializeNotebookToFileDefinition,
+} from "../notebooks/file.js";
 
 const NotebookMutationSchema = z.object({
   name: z.string().min(1).optional(),
@@ -22,6 +28,10 @@ const NotebookMutationSchema = z.object({
 
 const NotebookCreateSchema = NotebookMutationSchema.extend({
   template: z.string().min(1).optional(),
+});
+
+const NotebookImportSchema = z.object({
+  contents: z.string().min(1),
 });
 
 const formatNotebook = (notebook: Notebook) => {
@@ -130,5 +140,59 @@ export const registerNotebookRoutes = (
     }
 
     return { data: deleted ? formatNotebook(deleted) : deleted };
+  });
+
+  app.post("/notebooks/import", async (request, reply) => {
+    const body = NotebookImportSchema.safeParse(request.body ?? {});
+    if (!body.success) {
+      reply.code(400);
+      return { error: "Invalid import payload" };
+    }
+
+    let parsedFile;
+    try {
+      parsedFile = NotebookFileSchema.parse(
+        YAML.parse(body.data.contents)
+      );
+    } catch (error) {
+      reply.code(400);
+      const message =
+        error instanceof Error ? error.message : "Failed to parse notebook";
+      return { error: message };
+    }
+
+    const notebook = await store.save(
+      formatNotebook(createNotebookFromFileDefinition(parsedFile))
+    );
+
+    reply.code(201);
+    return { data: formatNotebook(notebook) };
+  });
+
+  app.get("/notebooks/:id/export", async (request, reply) => {
+    const params = z.object({ id: z.string() }).parse(request.params);
+    const notebook = await store.get(params.id);
+    if (!notebook) {
+      reply.code(404);
+      return { error: "Notebook not found" };
+    }
+
+    const serialized = serializeNotebookToFileDefinition(
+      formatNotebook(notebook)
+    );
+    const yamlText = YAML.stringify(serialized);
+    const baseName = notebook.name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 64) || "notebook";
+    const filename = `${baseName}.nbdm`;
+
+    reply.header("Content-Type", "application/x-yaml; charset=utf-8");
+    reply.header(
+      "Content-Disposition",
+      `attachment; filename="${filename}"`
+    );
+    return yamlText;
   });
 };

@@ -29,6 +29,7 @@ import {
   XCircle,
   Settings as SettingsIcon,
   ListTree,
+  Download,
 } from "lucide-react";
 import ConfirmDialog from "@/components/ui/confirm";
 import { useRouter } from "next/navigation";
@@ -125,6 +126,8 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
   );
   const [confirmClearOutputsOpen, setConfirmClearOutputsOpen] = useState(false);
   const [confirmRestartOpen, setConfirmRestartOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
   // Request id to guard against stale async updates (ref-only)
   const depReqRef = useRef(0);
   const depAbortRef = useRef<AbortController | null>(null);
@@ -190,6 +193,10 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     }
     setIsRenaming(false);
   }, [notebook?.name]);
+
+  useEffect(() => {
+    setActionError(null);
+  }, [notebook?.id]);
 
   useEffect(() => {
     if (typeof document === "undefined") {
@@ -1066,6 +1073,50 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     });
   }, [notebook, handleRunCell, updateNotebook]);
 
+  const slugify = useCallback((value: string) => {
+    return (
+      value
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 64) || "notebook"
+    );
+  }, []);
+
+  const handleExportNotebook = useCallback(async () => {
+    if (!notebook) {
+      return;
+    }
+    setExporting(true);
+    setActionError(null);
+    try {
+      const res = await fetch(`${API_BASE_URL}/notebooks/${notebook.id}/export`);
+      if (!res.ok) {
+        const payload = await res.json().catch(() => null);
+        const message =
+          typeof payload?.error === "string"
+            ? payload.error
+            : "Failed to export notebook";
+        throw new Error(message);
+      }
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${slugify(notebook.name)}.nbdm`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to export notebook";
+      setActionError(message);
+    } finally {
+      setExporting(false);
+    }
+  }, [notebook, slugify]);
+
   const handleRestartKernel = useCallback(async () => {
     setRunningCellId(null);
     runCounterRef.current = 0;
@@ -1297,6 +1348,14 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
               <AlertCallout
                 level="error"
                 text={error}
+                className="mb-6"
+                themeMode={theme}
+              />
+            ) : null}
+            {actionError ? (
+              <AlertCallout
+                level="error"
+                text={actionError}
                 className="mb-6"
                 themeMode={theme}
               />
@@ -1540,6 +1599,20 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
           <Button
             variant="ghost"
             size="icon"
+            onClick={handleExportNotebook}
+            aria-label="Export notebook"
+            title="Export notebook"
+            disabled={exporting}
+          >
+            {exporting ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Download className="h-4 w-4" />
+            )}
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
             onClick={() => setConfirmClearOutputsOpen(true)}
             aria-label="Clear all outputs"
             title="Clear all outputs"
@@ -1601,10 +1674,12 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     dirty,
     handleReconnectKernel,
     handleRunAll,
+    handleExportNotebook,
     handleSaveNow,
     shareStatus,
     handleShare,
     sessionId,
+    exporting,
   ]);
 
   const secondaryHeader = useMemo(() => {

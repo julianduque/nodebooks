@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { NotebookTemplateBadgeSchema } from "./templates.js";
 
 export const ThemeModeSchema = z.enum(["light", "dark"]);
 export type ThemeMode = z.infer<typeof ThemeModeSchema>;
@@ -500,6 +501,56 @@ export const NotebookCellSchema = z.discriminatedUnion("type", [
   CodeCellSchema,
 ]);
 
+export const NotebookFileEnvSchema = z.object({
+  runtime: z.enum(["node"]).optional(),
+  version: z.string().optional(),
+  packages: z.record(z.string(), z.string()).optional(),
+  variables: z.record(z.string(), z.string()).optional(),
+});
+
+export const NotebookFileMarkdownCellSchema = z.object({
+  type: z.literal("markdown"),
+  source: z.string(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+});
+
+export const NotebookFileCodeCellSchema = z.object({
+  type: z.literal("code"),
+  language: z.enum(["js", "ts"]).optional(),
+  source: z.string(),
+  metadata: z
+    .object({
+      timeoutMs: z.number().int().positive().max(600_000).optional(),
+      display: z.record(z.string(), z.unknown()).optional(),
+    })
+    .optional(),
+  outputs: z.array(NotebookOutputSchema).optional(),
+});
+
+export const NotebookFileCellSchema = z.discriminatedUnion("type", [
+  NotebookFileMarkdownCellSchema,
+  NotebookFileCodeCellSchema,
+]);
+
+export const NotebookFileNotebookSchema = z.object({
+  name: z.string().optional(),
+  env: NotebookFileEnvSchema.optional(),
+  cells: z.array(NotebookFileCellSchema).default([]),
+});
+
+export const NotebookFileSummarySchema = z.object({
+  id: z.string().optional(),
+  title: z.string().optional(),
+  description: z.string().optional(),
+  badge: NotebookTemplateBadgeSchema.optional(),
+  tags: z.array(z.string()).optional(),
+  order: z.number().int().nonnegative().optional(),
+});
+
+export const NotebookFileSchema = NotebookFileSummarySchema.extend({
+  notebook: NotebookFileNotebookSchema,
+});
+
 export const NotebookEnvSchema = z.object({
   runtime: z.enum(["node"]).default("node"),
   version: z.string().default(() => detectNodeRuntimeVersion()),
@@ -527,6 +578,15 @@ export type StreamOutput = z.infer<typeof StreamOutputSchema>;
 export type DisplayDataOutput = z.infer<typeof DisplayDataSchema>;
 export type ErrorOutput = z.infer<typeof ErrorOutputSchema>;
 export type OutputExecution = z.infer<typeof OutputExecutionSchema>;
+export type NotebookFileEnv = z.infer<typeof NotebookFileEnvSchema>;
+export type NotebookFileMarkdownCell = z.infer<
+  typeof NotebookFileMarkdownCellSchema
+>;
+export type NotebookFileCodeCell = z.infer<typeof NotebookFileCodeCellSchema>;
+export type NotebookFileCell = z.infer<typeof NotebookFileCellSchema>;
+export type NotebookFileNotebook = z.infer<typeof NotebookFileNotebookSchema>;
+export type NotebookFileSummary = z.infer<typeof NotebookFileSummarySchema>;
+export type NotebookFile = z.infer<typeof NotebookFileSchema>;
 
 export const normalizeNotebookEnvVersion = <
   T extends { runtime: NotebookEnv["runtime"]; version?: string },

@@ -2,75 +2,17 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import YAML from "yaml";
-import { z } from "zod";
 import {
-  createCodeCell,
-  createEmptyNotebook,
-  createMarkdownCell,
-  NotebookEnvSchema,
-  NotebookOutputSchema,
-  type Notebook,
-  type NotebookEnv,
+  NotebookFileSchema,
   NotebookTemplateSummarySchema,
+  type NotebookFile,
   type NotebookTemplateSummary,
 } from "@nodebooks/notebook-schema";
-
-const TemplateEnvSchema = z.object({
-  runtime: z.enum(["node"]).optional(),
-  version: z.string().optional(),
-  packages: z.record(z.string(), z.string()).optional(),
-  variables: z.record(z.string(), z.string()).optional(),
-});
-
-type TemplateEnv = z.infer<typeof TemplateEnvSchema>;
-
-const TemplateMarkdownCellSchema = z.object({
-  type: z.literal("markdown"),
-  source: z.string(),
-  metadata: z.record(z.string(), z.unknown()).optional(),
-});
-
-const TemplateCodeCellSchema = z.object({
-  type: z.literal("code"),
-  language: z.enum(["js", "ts"]).optional(),
-  source: z.string(),
-  metadata: z
-    .object({
-      timeoutMs: z.number().int().positive().max(600_000).optional(),
-      display: z.record(z.string(), z.unknown()).optional(),
-    })
-    .optional(),
-  outputs: z.array(NotebookOutputSchema).optional(),
-});
-
-type TemplateCodeCell = z.infer<typeof TemplateCodeCellSchema>;
-
-type TemplateCell =
-  | z.infer<typeof TemplateMarkdownCellSchema>
-  | TemplateCodeCell;
-
-const TemplateCellSchema = z.discriminatedUnion("type", [
-  TemplateMarkdownCellSchema,
-  TemplateCodeCellSchema,
-]);
-
-const TemplateNotebookSchema = z.object({
-  name: z.string().optional(),
-  env: TemplateEnvSchema.optional(),
-  cells: z.array(TemplateCellSchema).default([]),
-});
-
-type TemplateNotebook = z.infer<typeof TemplateNotebookSchema>;
-
-const TemplateFileSchema = NotebookTemplateSummarySchema.extend({
-  notebook: TemplateNotebookSchema,
-});
-
-type TemplateFile = z.infer<typeof TemplateFileSchema>;
+import { createNotebookFromFileDefinition } from "../notebooks/file.js";
 
 interface NotebookTemplateDefinition {
   summary: NotebookTemplateSummary;
-  notebook: TemplateNotebook;
+  file: NotebookFile;
   sourcePath: string;
 }
 
@@ -113,9 +55,9 @@ export class TemplateNotFoundError extends Error {
   }
 }
 
-const readTemplateFile = (filePath: string): TemplateFile => {
+const readTemplateFile = (filePath: string): NotebookFile => {
   const raw = fs.readFileSync(filePath, "utf8");
-  const parsed = TemplateFileSchema.safeParse(YAML.parse(raw));
+  const parsed = NotebookFileSchema.safeParse(YAML.parse(raw));
   if (!parsed.success) {
     const formatted = parsed.error.issues
       .map((issue) => issue.message)
@@ -126,6 +68,24 @@ const readTemplateFile = (filePath: string): TemplateFile => {
     );
   }
   return parsed.data;
+};
+
+const toSummary = (file: NotebookFile, filePath: string) => {
+  if (!file.id || !file.title || !file.description) {
+    throw new TemplateParseError(
+      "Template must include id, title, and description",
+      filePath
+    );
+  }
+
+  return NotebookTemplateSummarySchema.parse({
+    id: file.id,
+    title: file.title,
+    description: file.description,
+    badge: file.badge,
+    tags: file.tags,
+    order: file.order,
+  });
 };
 
 const loadTemplates = () => {
@@ -139,21 +99,15 @@ const loadTemplates = () => {
     }
     const fullPath = path.join(TEMPLATE_DIR, entry.name);
     const file = readTemplateFile(fullPath);
-    if (registry.has(file.id)) {
+    const summary = toSummary(file, fullPath);
+    if (registry.has(summary.id)) {
       throw new Error(
-        `Duplicate template id '${file.id}' detected at '${fullPath}'`
+        `Duplicate template id '${summary.id}' detected at '${fullPath}'`
       );
     }
-    registry.set(file.id, {
-      summary: {
-        id: file.id,
-        title: file.title,
-        description: file.description,
-        badge: file.badge,
-        tags: file.tags,
-        order: file.order,
-      },
-      notebook: file.notebook,
+    registry.set(summary.id, {
+      summary,
+      file,
       sourcePath: fullPath,
     });
   }
@@ -166,34 +120,6 @@ const loadTemplates = () => {
 };
 
 loadTemplates();
-
-const cloneEnv = (base: TemplateEnv | undefined): NotebookEnv => {
-  const envConfig = base ?? {};
-  const parsed = NotebookEnvSchema.parse({
-    ...envConfig,
-    packages: envConfig.packages ?? {},
-    variables: envConfig.variables ?? {},
-  });
-  return parsed;
-};
-
-const cloneCells = (cells: TemplateCell[]) => {
-  return cells.map((cell) => {
-    if (cell.type === "markdown") {
-      return createMarkdownCell({
-        source: cell.source,
-        metadata: cell.metadata ?? {},
-      });
-    }
-    const codeCell = cell as TemplateCodeCell;
-    return createCodeCell({
-      language: codeCell.language ?? "ts",
-      source: codeCell.source,
-      metadata: codeCell.metadata ?? {},
-      outputs: codeCell.outputs ?? [],
-    });
-  });
-};
 
 export const listTemplateSummaries = (): NotebookTemplateSummary[] => {
   return Array.from(registry.values())
@@ -214,13 +140,12 @@ export const createNotebookFromTemplate = (id: string): Notebook => {
     throw new TemplateNotFoundError(id);
   }
 
-  const env = cloneEnv(entry.notebook.env);
-  const cells = cloneCells(entry.notebook.cells ?? []);
-
-  return createEmptyNotebook({
-    name: entry.notebook.name ?? entry.summary.title,
-    env,
-    cells,
+  return createNotebookFromFileDefinition({
+    ...entry.file,
+    notebook: {
+      ...entry.file.notebook,
+      name: entry.file.notebook.name ?? entry.summary.title,
+    },
   });
 };
 
