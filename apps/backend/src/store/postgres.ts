@@ -1,10 +1,16 @@
 import { Pool } from "pg";
+import { customAlphabet } from "nanoid";
 import {
   ensureNotebookRuntimeVersion,
   NotebookSchema,
   type Notebook,
 } from "@nodebooks/notebook-schema";
-import type { NotebookStore, SettingsStore } from "../types.js";
+import type {
+  NotebookAttachment,
+  NotebookAttachmentContent,
+  NotebookStore,
+  SettingsStore,
+} from "../types.js";
 import { loadServerConfig } from "@nodebooks/config";
 
 export interface PostgresNotebookStoreOptions {
@@ -52,6 +58,10 @@ export class PostgresNotebookStore implements NotebookStore {
   private readonly pool: Pool;
   private readonly ready: Promise<void>;
   private readonly managePool: boolean;
+  private readonly nanoid = customAlphabet(
+    "1234567890abcdefghijklmnopqrstuvwxyz",
+    12
+  );
 
   constructor(options: PostgresNotebookStoreOptions = {}) {
     if (options.pool) {
@@ -132,6 +142,130 @@ export class PostgresNotebookStore implements NotebookStore {
     return existing;
   }
 
+  async listAttachments(notebookId: string): Promise<NotebookAttachment[]> {
+    await this.ready;
+    const result = await this.pool.query<{
+      id: string;
+      notebook_id: string;
+      filename: string;
+      mime_type: string;
+      size: string;
+      created_at: Date;
+      updated_at: Date;
+    }>(
+      `SELECT id, notebook_id, filename, mime_type, size, created_at, updated_at
+       FROM attachments
+       WHERE notebook_id = $1
+       ORDER BY created_at DESC, id ASC`,
+      [notebookId]
+    );
+
+    return result.rows.map((row) => ({
+      id: row.id,
+      notebookId: row.notebook_id,
+      filename: row.filename,
+      mimeType: row.mime_type,
+      size: Number(row.size),
+      createdAt: row.created_at.toISOString(),
+      updatedAt: row.updated_at.toISOString(),
+    }));
+  }
+
+  async getAttachment(
+    notebookId: string,
+    attachmentId: string
+  ): Promise<NotebookAttachmentContent | undefined> {
+    await this.ready;
+    const result = await this.pool.query<{
+      id: string;
+      notebook_id: string;
+      filename: string;
+      mime_type: string;
+      size: string;
+      content: Buffer;
+      created_at: Date;
+      updated_at: Date;
+    }>(
+      `SELECT id, notebook_id, filename, mime_type, size, content, created_at, updated_at
+       FROM attachments
+       WHERE notebook_id = $1 AND id = $2
+       LIMIT 1`,
+      [notebookId, attachmentId]
+    );
+
+    const row = result.rows[0];
+    if (!row) {
+      return undefined;
+    }
+
+    return {
+      id: row.id,
+      notebookId: row.notebook_id,
+      filename: row.filename,
+      mimeType: row.mime_type,
+      size: Number(row.size),
+      createdAt: row.created_at.toISOString(),
+      updatedAt: row.updated_at.toISOString(),
+      content: row.content,
+    };
+  }
+
+  async saveAttachment(
+    notebookId: string,
+    input: {
+      filename: string;
+      mimeType: string;
+      content: Uint8Array;
+    }
+  ): Promise<NotebookAttachment> {
+    await this.ready;
+    if (!(await this.get(notebookId))) {
+      throw new Error(`Notebook ${notebookId} not found`);
+    }
+
+    const id = this.nanoid();
+    const now = new Date();
+    const buffer = Buffer.from(input.content);
+
+    await this.pool.query(
+      `INSERT INTO attachments (
+        id, notebook_id, filename, mime_type, size, content, created_at, updated_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [
+        id,
+        notebookId,
+        input.filename,
+        input.mimeType,
+        buffer.byteLength,
+        buffer,
+        now,
+        now,
+      ]
+    );
+
+    return {
+      id,
+      notebookId,
+      filename: input.filename,
+      mimeType: input.mimeType,
+      size: buffer.byteLength,
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+    };
+  }
+
+  async removeAttachment(
+    notebookId: string,
+    attachmentId: string
+  ): Promise<boolean> {
+    await this.ready;
+    const result = await this.pool.query(
+      "DELETE FROM attachments WHERE notebook_id = $1 AND id = $2",
+      [notebookId, attachmentId]
+    );
+    return (result.rowCount ?? 0) > 0;
+  }
+
   async close(): Promise<void> {
     if (!this.managePool) {
       return;
@@ -161,6 +295,24 @@ export class PostgresNotebookStore implements NotebookStore {
     await this.pool.query(`
       CREATE INDEX IF NOT EXISTS idx_notebooks_updated_at
         ON notebooks (updated_at DESC, id ASC)
+    `);
+
+    await this.pool.query(`
+      CREATE TABLE IF NOT EXISTS attachments (
+        id TEXT PRIMARY KEY,
+        notebook_id TEXT NOT NULL REFERENCES notebooks(id) ON DELETE CASCADE,
+        filename TEXT NOT NULL,
+        mime_type TEXT NOT NULL,
+        size BIGINT NOT NULL,
+        content BYTEA NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL
+      )
+    `);
+
+    await this.pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_attachments_notebook
+        ON attachments (notebook_id, created_at DESC, id ASC)
     `);
 
     await this.pool.query(`

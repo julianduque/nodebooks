@@ -10,12 +10,18 @@ import type {
   NotebookSession,
   SessionManager,
   SettingsStore,
+  NotebookAttachment,
+  NotebookAttachmentContent,
 } from "../types.js";
 
 const nanoid = customAlphabet("1234567890abcdefghijklmnopqrstuvwxyz", 12);
 
 export class InMemoryNotebookStore implements NotebookStore {
   private notebooks = new Map<string, Notebook>();
+  private attachments = new Map<
+    string,
+    Map<string, NotebookAttachmentContent>
+  >();
 
   constructor(initialNotebooks: Notebook[] = []) {
     initialNotebooks.forEach((notebook) => {
@@ -23,6 +29,9 @@ export class InMemoryNotebookStore implements NotebookStore {
         NotebookSchema.parse(notebook)
       );
       this.notebooks.set(parsed.id, parsed);
+      if (!this.attachments.has(parsed.id)) {
+        this.attachments.set(parsed.id, new Map());
+      }
     });
 
     if (this.notebooks.size === 0) {
@@ -33,6 +42,7 @@ export class InMemoryNotebookStore implements NotebookStore {
         })
       );
       this.notebooks.set(sample.id, sample);
+      this.attachments.set(sample.id, new Map());
     }
   }
 
@@ -52,13 +62,89 @@ export class InMemoryNotebookStore implements NotebookStore {
       })
     );
     this.notebooks.set(parsed.id, parsed);
+    if (!this.attachments.has(parsed.id)) {
+      this.attachments.set(parsed.id, new Map());
+    }
     return parsed;
   }
 
   async remove(id: string): Promise<Notebook | undefined> {
     const notebook = this.notebooks.get(id);
     this.notebooks.delete(id);
+    this.attachments.delete(id);
     return notebook;
+  }
+
+  async listAttachments(notebookId: string): Promise<NotebookAttachment[]> {
+    const bucket = this.attachments.get(notebookId);
+    if (!bucket) {
+      return [];
+    }
+    return Array.from(bucket.values())
+      .map<NotebookAttachment>(({ content: _content, ...rest }) => ({
+        ...rest,
+      }))
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  async getAttachment(
+    notebookId: string,
+    attachmentId: string
+  ): Promise<NotebookAttachmentContent | undefined> {
+    const bucket = this.attachments.get(notebookId);
+    return bucket?.get(attachmentId);
+  }
+
+  async saveAttachment(
+    notebookId: string,
+    input: {
+      filename: string;
+      mimeType: string;
+      content: Uint8Array;
+    }
+  ): Promise<NotebookAttachment> {
+    if (!this.notebooks.has(notebookId)) {
+      throw new Error(`Notebook ${notebookId} not found`);
+    }
+
+    const bucket = this.attachments.get(notebookId) ?? new Map();
+    this.attachments.set(notebookId, bucket);
+
+    const id = nanoid();
+    const now = new Date().toISOString();
+    const content = new Uint8Array(input.content);
+    const record: NotebookAttachmentContent = {
+      id,
+      notebookId,
+      filename: input.filename,
+      mimeType: input.mimeType,
+      size: content.byteLength,
+      createdAt: now,
+      updatedAt: now,
+      content,
+    };
+
+    bucket.set(id, record);
+    return {
+      id,
+      notebookId,
+      filename: record.filename,
+      mimeType: record.mimeType,
+      size: record.size,
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt,
+    };
+  }
+
+  async removeAttachment(
+    notebookId: string,
+    attachmentId: string
+  ): Promise<boolean> {
+    const bucket = this.attachments.get(notebookId);
+    if (!bucket) {
+      return false;
+    }
+    return bucket.delete(attachmentId);
   }
 }
 

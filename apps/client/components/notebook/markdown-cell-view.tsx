@@ -8,6 +8,11 @@ import { Marked, Renderer, type Tokens } from "marked";
 import MonacoEditor from "@/components/notebook/monaco-editor-client";
 import { initMonaco } from "@/components/notebook/monaco-setup";
 import type { NotebookCell } from "@nodebooks/notebook-schema";
+import {
+  useAttachmentDropzone,
+  useAttachmentUploader,
+  type AttachmentMetadata,
+} from "@/components/notebook/attachment-utils";
 
 const escapeHtml = (value: string) =>
   value
@@ -20,12 +25,17 @@ const escapeHtml = (value: string) =>
 interface MarkdownCellViewProps {
   cell: Extract<NotebookCell, { type: "markdown" }>;
   path?: string;
+  notebookId: string;
   onChange: (
     updater: (cell: NotebookCell) => NotebookCell,
     options?: { persist?: boolean; touch?: boolean }
   ) => void;
   editorKey: string;
+  onAttachmentUploaded?: (attachment: AttachmentMetadata, url: string) => void;
 }
+
+const stripMarkdownUnsafeChars = (value: string) =>
+  value.replace(/[\[\]\(\)]/g, "\\$&");
 
 const markdownRenderer = new Marked({
   gfm: true,
@@ -78,27 +88,13 @@ const escapeMarkdownAltText = (value: string) => {
   return trimmed.replace(/[[\]]/g, "\\$&");
 };
 
-const readFileAsDataUrl = (file: File) =>
-  new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === "string") {
-        resolve(reader.result);
-      } else {
-        reject(new Error("Failed to read file"));
-      }
-    };
-    reader.onerror = () => {
-      reject(reader.error ?? new Error("Failed to read file"));
-    };
-    reader.readAsDataURL(file);
-  });
-
 const MarkdownCellView = ({
   cell,
   path,
+  notebookId,
   onChange,
   editorKey,
+  onAttachmentUploaded,
 }: MarkdownCellViewProps) => {
   // Start at roughly one visual line + padding (updated on mount)
   const [editorHeight, setEditorHeight] = useState<number>(10);
@@ -117,6 +113,56 @@ const MarkdownCellView = ({
 
   type MarkdownUIMeta = { ui?: { edit?: boolean } };
   const isEditing = (cell.metadata as MarkdownUIMeta).ui?.edit ?? true;
+
+  const { uploadFiles, isUploading, uploadStatus, uploadError } =
+    useAttachmentUploader({
+      notebookId,
+      onUploaded: onAttachmentUploaded,
+    });
+
+  const handleUploadedFiles = useCallback(
+    async (files: File[]) => {
+      const results = await uploadFiles(files);
+      if (results.length === 0) {
+        return;
+      }
+
+      const snippets = results.map(({ attachment, url }) => {
+        const baseName = attachment.filename.replace(/\.[^.]+$/, "");
+        const altText = escapeMarkdownAltText(baseName || attachment.filename);
+        const linkText = stripMarkdownUnsafeChars(attachment.filename);
+        return attachment.mimeType.startsWith("image/")
+          ? `![${altText}](${url})`
+          : `[${linkText}](${url})`;
+      });
+
+      onChange(
+        (current) => {
+          if (current.type !== "markdown") return current;
+          const existing = current.source ?? "";
+          const trimmed = existing.trimEnd();
+          const segments: string[] = [];
+          if (trimmed) segments.push(trimmed);
+          segments.push(snippets.join("\n\n"));
+          const nextSource = segments.join("\n\n");
+          return { ...current, source: nextSource };
+        },
+        { persist: true }
+      );
+    },
+    [uploadFiles, onChange]
+  );
+
+  const {
+    isDraggingOver,
+    handleDragEnter,
+    handleDragOver,
+    handleDragLeave,
+    handleDrop,
+  } = useAttachmentDropzone({
+    disabled: isUploading,
+    onFiles: handleUploadedFiles,
+  });
 
   useEffect(() => {
     const container = previewEl;
@@ -288,98 +334,6 @@ const MarkdownCellView = ({
     initMonaco(monaco);
   }, []);
 
-  const dragDepthRef = useRef(0);
-  const [isDraggingOver, setIsDraggingOver] = useState(false);
-
-  const isFileDrag = useCallback((event: React.DragEvent<HTMLDivElement>) => {
-    const types = Array.from(event.dataTransfer?.types ?? []);
-    return types.includes("Files");
-  }, []);
-
-  const resetDragState = useCallback(() => {
-    dragDepthRef.current = 0;
-    setIsDraggingOver(false);
-  }, []);
-
-  const handleDragEnter = useCallback(
-    (event: React.DragEvent<HTMLDivElement>) => {
-      if (!isFileDrag(event)) return;
-      event.preventDefault();
-      dragDepthRef.current += 1;
-      setIsDraggingOver(true);
-    },
-    [isFileDrag]
-  );
-
-  const handleDragOver = useCallback(
-    (event: React.DragEvent<HTMLDivElement>) => {
-      if (!isFileDrag(event)) return;
-      event.preventDefault();
-      event.dataTransfer.dropEffect = "copy";
-    },
-    [isFileDrag]
-  );
-
-  const handleDragLeave = useCallback(
-    (event: React.DragEvent<HTMLDivElement>) => {
-      if (!isFileDrag(event)) return;
-      event.preventDefault();
-      dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
-      if (dragDepthRef.current === 0) {
-        setIsDraggingOver(false);
-      }
-    },
-    [isFileDrag]
-  );
-
-  const handleDrop = useCallback(
-    (event: React.DragEvent<HTMLDivElement>) => {
-      if (!isFileDrag(event)) return;
-      event.preventDefault();
-      event.stopPropagation();
-      resetDragState();
-
-      const files = Array.from(event.dataTransfer?.files ?? []);
-      const imageFiles = files.filter((file) => file.type.startsWith("image/"));
-      if (imageFiles.length === 0) return;
-
-      void Promise.allSettled(
-        imageFiles.map(async (file) => ({
-          file,
-          dataUrl: await readFileAsDataUrl(file),
-        }))
-      ).then((results) => {
-        const attachments = results
-          .filter(
-            (result): result is PromiseFulfilledResult<{ file: File; dataUrl: string }> =>
-              result.status === "fulfilled"
-          )
-          .map(({ value }) => {
-            const baseName = value.file.name.replace(/\.[^.]+$/, "");
-            const altText = escapeMarkdownAltText(baseName);
-            return `![${altText}](${value.dataUrl})`;
-          });
-
-        if (attachments.length === 0) return;
-
-        onChange(
-          (current) => {
-            if (current.type !== "markdown") return current;
-            const existing = current.source ?? "";
-            const trimmed = existing.trimEnd();
-            const segments = [] as string[];
-            if (trimmed) segments.push(trimmed);
-            segments.push(attachments.join("\n\n"));
-            const nextSource = segments.join("\n\n");
-            return { ...current, source: nextSource };
-          },
-          { persist: true }
-        );
-      });
-    },
-    [isFileDrag, onChange, resetDragState]
-  );
-
   return (
     <div
       className="relative flex flex-col gap-3"
@@ -388,8 +342,17 @@ const MarkdownCellView = ({
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
+      {isUploading ? (
+        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-xl bg-background/70 backdrop-blur-sm">
+          <div className="rounded-md bg-background/90 px-4 py-2 text-xs font-medium text-foreground shadow">
+            {uploadStatus
+              ? `Uploading attachment ${uploadStatus.current} of ${uploadStatus.total}…`
+              : "Uploading attachment…"}
+          </div>
+        </div>
+      ) : null}
       {isDraggingOver ? (
-        <div className="pointer-events-none absolute inset-0 rounded-xl border-2 border-dashed border-primary/80 bg-primary/10" />
+        <div className="pointer-events-none absolute inset-0 z-10 rounded-xl border-2 border-dashed border-primary/80 bg-primary/10" />
       ) : null}
       {isEditing ? (
         <div className="relative rounded-xl border border-border bg-transparent">
@@ -443,6 +406,9 @@ const MarkdownCellView = ({
           />
         </div>
       )}
+      {uploadError ? (
+        <p className="text-xs text-rose-500">{uploadError}</p>
+      ) : null}
     </div>
   );
 };

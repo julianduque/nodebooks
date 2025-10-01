@@ -65,4 +65,44 @@ describe("SqliteNotebookStore", () => {
     const all = await second.all();
     expect(all.map((item) => item.id)).toContain(notebook.id);
   });
+
+  it("stores attachments and cleans them up", async () => {
+    const store = new SqliteNotebookStore({ databaseFile });
+    const notebook = createEmptyNotebook({ name: "Attachments" });
+    await store.save(notebook);
+
+    const content = new TextEncoder().encode("hello world");
+    const attachment = await store.saveAttachment(notebook.id, {
+      filename: "greeting.txt",
+      mimeType: "text/plain",
+      content,
+    });
+
+    expect(attachment.filename).toBe("greeting.txt");
+    expect(attachment.size).toBe(content.byteLength);
+
+    const list = await store.listAttachments(notebook.id);
+    expect(list).toHaveLength(1);
+    expect(list[0].id).toBe(attachment.id);
+
+    const fetched = await store.getAttachment(notebook.id, attachment.id);
+    expect(fetched?.mimeType).toBe("text/plain");
+    expect(fetched?.size).toBe(content.byteLength);
+    expect(new TextDecoder().decode(fetched?.content)).toBe("hello world");
+
+    const removed = await store.removeAttachment(notebook.id, attachment.id);
+    expect(removed).toBe(true);
+    expect(
+      await store.getAttachment(notebook.id, attachment.id)
+    ).toBeUndefined();
+
+    const second = await store.saveAttachment(notebook.id, {
+      filename: "bye.txt",
+      mimeType: "text/plain",
+      content,
+    });
+
+    await store.remove(notebook.id);
+    expect(await store.getAttachment(notebook.id, second.id)).toBeUndefined();
+  });
 });
