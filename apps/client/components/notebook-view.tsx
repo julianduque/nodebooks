@@ -1090,7 +1090,9 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     setExporting(true);
     setActionError(null);
     try {
-      const res = await fetch(`${API_BASE_URL}/notebooks/${notebook.id}/export`);
+      const res = await fetch(
+        `${API_BASE_URL}/notebooks/${notebook.id}/export`
+      );
       if (!res.ok) {
         const payload = await res.json().catch(() => null);
         const message =
@@ -1461,6 +1463,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     notebook,
     socketReady,
     error,
+    actionError,
     runningCellId,
     runQueue,
     handleCellChange,
@@ -1596,20 +1599,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
           >
             <PlayCircle className="h-4 w-4" />
           </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={handleExportNotebook}
-            aria-label="Export notebook"
-            title="Export notebook"
-            disabled={exporting}
-          >
-            {exporting ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Download className="h-4 w-4" />
-            )}
-          </Button>
+
           <Button
             variant="ghost"
             size="icon"
@@ -1653,6 +1643,20 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
               <Check className="h-4 w-4 text-emerald-500" />
             ) : (
               <Share2 className="h-4 w-4" />
+            )}
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={handleExportNotebook}
+            aria-label="Export notebook"
+            title="Export notebook"
+            disabled={exporting}
+          >
+            {exporting ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Download className="h-4 w-4" />
             )}
           </Button>
           <Button

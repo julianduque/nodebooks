@@ -13,11 +13,6 @@ interface OutlinePanelProps {
 const OutlinePanel = ({ items, onSelect, activeCellId }: OutlinePanelProps) => {
   return (
     <div className="flex h-full flex-col gap-4">
-      <div>
-        <p className="text-xs font-semibold uppercase tracking-[0.3em] text-muted-foreground">
-          Outline
-        </p>
-      </div>
       {items.length === 0 ? (
         <p className="text-xs text-muted-foreground">
           Add headings to your Markdown cells to build an outline.

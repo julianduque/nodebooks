@@ -3,7 +3,6 @@
 import {
   useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
   type ChangeEvent,
@@ -11,14 +10,7 @@ import {
 import AppShell from "../../components/app-shell";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import {
-  Play,
-  Trash2,
-  Plus,
-  Download,
-  Upload,
-  Loader2,
-} from "lucide-react";
+import { Play, Trash2, Plus, Download, Upload, Loader2 } from "lucide-react";
 import ConfirmDialog from "@/components/ui/confirm";
 import type { Notebook } from "@nodebooks/notebook-schema";
 import { useRouter } from "next/navigation";
@@ -82,7 +74,7 @@ export default function NotebooksPage() {
 
   const handleImportFile = useCallback(
     async (event: ChangeEvent<HTMLInputElement>) => {
-      const [file] = event.target.files ?? [];
+      const file = event.target.files?.[0];
       if (!file) {
         return;
       }
@@ -169,85 +161,6 @@ export default function NotebooksPage() {
     [slugify]
   );
 
-  const content = useMemo(() => {
-    if (loading) {
-      return <LoadingOverlay label="Loading notebooks…" />;
-    }
-    if (list.length === 0) {
-      return (
-        <Card className="max-w-xl">
-          <CardContent className="flex items-center justify-between gap-4">
-            <p className="text-sm text-muted-foreground">No notebooks yet.</p>
-            <Button
-              size="sm"
-              variant="default"
-              className="gap-2"
-              onClick={handleCreate}
-            >
-              <Plus className="h-4 w-4" /> New notebook
-            </Button>
-          </CardContent>
-        </Card>
-      );
-    }
-    return (
-      <div className="mt-8 space-y-3">
-        {list.map((n) => (
-          <Card
-            key={n.id}
-            className="flex flex-col gap-4 px-6 py-4 sm:flex-row sm:items-center sm:justify-between"
-          >
-            <div className="min-w-0">
-              <h3 className="truncate text-lg font-semibold text-card-foreground">
-                {n.name}
-              </h3>
-              <p className="text-sm text-muted-foreground">
-                Updated {new Date(n.updatedAt).toLocaleString()}
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button
-                variant="default"
-                size="sm"
-                className="gap-2"
-                onClick={() => handleOpen(n.id)}
-              >
-                <Play className="h-4 w-4" />
-                Open
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => handleExport(n)}
-                disabled={exportingId === n.id}
-                aria-label={`Export ${n.name}`}
-                title="Export notebook"
-              >
-                {exportingId === n.id ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Download className="h-4 w-4" />
-                )}
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="text-rose-600 hover:text-rose-700"
-                onClick={() => {
-                  setPendingDeleteId(n.id);
-                  setConfirmOpen(true);
-                }}
-                aria-label={`Delete ${n.name}`}
-              >
-                <Trash2 className="h-4 w-4" />
-              </Button>
-            </div>
-          </Card>
-        ))}
-      </div>
-    );
-  }, [loading, list, handleCreate, handleOpen, handleExport, exportingId]);
-
   return (
     <AppShell
       title="Notebooks"
@@ -285,7 +198,78 @@ export default function NotebooksPage() {
       {actionError ? (
         <p className="mt-4 text-sm text-rose-600">{actionError}</p>
       ) : null}
-      {content}
+      {loading ? (
+        <LoadingOverlay label="Loading notebooks…" />
+      ) : list.length === 0 ? (
+        <Card className="max-w-xl">
+          <CardContent className="flex items-center justify-between gap-4">
+            <p className="text-sm text-muted-foreground">No notebooks yet.</p>
+            <Button
+              size="sm"
+              variant="default"
+              className="gap-2"
+              onClick={handleCreate}
+            >
+              <Plus className="h-4 w-4" /> New notebook
+            </Button>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="mt-8 space-y-3">
+          {list.map((n) => (
+            <Card
+              key={n.id}
+              className="flex flex-col gap-4 px-6 py-4 sm:flex-row sm:items-center sm:justify-between"
+            >
+              <div className="min-w-0">
+                <h3 className="truncate text-lg font-semibold text-card-foreground">
+                  {n.name}
+                </h3>
+                <p className="text-sm text-muted-foreground">
+                  Updated {new Date(n.updatedAt).toLocaleString()}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="default"
+                  size="sm"
+                  className="gap-2"
+                  onClick={() => handleOpen(n.id)}
+                >
+                  <Play className="h-4 w-4" />
+                  Open
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => handleExport(n)}
+                  disabled={exportingId === n.id}
+                  aria-label={`Export ${n.name}`}
+                  title="Export notebook"
+                >
+                  {exportingId === n.id ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Download className="h-4 w-4" />
+                  )}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="text-rose-600 hover:text-rose-700"
+                  onClick={() => {
+                    setPendingDeleteId(n.id);
+                    setConfirmOpen(true);
+                  }}
+                  aria-label={`Delete ${n.name}`}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
       <ConfirmDialog
         open={confirmOpen}
         title="Delete notebook?"

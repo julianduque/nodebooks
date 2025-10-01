@@ -13,6 +13,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { setDiagnosticPolicy } from "@/components/notebook/monaco-setup";
+import { Separator } from "@/components/ui/separator";
 
 interface SetupPanelProps {
   env: Notebook["env"];
@@ -68,42 +69,7 @@ const SetupPanel = ({
   );
 
   return (
-    <div className="flex h-full flex-col gap-4">
-      <div>
-        <p className="text-xs font-semibold uppercase tracking-[0.3em] text-muted-foreground">
-          Runtime
-        </p>
-        <div className="mt-1">
-          <Badge variant="secondary" className="uppercase tracking-[0.2em]">
-            {env.runtime.toUpperCase()} {env.version}
-          </Badge>
-        </div>
-        <div className="mt-3">
-          <label className="block text-xs font-semibold uppercase tracking-[0.3em] text-muted-foreground">
-            Typing Mode
-          </label>
-          <div className="mt-1">
-            <select
-              className="w-full rounded-md border border-input bg-background px-2 py-1 text-[13px] text-foreground focus:outline-none"
-              value={typingMode}
-              onChange={(e) => {
-                const val = e.target.value as "ignore" | "off" | "full";
-                setTypingMode(val);
-                if (val === "off") setDiagnosticPolicy({ mode: "off" });
-                else if (val === "full") setDiagnosticPolicy({ mode: "full" });
-                else setDiagnosticPolicy({ mode: "ignore-list" });
-              }}
-            >
-              <option value="ignore">Ignore noisy errors</option>
-              <option value="off">No diagnostics</option>
-              <option value="full">Full TypeScript checks</option>
-            </select>
-            <p className="mt-1 text-[11px] text-muted-foreground">
-              Controls Monaco diagnostics in the editor.
-            </p>
-          </div>
-        </div>
-      </div>
+    <div className="flex h-full flex-col gap-2">
       <p className="text-xs font-semibold uppercase tracking-[0.3em] text-muted-foreground">
         Dependencies
       </p>
@@ -157,8 +123,9 @@ const SetupPanel = ({
           </ul>
         )}
       </div>
-      <div>
-        <p className="mt-2 text-xs font-semibold uppercase tracking-[0.3em] text-muted-foreground">
+      <Separator className="my-2" />
+      <div className="mt-2">
+        <p className="text-xs font-semibold uppercase tracking-[0.3em] text-muted-foreground">
           Environment Variables
         </p>
         <div className="mt-2 flex items-center justify-between">
@@ -201,6 +168,32 @@ const SetupPanel = ({
               ))}
             </ul>
           )}
+        </div>
+      </div>
+      <Separator className="my-2" />
+      <div className="mt-3">
+        <label className="block text-xs font-semibold uppercase tracking-[0.3em] text-muted-foreground">
+          Typing Mode
+        </label>
+        <div className="mt-1">
+          <select
+            className="w-full rounded-md border border-input bg-background px-2 py-1 text-[13px] text-foreground focus:outline-none"
+            value={typingMode}
+            onChange={(e) => {
+              const val = e.target.value as "ignore" | "off" | "full";
+              setTypingMode(val);
+              if (val === "off") setDiagnosticPolicy({ mode: "off" });
+              else if (val === "full") setDiagnosticPolicy({ mode: "full" });
+              else setDiagnosticPolicy({ mode: "ignore-list" });
+            }}
+          >
+            <option value="ignore">Ignore noisy errors</option>
+            <option value="off">No diagnostics</option>
+            <option value="full">Full TypeScript checks</option>
+          </select>
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            Controls Monaco diagnostics in the editor.
+          </p>
         </div>
       </div>
 
