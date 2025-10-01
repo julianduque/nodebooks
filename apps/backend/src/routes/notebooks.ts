@@ -151,9 +151,7 @@ export const registerNotebookRoutes = (
 
     let parsedFile;
     try {
-      parsedFile = NotebookFileSchema.parse(
-        YAML.parse(body.data.contents)
-      );
+      parsedFile = NotebookFileSchema.parse(YAML.parse(body.data.contents));
     } catch (error) {
       reply.code(400);
       const message =
@@ -181,18 +179,16 @@ export const registerNotebookRoutes = (
       formatNotebook(notebook)
     );
     const yamlText = YAML.stringify(serialized);
-    const baseName = notebook.name
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 64) || "notebook";
+    const baseName =
+      notebook.name
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 64) || "notebook";
     const filename = `${baseName}.nbdm`;
 
     reply.header("Content-Type", "application/x-yaml; charset=utf-8");
-    reply.header(
-      "Content-Disposition",
-      `attachment; filename="${filename}"`
-    );
+    reply.header("Content-Disposition", `attachment; filename="${filename}"`);
     return yamlText;
   });
 };

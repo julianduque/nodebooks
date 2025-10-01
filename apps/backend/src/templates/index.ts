@@ -5,6 +5,7 @@ import YAML from "yaml";
 import {
   NotebookFileSchema,
   NotebookTemplateSummarySchema,
+  type Notebook,
   type NotebookFile,
   type NotebookTemplateSummary,
 } from "@nodebooks/notebook-schema";
