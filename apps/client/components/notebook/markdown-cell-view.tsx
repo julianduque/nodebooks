@@ -72,6 +72,28 @@ renderer.code = ({ text, lang }: Tokens.Code) => {
 
 markdownRenderer.use({ renderer });
 
+const escapeMarkdownAltText = (value: string) => {
+  const trimmed = value.trim();
+  if (!trimmed) return "image";
+  return trimmed.replace(/[[\]]/g, "\\$&");
+};
+
+const readFileAsDataUrl = (file: File) =>
+  new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        resolve(reader.result);
+      } else {
+        reject(new Error("Failed to read file"));
+      }
+    };
+    reader.onerror = () => {
+      reject(reader.error ?? new Error("Failed to read file"));
+    };
+    reader.readAsDataURL(file);
+  });
+
 const MarkdownCellView = ({
   cell,
   path,
@@ -266,8 +288,109 @@ const MarkdownCellView = ({
     initMonaco(monaco);
   }, []);
 
+  const dragDepthRef = useRef(0);
+  const [isDraggingOver, setIsDraggingOver] = useState(false);
+
+  const isFileDrag = useCallback((event: React.DragEvent<HTMLDivElement>) => {
+    const types = Array.from(event.dataTransfer?.types ?? []);
+    return types.includes("Files");
+  }, []);
+
+  const resetDragState = useCallback(() => {
+    dragDepthRef.current = 0;
+    setIsDraggingOver(false);
+  }, []);
+
+  const handleDragEnter = useCallback(
+    (event: React.DragEvent<HTMLDivElement>) => {
+      if (!isFileDrag(event)) return;
+      event.preventDefault();
+      dragDepthRef.current += 1;
+      setIsDraggingOver(true);
+    },
+    [isFileDrag]
+  );
+
+  const handleDragOver = useCallback(
+    (event: React.DragEvent<HTMLDivElement>) => {
+      if (!isFileDrag(event)) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "copy";
+    },
+    [isFileDrag]
+  );
+
+  const handleDragLeave = useCallback(
+    (event: React.DragEvent<HTMLDivElement>) => {
+      if (!isFileDrag(event)) return;
+      event.preventDefault();
+      dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+      if (dragDepthRef.current === 0) {
+        setIsDraggingOver(false);
+      }
+    },
+    [isFileDrag]
+  );
+
+  const handleDrop = useCallback(
+    (event: React.DragEvent<HTMLDivElement>) => {
+      if (!isFileDrag(event)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      resetDragState();
+
+      const files = Array.from(event.dataTransfer?.files ?? []);
+      const imageFiles = files.filter((file) => file.type.startsWith("image/"));
+      if (imageFiles.length === 0) return;
+
+      void Promise.allSettled(
+        imageFiles.map(async (file) => ({
+          file,
+          dataUrl: await readFileAsDataUrl(file),
+        }))
+      ).then((results) => {
+        const attachments = results
+          .filter(
+            (result): result is PromiseFulfilledResult<{ file: File; dataUrl: string }> =>
+              result.status === "fulfilled"
+          )
+          .map(({ value }) => {
+            const baseName = value.file.name.replace(/\.[^.]+$/, "");
+            const altText = escapeMarkdownAltText(baseName);
+            return `![${altText}](${value.dataUrl})`;
+          });
+
+        if (attachments.length === 0) return;
+
+        onChange(
+          (current) => {
+            if (current.type !== "markdown") return current;
+            const existing = current.source ?? "";
+            const trimmed = existing.trimEnd();
+            const segments = [] as string[];
+            if (trimmed) segments.push(trimmed);
+            segments.push(attachments.join("\n\n"));
+            const nextSource = segments.join("\n\n");
+            return { ...current, source: nextSource };
+          },
+          { persist: true }
+        );
+      });
+    },
+    [isFileDrag, onChange, resetDragState]
+  );
+
   return (
-    <div className="flex flex-col gap-3">
+    <div
+      className="relative flex flex-col gap-3"
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {isDraggingOver ? (
+        <div className="pointer-events-none absolute inset-0 rounded-xl border-2 border-dashed border-primary/80 bg-primary/10" />
+      ) : null}
       {isEditing ? (
         <div className="relative rounded-xl border border-border bg-transparent">
           <MonacoEditor
