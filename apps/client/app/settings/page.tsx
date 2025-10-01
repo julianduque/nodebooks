@@ -17,10 +17,10 @@ type AiProvider = "openai" | "heroku";
 
 interface AiSettingsPayload {
   provider: AiProvider;
-  openai: { model: string | null; apiKey: string | null };
+  openai: { model: string | null; apiKeyConfigured: boolean };
   heroku: {
     modelId: string | null;
-    inferenceKey: string | null;
+    inferenceKeyConfigured: boolean;
     inferenceUrl: string | null;
   };
 }
@@ -54,8 +54,12 @@ const parseAiSettings = (value: unknown): AiSettingsPayload => {
   if (!value || typeof value !== "object") {
     return {
       provider: "openai",
-      openai: { model: null, apiKey: null },
-      heroku: { modelId: null, inferenceKey: null, inferenceUrl: null },
+      openai: { model: null, apiKeyConfigured: false },
+      heroku: {
+        modelId: null,
+        inferenceKeyConfigured: false,
+        inferenceUrl: null,
+      },
     };
   }
   const record = value as Record<string, unknown>;
@@ -70,15 +74,17 @@ const parseAiSettings = (value: unknown): AiSettingsPayload => {
       : {};
   const readString = (input: unknown): string | null =>
     typeof input === "string" && input.length > 0 ? input : null;
+  const readBoolean = (input: unknown): boolean =>
+    typeof input === "boolean" ? input : false;
   return {
     provider,
     openai: {
       model: readString(openai.model),
-      apiKey: readString(openai.apiKey),
+      apiKeyConfigured: readBoolean(openai.apiKeyConfigured),
     },
     heroku: {
       modelId: readString(heroku.modelId),
-      inferenceKey: readString(heroku.inferenceKey),
+      inferenceKeyConfigured: readBoolean(heroku.inferenceKeyConfigured),
       inferenceUrl: readString(heroku.inferenceUrl),
     },
   };
@@ -335,12 +341,14 @@ const AiSection = ({
   onOpenaiModelChange,
   openaiApiKey,
   onOpenaiApiKeyChange,
+  openaiKeyConfigured,
   herokuModelId,
   onHerokuModelIdChange,
   herokuInferenceKey,
   onHerokuInferenceKeyChange,
   herokuInferenceUrl,
   onHerokuInferenceUrlChange,
+  herokuKeyConfigured,
   onSave,
   saving,
 }: {
@@ -350,12 +358,14 @@ const AiSection = ({
   onOpenaiModelChange: (value: string) => void;
   openaiApiKey: string;
   onOpenaiApiKeyChange: (value: string) => void;
+  openaiKeyConfigured: boolean;
   herokuModelId: string;
   onHerokuModelIdChange: (value: string) => void;
   herokuInferenceKey: string;
   onHerokuInferenceKeyChange: (value: string) => void;
   herokuInferenceUrl: string;
   onHerokuInferenceUrlChange: (value: string) => void;
+  herokuKeyConfigured: boolean;
   onSave: () => void;
   saving: boolean;
 }) => {
@@ -403,8 +413,9 @@ const AiSection = ({
             />
           </label>
           <p className="text-xs text-muted-foreground">
-            Keys are stored securely on the server. Enter a new value to replace
-            the current key.
+            {openaiKeyConfigured
+              ? "An API key is already configured on the server. Enter the key again to update these settings."
+              : "Keys are stored securely on the server. Enter your key to enable OpenAI."}
           </p>
         </div>
       ) : (
@@ -445,6 +456,9 @@ const AiSection = ({
           </label>
           <p className="text-xs text-muted-foreground">
             The inference URL should point to your Heroku AI endpoint.
+            {herokuKeyConfigured
+              ? " Re-enter your inference key to update these settings."
+              : ""}
           </p>
         </div>
       )}
@@ -467,9 +481,11 @@ const SettingsPage = () => {
   const [aiProvider, setAiProvider] = useState<AiProvider>("openai");
   const [openaiModel, setOpenaiModel] = useState("");
   const [openaiApiKey, setOpenaiApiKey] = useState("");
+  const [openaiKeyConfigured, setOpenaiKeyConfigured] = useState(false);
   const [herokuModelId, setHerokuModelId] = useState("");
   const [herokuInferenceKey, setHerokuInferenceKey] = useState("");
   const [herokuInferenceUrl, setHerokuInferenceUrl] = useState("");
+  const [herokuKeyConfigured, setHerokuKeyConfigured] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [savingSection, setSavingSection] = useState<SavingSection>(null);
@@ -497,9 +513,11 @@ const SettingsPage = () => {
       setAiEnabled(parsed.aiEnabled);
       setAiProvider(parsed.ai.provider);
       setOpenaiModel(parsed.ai.openai.model ?? "");
-      setOpenaiApiKey(parsed.ai.openai.apiKey ?? "");
+      setOpenaiKeyConfigured(parsed.ai.openai.apiKeyConfigured);
+      setOpenaiApiKey("");
       setHerokuModelId(parsed.ai.heroku.modelId ?? "");
-      setHerokuInferenceKey(parsed.ai.heroku.inferenceKey ?? "");
+      setHerokuKeyConfigured(parsed.ai.heroku.inferenceKeyConfigured);
+      setHerokuInferenceKey("");
       setHerokuInferenceUrl(parsed.ai.heroku.inferenceUrl ?? "");
       setFeedback(null);
     } catch (err) {
@@ -537,9 +555,11 @@ const SettingsPage = () => {
       setAiEnabled(data.aiEnabled);
       setAiProvider(data.ai.provider);
       setOpenaiModel(data.ai.openai.model ?? "");
-      setOpenaiApiKey(data.ai.openai.apiKey ?? "");
+      setOpenaiKeyConfigured(data.ai.openai.apiKeyConfigured);
+      setOpenaiApiKey("");
       setHerokuModelId(data.ai.heroku.modelId ?? "");
-      setHerokuInferenceKey(data.ai.heroku.inferenceKey ?? "");
+      setHerokuKeyConfigured(data.ai.heroku.inferenceKeyConfigured);
+      setHerokuInferenceKey("");
       setHerokuInferenceUrl(data.ai.heroku.inferenceUrl ?? "");
     },
     [setTheme]
@@ -734,7 +754,9 @@ const SettingsPage = () => {
       if (!apiKey) {
         setFeedback({
           type: "error",
-          message: "Enter your OpenAI API key before saving.",
+          message: openaiKeyConfigured
+            ? "Re-enter your OpenAI API key before saving."
+            : "Enter your OpenAI API key before saving.",
         });
         return;
       }
@@ -745,7 +767,9 @@ const SettingsPage = () => {
       if (!modelId || !inferenceKey || !inferenceUrl) {
         setFeedback({
           type: "error",
-          message: "Fill out the Heroku model, key, and URL before saving.",
+          message: herokuKeyConfigured
+            ? "Re-enter your Heroku inference key, model ID, and URL before saving."
+            : "Fill out the Heroku model, key, and URL before saving.",
         });
         return;
       }
@@ -816,8 +840,10 @@ const SettingsPage = () => {
     applyResponse,
     herokuInferenceKey,
     herokuInferenceUrl,
+    herokuKeyConfigured,
     herokuModelId,
     openaiApiKey,
+    openaiKeyConfigured,
     openaiModel,
     savingSection,
   ]);
@@ -933,12 +959,14 @@ const SettingsPage = () => {
                 onOpenaiModelChange={setOpenaiModel}
                 openaiApiKey={openaiApiKey}
                 onOpenaiApiKeyChange={setOpenaiApiKey}
+                openaiKeyConfigured={openaiKeyConfigured}
                 herokuModelId={herokuModelId}
                 onHerokuModelIdChange={setHerokuModelId}
                 herokuInferenceKey={herokuInferenceKey}
                 onHerokuInferenceKeyChange={setHerokuInferenceKey}
                 herokuInferenceUrl={herokuInferenceUrl}
                 onHerokuInferenceUrlChange={setHerokuInferenceUrl}
+                herokuKeyConfigured={herokuKeyConfigured}
                 onSave={handleAiSave}
                 saving={savingSection === "ai"}
               />
@@ -976,9 +1004,11 @@ const SettingsPage = () => {
     aiProvider,
     openaiModel,
     openaiApiKey,
+    openaiKeyConfigured,
     herokuModelId,
     herokuInferenceKey,
     herokuInferenceUrl,
+    herokuKeyConfigured,
     handleAiSave,
     handleAiEnabledToggle,
   ]);

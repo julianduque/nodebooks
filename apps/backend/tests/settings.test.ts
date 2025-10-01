@@ -82,8 +82,12 @@ describe("settings routes", () => {
         aiEnabled: true,
         ai: {
           provider: "openai",
-          openai: { model: "gpt-4o-mini", apiKey: null },
-          heroku: { modelId: null, inferenceKey: null, inferenceUrl: null },
+          openai: { model: "gpt-4o-mini", apiKeyConfigured: false },
+          heroku: {
+            modelId: null,
+            inferenceKeyConfigured: false,
+            inferenceUrl: null,
+          },
         },
       },
     });
@@ -107,8 +111,12 @@ describe("settings routes", () => {
         aiEnabled: true,
         ai: {
           provider: "openai",
-          openai: { model: "gpt-4o-mini", apiKey: null },
-          heroku: { modelId: null, inferenceKey: null, inferenceUrl: null },
+          openai: { model: "gpt-4o-mini", apiKeyConfigured: false },
+          heroku: {
+            modelId: null,
+            inferenceKeyConfigured: false,
+            inferenceUrl: null,
+          },
         },
       },
     });
@@ -121,8 +129,12 @@ describe("settings routes", () => {
       aiEnabled: true,
       ai: {
         provider: "openai",
-        openai: { model: "gpt-4o-mini", apiKey: null },
-        heroku: { modelId: null, inferenceKey: null, inferenceUrl: null },
+        openai: { model: "gpt-4o-mini", apiKeyConfigured: false },
+        heroku: {
+          modelId: null,
+          inferenceKeyConfigured: false,
+          inferenceUrl: null,
+        },
       },
     });
     await app.close();
@@ -144,8 +156,12 @@ describe("settings routes", () => {
         aiEnabled: true,
         ai: {
           provider: "openai",
-          openai: { model: "gpt-4o-mini", apiKey: null },
-          heroku: { modelId: null, inferenceKey: null, inferenceUrl: null },
+          openai: { model: "gpt-4o-mini", apiKeyConfigured: false },
+          heroku: {
+            modelId: null,
+            inferenceKeyConfigured: false,
+            inferenceUrl: null,
+          },
         },
       },
     });
@@ -181,8 +197,12 @@ describe("settings routes", () => {
         aiEnabled: true,
         ai: {
           provider: "openai",
-          openai: { model: "gpt-4o-mini", apiKey: null },
-          heroku: { modelId: null, inferenceKey: null, inferenceUrl: null },
+          openai: { model: "gpt-4o-mini", apiKeyConfigured: false },
+          heroku: {
+            modelId: null,
+            inferenceKeyConfigured: false,
+            inferenceUrl: null,
+          },
         },
       },
     });
@@ -212,10 +232,63 @@ describe("settings routes", () => {
       aiEnabled: true,
       ai: {
         provider: "openai",
-        openai: { model: "gpt-4o-mini", apiKey: null },
-        heroku: { modelId: null, inferenceKey: null, inferenceUrl: null },
+        openai: { model: "gpt-4o-mini", apiKeyConfigured: false },
+        heroku: {
+          modelId: null,
+          inferenceKeyConfigured: false,
+          inferenceUrl: null,
+        },
       },
     });
+    await app.close();
+  });
+
+  it("masks AI credentials in responses", async () => {
+    const { app, settingsService } = await createApp();
+    const update = await app.inject({
+      method: "PUT",
+      url: "/settings",
+      payload: {
+        ai: {
+          provider: "openai",
+          openai: { model: "gpt-4o-mini", apiKey: "sk-secret-123" },
+        },
+      },
+    });
+    expect(update.statusCode).toBe(200);
+    const body = update.json() as {
+      data: {
+        ai: {
+          openai: { apiKeyConfigured: boolean };
+        };
+      };
+    };
+    expect(body.data.ai.openai.apiKeyConfigured).toBe(true);
+    expect(
+      Object.prototype.hasOwnProperty.call(body.data.ai.openai, "apiKey")
+    ).toBe(false);
+
+    const snapshot = settingsService.getSnapshot();
+    expect(snapshot.ai.openai.apiKeyConfigured).toBe(true);
+    expect(
+      Object.prototype.hasOwnProperty.call(snapshot.ai.openai, "apiKey")
+    ).toBe(false);
+    expect(process.env.NODEBOOKS_OPENAI_API_KEY).toBe("sk-secret-123");
+
+    const fetchRes = await app.inject({ method: "GET", url: "/settings" });
+    expect(fetchRes.statusCode).toBe(200);
+    const json = fetchRes.json() as {
+      data: {
+        ai: {
+          openai: { apiKeyConfigured: boolean };
+        };
+      };
+    };
+    expect(json.data.ai.openai.apiKeyConfigured).toBe(true);
+    expect(
+      Object.prototype.hasOwnProperty.call(json.data.ai.openai, "apiKey")
+    ).toBe(false);
+
     await app.close();
   });
 });

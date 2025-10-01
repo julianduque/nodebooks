@@ -67,6 +67,10 @@ const normalizeAiEnabled = (value: unknown): boolean | undefined => {
   return value;
 };
 
+const hasSecretValue = (value: unknown): boolean => {
+  return typeof value === "string" && value.trim().length > 0;
+};
+
 const normalizeAiSettings = (value: unknown): AiSettings | undefined => {
   if (!value || typeof value !== "object") {
     return undefined;
@@ -112,10 +116,10 @@ export interface SettingsSnapshot {
   aiEnabled: boolean;
   ai: {
     provider: AiProvider;
-    openai: { model: string | null; apiKey: string | null };
+    openai: { model: string | null; apiKeyConfigured: boolean };
     heroku: {
       modelId: string | null;
-      inferenceKey: string | null;
+      inferenceKeyConfigured: boolean;
       inferenceUrl: string | null;
     };
   };
@@ -176,11 +180,11 @@ export class SettingsService {
         provider: cfg.ai.provider,
         openai: {
           model: cfg.ai.openai?.model ?? null,
-          apiKey: cfg.ai.openai?.apiKey ?? null,
+          apiKeyConfigured: hasSecretValue(cfg.ai.openai?.apiKey),
         },
         heroku: {
           modelId: cfg.ai.heroku?.modelId ?? null,
-          inferenceKey: cfg.ai.heroku?.inferenceKey ?? null,
+          inferenceKeyConfigured: hasSecretValue(cfg.ai.heroku?.inferenceKey),
           inferenceUrl: cfg.ai.heroku?.inferenceUrl ?? null,
         },
       },
