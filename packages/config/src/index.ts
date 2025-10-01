@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type {
+  AiConfig,
   ClientConfig,
   GlobalSettings,
   PersistenceDriver,
@@ -60,6 +61,14 @@ const isThemeMode = (value: unknown): value is "light" | "dark" => {
   return value === "light" || value === "dark";
 };
 
+const sanitizeString = (value: unknown): string | undefined => {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+};
+
 export function loadServerConfig(
   env: NodeJS.ProcessEnv | undefined = process.env,
   overrides?: Partial<GlobalSettings>
@@ -108,6 +117,50 @@ export function loadServerConfig(
 
   const templatesDir = resolvedEnv.NODEBOOKS_TEMPLATE_DIR;
 
+  const runtimeAi = runtimeOverrides.ai ?? {};
+  const envProvider = (resolvedEnv.NODEBOOKS_AI_PROVIDER ?? "openai").toLowerCase();
+  const provider =
+    runtimeAi.provider === "heroku" || runtimeAi.provider === "openai"
+      ? runtimeAi.provider
+      : envProvider === "heroku"
+        ? "heroku"
+        : "openai";
+
+  const openaiModelOverride =
+    sanitizeString(runtimeAi.openai?.model) ??
+    sanitizeString(resolvedEnv.NODEBOOKS_OPENAI_MODEL);
+  const openaiModel = openaiModelOverride ?? "gpt-4o-mini";
+  const openaiApiKey =
+    sanitizeString(runtimeAi.openai?.apiKey) ??
+    sanitizeString(resolvedEnv.NODEBOOKS_OPENAI_API_KEY) ??
+    sanitizeString(resolvedEnv.OPENAI_API_KEY);
+
+  const herokuModelId =
+    sanitizeString(runtimeAi.heroku?.modelId) ??
+    sanitizeString(resolvedEnv.NODEBOOKS_HEROKU_MODEL_ID);
+  const herokuInferenceKey =
+    sanitizeString(runtimeAi.heroku?.inferenceKey) ??
+    sanitizeString(resolvedEnv.NODEBOOKS_HEROKU_INFERENCE_KEY);
+  const herokuInferenceUrl =
+    sanitizeString(runtimeAi.heroku?.inferenceUrl) ??
+    sanitizeString(resolvedEnv.NODEBOOKS_HEROKU_INFERENCE_URL);
+
+  const ai: AiConfig = {
+    provider,
+    openai: {
+      model: openaiModel,
+      apiKey: openaiApiKey,
+    },
+    heroku:
+      herokuModelId || herokuInferenceKey || herokuInferenceUrl
+        ? {
+            modelId: herokuModelId,
+            inferenceKey: herokuInferenceKey,
+            inferenceUrl: herokuInferenceUrl,
+          }
+        : undefined,
+  };
+
   return {
     host: resolvedEnv.HOST ?? "0.0.0.0",
     port: Number.parseInt(resolvedEnv.PORT ?? "4000", 10),
@@ -121,6 +174,7 @@ export function loadServerConfig(
     kernelWsHeartbeatMs,
     persistence,
     templatesDir,
+    ai,
   } satisfies ServerConfig;
 }
 

@@ -4,14 +4,47 @@ import { NotebookTemplateBadgeSchema } from "./templates.js";
 export const ThemeModeSchema = z.enum(["light", "dark"]);
 export type ThemeMode = z.infer<typeof ThemeModeSchema>;
 
+export const AiProviderSchema = z.enum(["openai", "heroku"]);
+
+export const AiOpenAISettingsSchema = z
+  .object({
+    model: z.string().min(1).optional(),
+    apiKey: z.string().min(1).optional(),
+  })
+  .strict()
+  .partial();
+
+export const AiHerokuSettingsSchema = z
+  .object({
+    modelId: z.string().min(1).optional(),
+    inferenceKey: z.string().min(1).optional(),
+    inferenceUrl: z.string().min(1).optional(),
+  })
+  .strict()
+  .partial();
+
+export const AiSettingsSchema = z
+  .object({
+    provider: AiProviderSchema.optional(),
+    openai: AiOpenAISettingsSchema.optional(),
+    heroku: AiHerokuSettingsSchema.optional(),
+  })
+  .strict()
+  .partial();
+
 export const GlobalSettingsSchema = z
   .object({
     theme: ThemeModeSchema.optional(),
     kernelTimeoutMs: z.number().int().min(1_000).max(600_000).optional(),
     password: z.union([z.string(), z.null()]).optional(),
+    ai: AiSettingsSchema.optional(),
   })
   .catchall(z.unknown());
 
+export type AiProvider = z.infer<typeof AiProviderSchema>;
+export type AiOpenAISettings = z.infer<typeof AiOpenAISettingsSchema>;
+export type AiHerokuSettings = z.infer<typeof AiHerokuSettingsSchema>;
+export type AiSettings = z.infer<typeof AiSettingsSchema>;
 export type GlobalSettings = z.infer<typeof GlobalSettingsSchema>;
 
 // Vendor MIME type for structured UI displays

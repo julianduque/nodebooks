@@ -1,7 +1,10 @@
 import { loadServerConfig } from "@nodebooks/config";
 import {
+  AiSettingsSchema,
   GlobalSettingsSchema,
   ThemeModeSchema,
+  type AiProvider,
+  type AiSettings,
   type GlobalSettings,
   type ThemeMode,
 } from "@nodebooks/notebook-schema";
@@ -13,6 +16,12 @@ const ENV_KEYS = {
   theme: "NODEBOOKS_THEME",
   kernelTimeoutMs: "NODEBOOKS_KERNEL_TIMEOUT_MS",
   password: "NODEBOOKS_PASSWORD",
+  aiProvider: "NODEBOOKS_AI_PROVIDER",
+  openaiModel: "NODEBOOKS_OPENAI_MODEL",
+  openaiApiKey: "NODEBOOKS_OPENAI_API_KEY",
+  herokuModelId: "NODEBOOKS_HEROKU_MODEL_ID",
+  herokuInferenceKey: "NODEBOOKS_HEROKU_INFERENCE_KEY",
+  herokuInferenceUrl: "NODEBOOKS_HEROKU_INFERENCE_URL",
 } as const;
 
 const normalizeTheme = (value: unknown): ThemeMode | undefined => {
@@ -39,16 +48,72 @@ const normalizePassword = (value: unknown): string | undefined => {
   return trimmed.length > 0 ? trimmed : undefined;
 };
 
+const normalizeAiString = (value: unknown): string | undefined => {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+};
+
+const normalizeAiSettings = (value: unknown): AiSettings | undefined => {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+  const parsed = AiSettingsSchema.safeParse(value);
+  if (!parsed.success) {
+    return undefined;
+  }
+  const normalized: AiSettings = {};
+  const provider: AiProvider =
+    parsed.data.provider === "heroku" ? "heroku" : "openai";
+  normalized.provider = provider;
+
+  if (parsed.data.openai) {
+    const model = normalizeAiString(parsed.data.openai.model);
+    const apiKey = normalizeAiString(parsed.data.openai.apiKey);
+    if (model || apiKey) {
+      normalized.openai = {};
+      if (model) normalized.openai.model = model;
+      if (apiKey) normalized.openai.apiKey = apiKey;
+    }
+  }
+
+  if (parsed.data.heroku) {
+    const modelId = normalizeAiString(parsed.data.heroku.modelId);
+    const inferenceKey = normalizeAiString(parsed.data.heroku.inferenceKey);
+    const inferenceUrl = normalizeAiString(parsed.data.heroku.inferenceUrl);
+    if (modelId || inferenceKey || inferenceUrl) {
+      normalized.heroku = {};
+      if (modelId) normalized.heroku.modelId = modelId;
+      if (inferenceKey) normalized.heroku.inferenceKey = inferenceKey;
+      if (inferenceUrl) normalized.heroku.inferenceUrl = inferenceUrl;
+    }
+  }
+
+  return normalized;
+};
+
 export interface SettingsSnapshot {
   theme: ThemeMode;
   kernelTimeoutMs: number;
   passwordEnabled: boolean;
+  ai: {
+    provider: AiProvider;
+    openai: { model: string | null; apiKey: string | null };
+    heroku: {
+      modelId: string | null;
+      inferenceKey: string | null;
+      inferenceUrl: string | null;
+    };
+  };
 }
 
 export interface SettingsUpdate {
   theme?: ThemeMode;
   kernelTimeoutMs?: number;
   password?: string | null;
+  ai?: AiSettings | null;
 }
 
 export class SettingsService {
@@ -62,6 +127,12 @@ export class SettingsService {
     theme: process.env[ENV_KEYS.theme],
     kernelTimeoutMs: process.env[ENV_KEYS.kernelTimeoutMs],
     password: process.env[ENV_KEYS.password],
+    aiProvider: process.env[ENV_KEYS.aiProvider],
+    openaiModel: process.env[ENV_KEYS.openaiModel],
+    openaiApiKey: process.env[ENV_KEYS.openaiApiKey],
+    herokuModelId: process.env[ENV_KEYS.herokuModelId],
+    herokuInferenceKey: process.env[ENV_KEYS.herokuInferenceKey],
+    herokuInferenceUrl: process.env[ENV_KEYS.herokuInferenceUrl],
   };
 
   constructor(private readonly store: SettingsStore) {
@@ -86,6 +157,18 @@ export class SettingsService {
       theme: cfg.theme,
       kernelTimeoutMs: cfg.kernelTimeoutMs,
       passwordEnabled: this.passwordToken !== null,
+      ai: {
+        provider: cfg.ai.provider,
+        openai: {
+          model: cfg.ai.openai?.model ?? null,
+          apiKey: cfg.ai.openai?.apiKey ?? null,
+        },
+        heroku: {
+          modelId: cfg.ai.heroku?.modelId ?? null,
+          inferenceKey: cfg.ai.heroku?.inferenceKey ?? null,
+          inferenceUrl: cfg.ai.heroku?.inferenceUrl ?? null,
+        },
+      },
     };
   }
 
@@ -100,6 +183,9 @@ export class SettingsService {
     }
     if (update.password !== undefined) {
       await this.applyPassword(update.password);
+    }
+    if (update.ai !== undefined) {
+      await this.applyAi(update.ai);
     }
 
     this.applyRuntimeOverrides();
@@ -141,6 +227,13 @@ export class SettingsService {
       delete normalized.password;
     }
 
+    const ai = normalizeAiSettings(normalized.ai);
+    if (ai) {
+      normalized.ai = ai;
+    } else {
+      delete normalized.ai;
+    }
+
     return normalized;
   }
 
@@ -179,6 +272,17 @@ export class SettingsService {
     await this.store.delete("password");
   }
 
+  private async applyAi(value: AiSettings | null) {
+    const ai = value === null ? undefined : normalizeAiSettings(value);
+    if (ai) {
+      this.settings.ai = ai;
+      await this.store.set("ai", ai);
+      return;
+    }
+    delete this.settings.ai;
+    await this.store.delete("ai");
+  }
+
   private applyRuntimeOverrides() {
     const snapshot: Partial<GlobalSettings> = { ...this.settings };
 
@@ -209,6 +313,45 @@ export class SettingsService {
         ? derivePasswordToken(envPassword)
         : null;
       delete snapshot.password;
+    }
+
+    const ai = normalizeAiSettings(snapshot.ai);
+    if (ai) {
+      process.env[ENV_KEYS.aiProvider] = ai.provider ?? "openai";
+      if (ai.openai?.model) {
+        process.env[ENV_KEYS.openaiModel] = ai.openai.model;
+      } else {
+        this.restoreInitialEnv("openaiModel");
+      }
+      if (ai.openai?.apiKey) {
+        process.env[ENV_KEYS.openaiApiKey] = ai.openai.apiKey;
+      } else {
+        this.restoreInitialEnv("openaiApiKey");
+      }
+      if (ai.heroku?.modelId) {
+        process.env[ENV_KEYS.herokuModelId] = ai.heroku.modelId;
+      } else {
+        this.restoreInitialEnv("herokuModelId");
+      }
+      if (ai.heroku?.inferenceKey) {
+        process.env[ENV_KEYS.herokuInferenceKey] = ai.heroku.inferenceKey;
+      } else {
+        this.restoreInitialEnv("herokuInferenceKey");
+      }
+      if (ai.heroku?.inferenceUrl) {
+        process.env[ENV_KEYS.herokuInferenceUrl] = ai.heroku.inferenceUrl;
+      } else {
+        this.restoreInitialEnv("herokuInferenceUrl");
+      }
+      snapshot.ai = ai;
+    } else {
+      this.restoreInitialEnv("aiProvider");
+      this.restoreInitialEnv("openaiModel");
+      this.restoreInitialEnv("openaiApiKey");
+      this.restoreInitialEnv("herokuModelId");
+      this.restoreInitialEnv("herokuInferenceKey");
+      this.restoreInitialEnv("herokuInferenceUrl");
+      delete snapshot.ai;
     }
 
     const runtime = globalThis as typeof globalThis & {

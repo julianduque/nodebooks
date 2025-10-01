@@ -13,17 +13,68 @@ import LoadingOverlay from "@/components/ui/loading-overlay";
 import { clientConfig } from "@nodebooks/config/client";
 const API_BASE_URL = clientConfig().apiBaseUrl;
 
+type AiProvider = "openai" | "heroku";
+
+interface AiSettingsPayload {
+  provider: AiProvider;
+  openai: { model: string | null; apiKey: string | null };
+  heroku: {
+    modelId: string | null;
+    inferenceKey: string | null;
+    inferenceUrl: string | null;
+  };
+}
+
 interface SettingsPayload {
   theme: ThemeMode;
   kernelTimeoutMs: number;
   passwordEnabled: boolean;
+  ai: AiSettingsPayload;
 }
 
-type SavingSection = "theme" | "kernel" | "password" | null;
+type SavingSection = "theme" | "kernel" | "password" | "ai" | null;
 type FeedbackState = { type: "success" | "error"; message: string } | null;
 
 const isTheme = (value: unknown): value is ThemeMode => {
   return value === "light" || value === "dark";
+};
+
+const isAiProvider = (value: unknown): value is AiProvider => {
+  return value === "openai" || value === "heroku";
+};
+
+const parseAiSettings = (value: unknown): AiSettingsPayload => {
+  if (!value || typeof value !== "object") {
+    return {
+      provider: "openai",
+      openai: { model: null, apiKey: null },
+      heroku: { modelId: null, inferenceKey: null, inferenceUrl: null },
+    };
+  }
+  const record = value as Record<string, unknown>;
+  const provider = isAiProvider(record.provider) ? record.provider : "openai";
+  const openai =
+    record.openai && typeof record.openai === "object"
+      ? (record.openai as Record<string, unknown>)
+      : {};
+  const heroku =
+    record.heroku && typeof record.heroku === "object"
+      ? (record.heroku as Record<string, unknown>)
+      : {};
+  const readString = (input: unknown): string | null =>
+    typeof input === "string" && input.length > 0 ? input : null;
+  return {
+    provider,
+    openai: {
+      model: readString(openai.model),
+      apiKey: readString(openai.apiKey),
+    },
+    heroku: {
+      modelId: readString(heroku.modelId),
+      inferenceKey: readString(heroku.inferenceKey),
+      inferenceUrl: readString(heroku.inferenceUrl),
+    },
+  };
 };
 
 const parseSettings = (value: unknown): SettingsPayload | null => {
@@ -43,10 +94,12 @@ const parseSettings = (value: unknown): SettingsPayload | null => {
   if (typeof record.passwordEnabled !== "boolean") {
     return null;
   }
+  const ai = parseAiSettings(record.ai);
   return {
     theme: record.theme,
     kernelTimeoutMs: record.kernelTimeoutMs,
     passwordEnabled: record.passwordEnabled,
+    ai,
   };
 };
 
@@ -192,12 +245,150 @@ const PasswordSection = ({
   );
 };
 
+const AiSection = ({
+  provider,
+  onProviderChange,
+  openaiModel,
+  onOpenaiModelChange,
+  openaiApiKey,
+  onOpenaiApiKeyChange,
+  herokuModelId,
+  onHerokuModelIdChange,
+  herokuInferenceKey,
+  onHerokuInferenceKeyChange,
+  herokuInferenceUrl,
+  onHerokuInferenceUrlChange,
+  onSave,
+  saving,
+}: {
+  provider: AiProvider;
+  onProviderChange: (value: AiProvider) => void;
+  openaiModel: string;
+  onOpenaiModelChange: (value: string) => void;
+  openaiApiKey: string;
+  onOpenaiApiKeyChange: (value: string) => void;
+  herokuModelId: string;
+  onHerokuModelIdChange: (value: string) => void;
+  herokuInferenceKey: string;
+  onHerokuInferenceKeyChange: (value: string) => void;
+  herokuInferenceUrl: string;
+  onHerokuInferenceUrlChange: (value: string) => void;
+  onSave: () => void;
+  saving: boolean;
+}) => {
+  return (
+    <div className="space-y-4">
+      <div>
+        <h3 className="text-sm font-semibold text-foreground">AI assistant</h3>
+        <p className="text-sm text-muted-foreground">
+          Select a provider and credentials for AI-powered cell generation.
+        </p>
+      </div>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <label className="text-xs font-medium text-muted-foreground">
+          Provider
+        </label>
+        <select
+          value={provider}
+          onChange={(event) =>
+            onProviderChange(event.target.value as AiProvider)
+          }
+          className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm font-medium text-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-ring sm:w-64"
+          aria-label="AI provider"
+        >
+          <option value="openai">OpenAI</option>
+          <option value="heroku">Heroku AI</option>
+        </select>
+      </div>
+      {provider === "openai" ? (
+        <div className="space-y-3">
+          <label className="block text-xs font-medium text-muted-foreground">
+            Model
+            <input
+              type="text"
+              value={openaiModel}
+              onChange={(event) => onOpenaiModelChange(event.target.value)}
+              placeholder="e.g. gpt-4o-mini"
+              className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm font-medium text-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+          </label>
+          <label className="block text-xs font-medium text-muted-foreground">
+            API key
+            <input
+              type="text"
+              value={openaiApiKey}
+              onChange={(event) => onOpenaiApiKeyChange(event.target.value)}
+              placeholder="sk-..."
+              className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm font-medium text-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+          </label>
+          <p className="text-xs text-muted-foreground">
+            Keys are stored securely on the server. Enter a new value to
+            replace the current key.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <label className="block text-xs font-medium text-muted-foreground">
+            Model ID
+            <input
+              type="text"
+              value={herokuModelId}
+              onChange={(event) => onHerokuModelIdChange(event.target.value)}
+              placeholder="model-id"
+              className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm font-medium text-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+          </label>
+          <label className="block text-xs font-medium text-muted-foreground">
+            Inference key
+            <input
+              type="text"
+              value={herokuInferenceKey}
+              onChange={(event) =>
+                onHerokuInferenceKeyChange(event.target.value)
+              }
+              placeholder="heroku key"
+              className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm font-medium text-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+          </label>
+          <label className="block text-xs font-medium text-muted-foreground">
+            Inference URL
+            <input
+              type="text"
+              value={herokuInferenceUrl}
+              onChange={(event) =>
+                onHerokuInferenceUrlChange(event.target.value)
+              }
+              placeholder="https://..."
+              className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm font-medium text-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+          </label>
+          <p className="text-xs text-muted-foreground">
+            The inference URL should point to your Heroku AI endpoint.
+          </p>
+        </div>
+      )}
+      <div>
+        <Button type="button" onClick={onSave} disabled={saving}>
+          {saving ? "Saving…" : "Save AI settings"}
+        </Button>
+      </div>
+    </div>
+  );
+};
+
 const SettingsPage = () => {
   const { theme, setTheme } = useTheme();
   const [themeValue, setThemeValue] = useState<ThemeMode>(theme);
   const [kernelTimeout, setKernelTimeout] = useState("10000");
   const [passwordDraft, setPasswordDraft] = useState("");
   const [passwordEnabled, setPasswordEnabled] = useState(false);
+  const [aiProvider, setAiProvider] = useState<AiProvider>("openai");
+  const [openaiModel, setOpenaiModel] = useState("");
+  const [openaiApiKey, setOpenaiApiKey] = useState("");
+  const [herokuModelId, setHerokuModelId] = useState("");
+  const [herokuInferenceKey, setHerokuInferenceKey] = useState("");
+  const [herokuInferenceUrl, setHerokuInferenceUrl] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [savingSection, setSavingSection] = useState<SavingSection>(null);
@@ -222,6 +413,12 @@ const SettingsPage = () => {
       setThemeValue(parsed.theme);
       setKernelTimeout(String(parsed.kernelTimeoutMs));
       setPasswordEnabled(parsed.passwordEnabled);
+      setAiProvider(parsed.ai.provider);
+      setOpenaiModel(parsed.ai.openai.model ?? "");
+      setOpenaiApiKey(parsed.ai.openai.apiKey ?? "");
+      setHerokuModelId(parsed.ai.heroku.modelId ?? "");
+      setHerokuInferenceKey(parsed.ai.heroku.inferenceKey ?? "");
+      setHerokuInferenceUrl(parsed.ai.heroku.inferenceUrl ?? "");
       setFeedback(null);
     } catch (err) {
       const message =
@@ -255,6 +452,12 @@ const SettingsPage = () => {
       setThemeValue(data.theme);
       setKernelTimeout(String(data.kernelTimeoutMs));
       setPasswordEnabled(data.passwordEnabled);
+      setAiProvider(data.ai.provider);
+      setOpenaiModel(data.ai.openai.model ?? "");
+      setOpenaiApiKey(data.ai.openai.apiKey ?? "");
+      setHerokuModelId(data.ai.heroku.modelId ?? "");
+      setHerokuInferenceKey(data.ai.heroku.inferenceKey ?? "");
+      setHerokuInferenceUrl(data.ai.heroku.inferenceUrl ?? "");
     },
     [setTheme]
   );
@@ -430,6 +633,112 @@ const SettingsPage = () => {
     }
   }, [applyResponse, passwordEnabled, savingSection]);
 
+  const handleAiSave = useCallback(async () => {
+    if (savingSection === "ai") {
+      return;
+    }
+    const provider = aiProvider;
+    if (provider === "openai") {
+      const model = openaiModel.trim();
+      const apiKey = openaiApiKey.trim();
+      if (!model) {
+        setFeedback({
+          type: "error",
+          message: "Enter an OpenAI model before saving.",
+        });
+        return;
+      }
+      if (!apiKey) {
+        setFeedback({
+          type: "error",
+          message: "Enter your OpenAI API key before saving.",
+        });
+        return;
+      }
+    } else {
+      const modelId = herokuModelId.trim();
+      const inferenceKey = herokuInferenceKey.trim();
+      const inferenceUrl = herokuInferenceUrl.trim();
+      if (!modelId || !inferenceKey || !inferenceUrl) {
+        setFeedback({
+          type: "error",
+          message: "Fill out the Heroku model, key, and URL before saving.",
+        });
+        return;
+      }
+      try {
+        const testUrl = new URL(inferenceUrl);
+        void testUrl;
+      } catch {
+        setFeedback({
+          type: "error",
+          message: "Enter a valid Heroku inference URL.",
+        });
+        return;
+      }
+    }
+
+    setSavingSection("ai");
+    setFeedback(null);
+    const payload: Record<string, unknown> = {
+      ai:
+        provider === "openai"
+          ? {
+              provider,
+              openai: {
+                model: openaiModel.trim(),
+                apiKey: openaiApiKey.trim(),
+              },
+            }
+          : {
+              provider,
+              heroku: {
+                modelId: herokuModelId.trim(),
+                inferenceKey: herokuInferenceKey.trim(),
+                inferenceUrl: herokuInferenceUrl.trim(),
+              },
+            },
+    };
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/settings`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) {
+        throw new Error(`Request failed with status ${response.status}`);
+      }
+      const body = await response.json();
+      const parsed = parseSettings(body?.data);
+      if (!parsed) {
+        throw new Error("Received malformed settings payload");
+      }
+      applyResponse(parsed);
+      setFeedback({
+        type: "success",
+        message: "AI settings updated.",
+      });
+    } catch (err) {
+      console.error(err);
+      setFeedback({
+        type: "error",
+        message: "Unable to update the AI settings.",
+      });
+    } finally {
+      setSavingSection(null);
+    }
+  }, [
+    aiProvider,
+    applyResponse,
+    herokuInferenceKey,
+    herokuInferenceUrl,
+    herokuModelId,
+    openaiApiKey,
+    openaiModel,
+    savingSection,
+  ]);
+
   const cardContent = useMemo(() => {
     if (loading) {
       return <LoadingOverlay label="Loading settings…" />;
@@ -485,6 +794,23 @@ const SettingsPage = () => {
             saving={savingSection === "kernel"}
           />
           <Separator />
+          <AiSection
+            provider={aiProvider}
+            onProviderChange={setAiProvider}
+            openaiModel={openaiModel}
+            onOpenaiModelChange={setOpenaiModel}
+            openaiApiKey={openaiApiKey}
+            onOpenaiApiKeyChange={setOpenaiApiKey}
+            herokuModelId={herokuModelId}
+            onHerokuModelIdChange={setHerokuModelId}
+            herokuInferenceKey={herokuInferenceKey}
+            onHerokuInferenceKeyChange={setHerokuInferenceKey}
+            herokuInferenceUrl={herokuInferenceUrl}
+            onHerokuInferenceUrlChange={setHerokuInferenceUrl}
+            onSave={handleAiSave}
+            saving={savingSection === "ai"}
+          />
+          <Separator />
           <PasswordSection
             enabled={passwordEnabled}
             password={passwordDraft}
@@ -510,6 +836,13 @@ const SettingsPage = () => {
     refresh,
     savingSection,
     themeValue,
+    aiProvider,
+    openaiModel,
+    openaiApiKey,
+    herokuModelId,
+    herokuInferenceKey,
+    herokuInferenceUrl,
+    handleAiSave,
   ]);
 
   return (
