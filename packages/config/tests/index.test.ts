@@ -30,6 +30,9 @@ describe("@nodebooks/config – loadServerConfig", () => {
     expect(cfg.persistence.sqlitePath).toBe(".data/nodebooks.sqlite");
     expect(cfg.persistence.databaseUrl).toBeUndefined();
     expect(cfg.templatesDir).toBeUndefined();
+    expect(cfg.ai.enabled).toBe(true);
+    expect(cfg.ai.provider).toBe("openai");
+    expect(cfg.ai.openai?.model).toBe("gpt-4o-mini");
   });
 
   it("parses production mode and booleans", () => {

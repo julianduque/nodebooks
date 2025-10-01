@@ -1,7 +1,7 @@
 "use client";
 
 import clsx from "clsx";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "../ui/button";
 import {
   ArrowDown,
@@ -11,6 +11,7 @@ import {
   Loader2,
   Pencil,
   Play,
+  Sparkles,
   Settings as SettingsIcon,
   Trash2,
   Plus,
@@ -25,6 +26,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import type { NotebookCell } from "@nodebooks/notebook-schema";
+import { clientConfig } from "@nodebooks/config/client";
 import CodeCellView from "./code-cell-view";
 import MarkdownCellView from "./markdown-cell-view";
 import type { AttachmentMetadata } from "@/components/notebook/attachment-utils";
@@ -51,6 +53,8 @@ interface CellCardProps {
   editorPath?: string;
   active: boolean;
   onActivate: () => void;
+  aiEnabled: boolean;
+  dependencies?: Record<string, string>;
 }
 
 type CodeCellMetadata = Record<string, unknown> & { timeoutMs?: number };
@@ -91,6 +95,8 @@ const AddCellMenu = ({
   );
 };
 
+const API_BASE_URL = clientConfig().apiBaseUrl;
+
 const CellCard = ({
   cell,
   notebookId,
@@ -109,11 +115,29 @@ const CellCard = ({
   editorKey,
   editorPath,
   onActivate,
+  aiEnabled,
+  dependencies,
 }: CellCardProps) => {
   const isCode = cell.type === "code";
+  const showAiActions = aiEnabled;
+  const codeLanguage = isCode ? cell.language : undefined;
   const [showConfig, setShowConfig] = useState(false);
   const [timeoutDraft, setTimeoutDraft] = useState("");
   const [timeoutError, setTimeoutError] = useState<string | null>(null);
+  const [aiOpen, setAiOpen] = useState(false);
+  const [aiPrompt, setAiPrompt] = useState("");
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [aiGenerating, setAiGenerating] = useState(false);
+  const aiControllerRef = useRef<AbortController | null>(null);
+  const aiCloseIntentRef = useRef<"auto" | null>(null);
+
+  useEffect(() => {
+    if (!aiEnabled && aiOpen) {
+      setAiOpen(false);
+      setAiError(null);
+      setAiPrompt("");
+    }
+  }, [aiEnabled, aiOpen]);
 
   const openConfig = useCallback(() => {
     if (!isCode) return;
@@ -185,6 +209,192 @@ const CellCard = ({
     cell.type === "markdown" &&
     ((cell.metadata as MarkdownUIMeta).ui?.edit ?? true);
 
+  const updateCellSource = useCallback(
+    (nextSource: string, options?: { persist?: boolean; touch?: boolean }) => {
+      onChange((current) => {
+        if (current.id !== cell.id || current.type !== cell.type) {
+          return current;
+        }
+        return { ...current, source: nextSource } as NotebookCell;
+      }, options);
+    },
+    [cell.id, cell.type, onChange]
+  );
+
+  const handleAiDialogChange = useCallback(
+    (open: boolean) => {
+      if (!aiEnabled) {
+        setAiOpen(false);
+        setAiError(null);
+        if (!aiGenerating) {
+          setAiPrompt("");
+        }
+        aiCloseIntentRef.current = null;
+        return;
+      }
+      if (!open) {
+        const autoClose = aiCloseIntentRef.current === "auto";
+        aiCloseIntentRef.current = null;
+        if (aiGenerating && !autoClose) {
+          try {
+            aiControllerRef.current?.abort();
+          } catch {
+            /* noop */
+          }
+        }
+        setAiOpen(false);
+        if (!aiGenerating || !autoClose) {
+          setAiError(null);
+        }
+        if (!aiGenerating) {
+          setAiPrompt("");
+        }
+        return;
+      }
+      aiCloseIntentRef.current = null;
+      setAiOpen(true);
+    },
+    [aiEnabled, aiGenerating]
+  );
+
+  const handleAiAbort = useCallback(() => {
+    if (!aiGenerating) {
+      return;
+    }
+    try {
+      aiControllerRef.current?.abort();
+    } catch {
+      /* noop */
+    }
+  }, [aiGenerating]);
+
+  const handleAiGenerate = useCallback(async () => {
+    if (aiGenerating) {
+      return;
+    }
+    if (!aiEnabled) {
+      return;
+    }
+    const trimmed = aiPrompt.trim();
+    if (trimmed.length === 0) {
+      setAiError("Enter a prompt before generating.");
+      return;
+    }
+
+    onActivate();
+    setAiGenerating(true);
+    setAiError(null);
+    aiCloseIntentRef.current = "auto";
+    setAiOpen(false);
+
+    const originalSource = cell.source ?? "";
+    const controller = new AbortController();
+    aiControllerRef.current = controller;
+
+    const payload: Record<string, unknown> = {
+      cellType: cell.type,
+      prompt: trimmed,
+      context: originalSource,
+    };
+    if (cell.type === "code" && codeLanguage) {
+      payload.language = codeLanguage;
+    }
+    if (cell.type === "code") {
+      const envDependencies = Object.entries(dependencies ?? {})
+        .filter(
+          ([name, version]) =>
+            name.trim().length > 0 && version.trim().length > 0
+        )
+        .reduce<Record<string, string>>((acc, [name, version]) => {
+          acc[name] = version;
+          return acc;
+        }, {});
+      payload.dependencies = envDependencies;
+    }
+
+    const prefix =
+      originalSource.length > 0
+        ? originalSource + (originalSource.endsWith("\n") ? "" : "\n\n")
+        : "";
+    try {
+      const response = await fetch(`${API_BASE_URL}/ai/generate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        let message: string | null = null;
+        if (response.status === 403) {
+          message = "AI assistant is disabled in settings.";
+        } else {
+          try {
+            const data = await response.json();
+            message = typeof data?.error === "string" ? data.error : null;
+          } catch {
+            message = null;
+          }
+        }
+        throw new Error(
+          message ?? `Request failed with status ${response.status}`
+        );
+      }
+      const reader = response.body?.getReader();
+      if (!reader) {
+        throw new Error("This browser does not support streaming responses.");
+      }
+      const decoder = new TextDecoder();
+      let generated = prefix;
+      let appended = false;
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) {
+          break;
+        }
+        if (value) {
+          const chunk = decoder.decode(value, { stream: true });
+          if (chunk.length > 0) {
+            generated += chunk;
+            appended = true;
+            updateCellSource(generated, { touch: true });
+          }
+        }
+      }
+      updateCellSource(appended ? generated : originalSource, {
+        persist: true,
+      });
+      setAiPrompt("");
+      setAiOpen(false);
+    } catch (error) {
+      updateCellSource(originalSource, { touch: true });
+      if ((error as DOMException)?.name === "AbortError") {
+        setAiError("Generation cancelled.");
+      } else {
+        setAiError(
+          error instanceof Error ? error.message : "Unable to generate content."
+        );
+      }
+      if (aiEnabled) {
+        aiCloseIntentRef.current = null;
+        setAiOpen(true);
+      }
+    } finally {
+      aiControllerRef.current = null;
+      setAiGenerating(false);
+      aiCloseIntentRef.current = null;
+    }
+  }, [
+    aiEnabled,
+    aiGenerating,
+    aiPrompt,
+    codeLanguage,
+    cell.source,
+    cell.type,
+    dependencies,
+    onActivate,
+    updateCellSource,
+  ]);
+
   return (
     <article
       id={`cell-${cell.id}`}
@@ -197,13 +407,42 @@ const CellCard = ({
       tabIndex={-1}
     >
       <div className="absolute right-0 top-0 z-50 flex flex-col gap-2 rounded-2xl border border-border bg-card/95 p-2 text-muted-foreground shadow-lg backdrop-blur-sm opacity-0 pointer-events-none transition group-hover/cell:opacity-100 group-hover/cell:pointer-events-auto group-focus-within/cell:opacity-100 group-focus-within/cell:pointer-events-auto">
+        {showAiActions &&
+          (aiGenerating ? (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handleAiAbort}
+              aria-label="Cancel AI generation"
+              title="Cancel AI generation"
+              className="text-emerald-400 hover:text-emerald-300"
+            >
+              <Loader2 className="h-4 w-4 animate-spin" />
+            </Button>
+          ) : (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => {
+                setAiPrompt("");
+                setAiError(null);
+                aiCloseIntentRef.current = null;
+                setAiOpen(true);
+                onActivate();
+              }}
+              aria-label="Generate with AI"
+              title="Generate with AI"
+            >
+              <Sparkles className="h-4 w-4" />
+            </Button>
+          ))}
         {isCode ? (
           <>
             <Button
               variant="ghost"
               size="icon"
               onClick={onRun}
-              disabled={isRunning || !canRun}
+              disabled={isRunning || aiGenerating || !canRun}
               aria-label="Run cell"
               title="Run cell (Shift+Enter)"
             >
@@ -315,6 +554,73 @@ const CellCard = ({
         </Button>
       </div>
 
+      <Dialog open={aiEnabled && aiOpen} onOpenChange={handleAiDialogChange}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>AI assistant</DialogTitle>
+            <DialogDescription>
+              Describe what you would like this {isCode ? "code" : "markdown"}{" "}
+              cell to contain.
+            </DialogDescription>
+          </DialogHeader>
+          <form
+            className="mt-4 space-y-3"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void handleAiGenerate();
+            }}
+          >
+            <label className="block text-xs font-medium text-muted-foreground">
+              Prompt
+              <textarea
+                value={aiPrompt}
+                onChange={(event) => setAiPrompt(event.target.value)}
+                rows={4}
+                className="mt-1 w-full resize-none rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                placeholder={
+                  isCode
+                    ? "Generate a utility that fetches JSON and renders it with UiComponents"
+                    : "Write a summary with a table and a mermaid diagram"
+                }
+                disabled={aiGenerating}
+                required
+              />
+            </label>
+            {aiError ? (
+              <p className="text-xs font-medium text-rose-600">{aiError}</p>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                The assistant streams output directly into the cell.
+              </p>
+            )}
+            <DialogFooter className="gap-2 sm:gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  if (aiGenerating) {
+                    handleAiAbort();
+                  } else {
+                    aiCloseIntentRef.current = null;
+                    setAiOpen(false);
+                    setAiPrompt("");
+                    setAiError(null);
+                  }
+                }}
+              >
+                {aiGenerating ? "Stop" : "Cancel"}
+              </Button>
+              <Button
+                type="submit"
+                disabled={aiGenerating || aiPrompt.trim().length === 0}
+              >
+                {aiGenerating ? "Generating…" : "Generate"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
       {isCode ? (
         <CodeCellView
           editorKey={editorKey}
@@ -324,6 +630,7 @@ const CellCard = ({
           onRun={onRun}
           isRunning={isRunning}
           queued={queued}
+          isGenerating={aiGenerating}
         />
       ) : (
         <MarkdownCellView

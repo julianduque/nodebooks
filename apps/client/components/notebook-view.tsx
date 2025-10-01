@@ -130,6 +130,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
   const [depBusy, setDepBusy] = useState(false);
   const [depError, setDepError] = useState<string | null>(null);
   const [depOutputs, setDepOutputs] = useState<NotebookOutput[]>([]);
+  const [aiEnabled, setAiEnabled] = useState(true);
   const [socketGeneration, bumpSocketGeneration] = useReducer(
     (current: number) => current + 1,
     0
@@ -256,6 +257,49 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
   useEffect(() => {
     setActionError(null);
   }, [notebook?.id]);
+
+  const refreshAiAvailability = useCallback(async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/settings`, {
+        cache: "no-store",
+      });
+      if (!response.ok) {
+        throw new Error(`Request failed with status ${response.status}`);
+      }
+      const payload = await response.json();
+      const enabled =
+        typeof payload?.data?.aiEnabled === "boolean"
+          ? payload.data.aiEnabled
+          : true;
+      setAiEnabled(enabled);
+    } catch (error) {
+      console.error("Failed to load AI availability", error);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshAiAvailability();
+  }, [refreshAiAvailability]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const handleFocus = () => {
+      void refreshAiAvailability();
+    };
+    const handleVisibility = () => {
+      if (!document.hidden) {
+        void refreshAiAvailability();
+      }
+    };
+    window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [refreshAiAvailability]);
 
   useEffect(() => {
     if (typeof document === "undefined") {
@@ -1551,6 +1595,8 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
                   onInterrupt={handleInterruptKernel}
                   onMove={(direction) => handleMoveCell(cell.id, direction)}
                   onAddBelow={(type) => handleAddCell(type, index + 1)}
+                  aiEnabled={aiEnabled}
+                  dependencies={notebook.env.packages}
                 />
               ))}
             </div>
@@ -1586,6 +1632,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     handleInterruptKernel,
     handleAttachmentUploaded,
     theme,
+    aiEnabled,
   ]);
 
   const topbarMain = useMemo(() => {

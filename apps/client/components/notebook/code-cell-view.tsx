@@ -20,6 +20,7 @@ interface CodeCellViewProps {
   onRun: () => void;
   isRunning: boolean;
   queued?: boolean;
+  isGenerating?: boolean;
   editorKey: string;
 }
 
@@ -30,6 +31,7 @@ const CodeCellView = ({
   onRun,
   isRunning,
   queued,
+  isGenerating = false,
   editorKey,
 }: CodeCellViewProps) => {
   const runShortcutRef = useRef(onRun);
@@ -142,7 +144,11 @@ const CodeCellView = ({
   return (
     <div className="relative rounded-2xl bg-slate-900 text-slate-100 shadow-lg ring-1 ring-slate-900/60">
       <div className="pointer-events-none absolute left-1 top-1 z-10 flex items-center gap-2">
-        {isRunning ? (
+        {isGenerating ? (
+          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-semibold text-emerald-200">
+            <Loader2 className="h-3 w-3 animate-spin" /> Generating
+          </span>
+        ) : isRunning ? (
           <span className="inline-flex items-center gap-1 rounded-full bg-amber-400/20 px-2 py-0.5 text-[10px] font-semibold text-amber-200">
             <span className="h-2 w-2 animate-pulse rounded-full bg-amber-400" />
             Running
@@ -155,7 +161,7 @@ const CodeCellView = ({
             <Zap className="h-3 w-3 text-emerald-400" /> {execCount}
           </span>
         ) : null}
-        {!isRunning && queued ? (
+        {!isRunning && !isGenerating && queued ? (
           <span className="inline-flex items-center gap-1 rounded-full bg-indigo-500/20 px-2 py-0.5 text-[10px] font-semibold text-indigo-200">
             <span className="h-2 w-2 rounded-full bg-indigo-400" />
             Queued
@@ -201,7 +207,7 @@ const CodeCellView = ({
               scrollBeyondLastLine: false,
               wordWrap: "on",
               automaticLayout: true,
-              readOnly: isRunning,
+              readOnly: isRunning || isGenerating,
               fixedOverflowWidgets: true,
               padding: { top: 22, bottom: 18 },
               scrollbar: {
@@ -235,6 +241,13 @@ const CodeCellView = ({
         <div className="flex items-center justify-end px-4 py-2 text-xs tracking-[0.2em] text-slate-400">
           <span className="flex items-center gap-2 text-amber-400">
             <Loader2 className="h-3.5 w-3.5 animate-spin" /> Running…
+          </span>
+        </div>
+      )}
+      {!isRunning && isGenerating && (
+        <div className="flex items-center justify-end px-4 py-2 text-xs tracking-[0.2em] text-emerald-300">
+          <span className="flex items-center gap-2">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" /> Generating…
           </span>
         </div>
       )}

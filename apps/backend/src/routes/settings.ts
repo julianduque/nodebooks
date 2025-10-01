@@ -7,6 +7,78 @@ import type { SettingsService, SettingsUpdate } from "../settings/service.js";
 
 const ThemeSchema = z.enum(["light", "dark"]);
 
+const AiProviderSchema = z.enum(["openai", "heroku"]);
+
+const AiOpenAiSchema = z
+  .object({
+    model: z.string().min(1, { message: "Model is required" }),
+    apiKey: z.string().min(1, { message: "API key is required" }),
+  })
+  .partial()
+  .optional();
+
+const AiHerokuSchema = z
+  .object({
+    modelId: z.string().min(1, { message: "Model ID is required" }),
+    inferenceKey: z.string().min(1, { message: "Inference key is required" }),
+    inferenceUrl: z.string().url({ message: "Inference URL must be valid" }),
+  })
+  .partial()
+  .optional();
+
+const AiSettingsSchema = z
+  .object({
+    provider: AiProviderSchema,
+    openai: AiOpenAiSchema,
+    heroku: AiHerokuSchema,
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.provider === "openai") {
+      const model = value.openai?.model?.trim();
+      const apiKey = value.openai?.apiKey?.trim();
+      if (!model) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Provide an OpenAI model",
+          path: ["openai", "model"],
+        });
+      }
+      if (!apiKey) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Provide an OpenAI API key",
+          path: ["openai", "apiKey"],
+        });
+      }
+    } else {
+      const modelId = value.heroku?.modelId?.trim();
+      const inferenceKey = value.heroku?.inferenceKey?.trim();
+      const inferenceUrl = value.heroku?.inferenceUrl?.trim();
+      if (!modelId) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Provide a Heroku model ID",
+          path: ["heroku", "modelId"],
+        });
+      }
+      if (!inferenceKey) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Provide a Heroku inference key",
+          path: ["heroku", "inferenceKey"],
+        });
+      }
+      if (!inferenceUrl) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Provide a Heroku inference URL",
+          path: ["heroku", "inferenceUrl"],
+        });
+      }
+    }
+  });
+
 const SettingsUpdateSchema = z
   .object({
     theme: ThemeSchema.optional(),
@@ -19,6 +91,8 @@ const SettingsUpdateSchema = z
       })
       .optional(),
     password: z.union([z.string(), z.null()]).optional(),
+    aiEnabled: z.boolean().optional(),
+    ai: AiSettingsSchema.optional(),
   })
   .strict();
 
@@ -42,7 +116,7 @@ export const registerSettingsRoutes = async (
       return { error: "Invalid settings payload" };
     }
 
-    const { theme, kernelTimeoutMs, password } = result.data;
+    const { theme, kernelTimeoutMs, password, ai, aiEnabled } = result.data;
     const updates: SettingsUpdate = {};
     if (theme !== undefined) {
       updates.theme = theme;
@@ -52,6 +126,12 @@ export const registerSettingsRoutes = async (
     }
     if (password !== undefined) {
       updates.password = password;
+    }
+    if (aiEnabled !== undefined) {
+      updates.aiEnabled = aiEnabled;
+    }
+    if (ai !== undefined) {
+      updates.ai = ai;
     }
 
     let snapshot = options.settings.getSnapshot();

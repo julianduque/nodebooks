@@ -13,6 +13,7 @@ import { SettingsService } from "../src/settings/service.js";
 const originalTheme = process.env.NODEBOOKS_THEME;
 const originalTimeout = process.env.NODEBOOKS_KERNEL_TIMEOUT_MS;
 const originalPassword = process.env.NODEBOOKS_PASSWORD;
+const originalAiEnabled = process.env.NODEBOOKS_AI_ENABLED;
 
 describe("settings routes", () => {
   const createApp = async () => {
@@ -39,6 +40,7 @@ describe("settings routes", () => {
     delete process.env.NODEBOOKS_THEME;
     delete process.env.NODEBOOKS_KERNEL_TIMEOUT_MS;
     delete process.env.NODEBOOKS_PASSWORD;
+    delete process.env.NODEBOOKS_AI_ENABLED;
   });
 
   afterEach(() => {
@@ -57,6 +59,11 @@ describe("settings routes", () => {
     } else {
       process.env.NODEBOOKS_PASSWORD = originalPassword;
     }
+    if (originalAiEnabled === undefined) {
+      delete process.env.NODEBOOKS_AI_ENABLED;
+    } else {
+      process.env.NODEBOOKS_AI_ENABLED = originalAiEnabled;
+    }
     const runtime = globalThis as typeof globalThis & {
       __NODEBOOKS_SETTINGS__?: Record<string, unknown>;
     };
@@ -68,7 +75,21 @@ describe("settings routes", () => {
     const res = await app.inject({ method: "GET", url: "/settings" });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({
-      data: { theme: "light", kernelTimeoutMs: 10_000, passwordEnabled: false },
+      data: {
+        theme: "light",
+        kernelTimeoutMs: 10_000,
+        passwordEnabled: false,
+        aiEnabled: true,
+        ai: {
+          provider: "openai",
+          openai: { model: "gpt-4o-mini", apiKeyConfigured: false },
+          heroku: {
+            modelId: null,
+            inferenceKeyConfigured: false,
+            inferenceUrl: null,
+          },
+        },
+      },
     });
     expect(settingsService.getPasswordToken()).toBeNull();
     await app.close();
@@ -83,7 +104,21 @@ describe("settings routes", () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({
-      data: { theme: "dark", kernelTimeoutMs: 15_000, passwordEnabled: false },
+      data: {
+        theme: "dark",
+        kernelTimeoutMs: 15_000,
+        passwordEnabled: false,
+        aiEnabled: true,
+        ai: {
+          provider: "openai",
+          openai: { model: "gpt-4o-mini", apiKeyConfigured: false },
+          heroku: {
+            modelId: null,
+            inferenceKeyConfigured: false,
+            inferenceUrl: null,
+          },
+        },
+      },
     });
     expect(process.env.NODEBOOKS_THEME).toBe("dark");
     expect(process.env.NODEBOOKS_KERNEL_TIMEOUT_MS).toBe("15000");
@@ -91,6 +126,16 @@ describe("settings routes", () => {
       theme: "dark",
       kernelTimeoutMs: 15_000,
       passwordEnabled: false,
+      aiEnabled: true,
+      ai: {
+        provider: "openai",
+        openai: { model: "gpt-4o-mini", apiKeyConfigured: false },
+        heroku: {
+          modelId: null,
+          inferenceKeyConfigured: false,
+          inferenceUrl: null,
+        },
+      },
     });
     await app.close();
   });
@@ -104,7 +149,21 @@ describe("settings routes", () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({
-      data: { theme: "light", kernelTimeoutMs: 10_000, passwordEnabled: true },
+      data: {
+        theme: "light",
+        kernelTimeoutMs: 10_000,
+        passwordEnabled: true,
+        aiEnabled: true,
+        ai: {
+          provider: "openai",
+          openai: { model: "gpt-4o-mini", apiKeyConfigured: false },
+          heroku: {
+            modelId: null,
+            inferenceKeyConfigured: false,
+            inferenceUrl: null,
+          },
+        },
+      },
     });
     expect(settingsService.getPasswordToken()).toBe(
       derivePasswordToken("secret")
@@ -131,7 +190,21 @@ describe("settings routes", () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({
-      data: { theme: "light", kernelTimeoutMs: 10_000, passwordEnabled: false },
+      data: {
+        theme: "light",
+        kernelTimeoutMs: 10_000,
+        passwordEnabled: false,
+        aiEnabled: true,
+        ai: {
+          provider: "openai",
+          openai: { model: "gpt-4o-mini", apiKeyConfigured: false },
+          heroku: {
+            modelId: null,
+            inferenceKeyConfigured: false,
+            inferenceUrl: null,
+          },
+        },
+      },
     });
     expect(settingsService.getPasswordToken()).toBeNull();
     const cookieHeader = res.headers["set-cookie"];
@@ -156,7 +229,66 @@ describe("settings routes", () => {
       theme: "light",
       kernelTimeoutMs: 10_000,
       passwordEnabled: false,
+      aiEnabled: true,
+      ai: {
+        provider: "openai",
+        openai: { model: "gpt-4o-mini", apiKeyConfigured: false },
+        heroku: {
+          modelId: null,
+          inferenceKeyConfigured: false,
+          inferenceUrl: null,
+        },
+      },
     });
+    await app.close();
+  });
+
+  it("masks AI credentials in responses", async () => {
+    const { app, settingsService } = await createApp();
+    const update = await app.inject({
+      method: "PUT",
+      url: "/settings",
+      payload: {
+        ai: {
+          provider: "openai",
+          openai: { model: "gpt-4o-mini", apiKey: "sk-secret-123" },
+        },
+      },
+    });
+    expect(update.statusCode).toBe(200);
+    const body = update.json() as {
+      data: {
+        ai: {
+          openai: { apiKeyConfigured: boolean };
+        };
+      };
+    };
+    expect(body.data.ai.openai.apiKeyConfigured).toBe(true);
+    expect(
+      Object.prototype.hasOwnProperty.call(body.data.ai.openai, "apiKey")
+    ).toBe(false);
+
+    const snapshot = settingsService.getSnapshot();
+    expect(snapshot.ai.openai.apiKeyConfigured).toBe(true);
+    expect(
+      Object.prototype.hasOwnProperty.call(snapshot.ai.openai, "apiKey")
+    ).toBe(false);
+    expect(process.env.NODEBOOKS_OPENAI_API_KEY).toBe("sk-secret-123");
+
+    const fetchRes = await app.inject({ method: "GET", url: "/settings" });
+    expect(fetchRes.statusCode).toBe(200);
+    const json = fetchRes.json() as {
+      data: {
+        ai: {
+          openai: { apiKeyConfigured: boolean };
+        };
+      };
+    };
+    expect(json.data.ai.openai.apiKeyConfigured).toBe(true);
+    expect(
+      Object.prototype.hasOwnProperty.call(json.data.ai.openai, "apiKey")
+    ).toBe(false);
+
     await app.close();
   });
 });

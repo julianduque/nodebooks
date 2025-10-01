@@ -25,6 +25,7 @@ import { registerDependencyRoutes } from "./routes/dependencies.js";
 import { registerSessionRoutes } from "./routes/sessions.js";
 import { registerTemplateRoutes } from "./routes/templates.js";
 import { registerTypesRoutes } from "./routes/types.js";
+import { registerAiRoutes } from "./routes/ai.js";
 import { registerAttachmentRoutes } from "./routes/attachments.js";
 import { createKernelUpgradeHandler } from "./kernel/router.js";
 import {
@@ -268,6 +269,7 @@ export const createServer = async ({
         cookieOptions:
           cookieOptions as FastifyCookieNamespace.CookieSerializeOptions,
       });
+      await registerAiRoutes(api, { settings: settingsService });
       registerAttachmentRoutes(api, store);
       registerNotebookRoutes(api, store);
       registerDependencyRoutes(api, store);
