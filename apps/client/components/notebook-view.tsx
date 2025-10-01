@@ -29,6 +29,7 @@ import {
   XCircle,
   Settings as SettingsIcon,
   ListTree,
+  Paperclip,
   Download,
 } from "lucide-react";
 import ConfirmDialog from "@/components/ui/confirm";
@@ -57,6 +58,8 @@ import CellCard from "@/components/notebook/cell-card";
 import AddCellMenu from "@/components/notebook/add-cell-menu";
 import OutlinePanel from "@/components/notebook/outline-panel";
 import SetupPanel from "@/components/notebook/setup-panel";
+import AttachmentsPanel from "@/components/notebook/attachments-panel";
+import type { AttachmentMetadata } from "@/components/notebook/attachment-utils";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import OutputView from "@/components/notebook/output-view";
 import { syncNotebookContext } from "@/components/notebook/monaco-context-sync";
@@ -66,7 +69,11 @@ import { useSearchParams } from "next/navigation";
 
 import { clientConfig } from "@nodebooks/config/client";
 import { AlertCallout } from "@nodebooks/notebook-ui";
-const API_BASE_URL = clientConfig().apiBaseUrl;
+const rawApiBaseUrl = clientConfig().apiBaseUrl ?? "/api";
+const API_BASE_URL =
+  rawApiBaseUrl.length > 1 && rawApiBaseUrl.endsWith("/")
+    ? rawApiBaseUrl.replace(/\/+$/, "")
+    : rawApiBaseUrl;
 
 interface StatusDotProps {
   colorClass: string;
@@ -74,6 +81,9 @@ interface StatusDotProps {
   text?: string;
   showText?: boolean;
 }
+
+const buildAttachmentsListUrl = (notebookId: string) =>
+  `${API_BASE_URL}/notebooks/${encodeURIComponent(notebookId)}/attachments`;
 
 const StatusDot = ({
   colorClass,
@@ -108,9 +118,9 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
   const [socketReady, setSocketReady] = useState(false);
   const [activeCellId, setActiveCellId] = useState<string | null>(null);
   const [runQueue, setRunQueue] = useState<string[]>([]);
-  const [sidebarView, setSidebarView] = useState<"setup" | "outline">(
-    "outline"
-  );
+  const [sidebarView, setSidebarView] = useState<
+    "outline" | "attachments" | "setup"
+  >("outline");
   // Navigation handled by App Router; NotebookView focuses on editor only
   const [shareStatus, setShareStatus] = useState<"idle" | "copied" | "error">(
     "idle"
@@ -128,6 +138,55 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
   const [confirmRestartOpen, setConfirmRestartOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [attachments, setAttachments] = useState<AttachmentMetadata[]>([]);
+  const [attachmentsLoading, setAttachmentsLoading] = useState(false);
+  const [attachmentsError, setAttachmentsError] = useState<string | null>(null);
+
+  const handleAttachmentUploaded = useCallback(
+    (attachment: AttachmentMetadata) => {
+      setAttachments((prev) => {
+        const filtered = prev.filter((item) => item.id !== attachment.id);
+        return [attachment, ...filtered];
+      });
+      setAttachmentsError(null);
+    },
+    []
+  );
+
+  const handleDeleteAttachment = useCallback(async (attachmentId: string) => {
+    const current = notebookRef.current;
+    if (!current) {
+      return;
+    }
+    try {
+      const url = `${API_BASE_URL}/notebooks/${encodeURIComponent(
+        current.id
+      )}/attachments/${encodeURIComponent(attachmentId)}`;
+      const response = await fetch(url, { method: "DELETE" });
+      if (!response.ok && response.status !== 204) {
+        let message = `Failed to delete attachment (status ${response.status})`;
+        try {
+          const payload = await response.clone().json();
+          if (payload?.error) {
+            message = payload.error;
+          }
+        } catch {
+          const text = await response.clone().text();
+          if (text) message = text;
+        }
+        throw new Error(message);
+      }
+      setAttachments((prev) =>
+        prev.filter((attachment) => attachment.id !== attachmentId)
+      );
+      setAttachmentsError(null);
+    } catch (error) {
+      setAttachmentsError(
+        error instanceof Error ? error.message : "Failed to delete attachment"
+      );
+    }
+  }, []);
+
   // Request id to guard against stale async updates (ref-only)
   const depReqRef = useRef(0);
   const depAbortRef = useRef<AbortController | null>(null);
@@ -259,6 +318,51 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
       runCounterRef.current = 0;
       runPendingRef.current.clear();
     }
+  }, [notebook?.id]);
+
+  useEffect(() => {
+    if (!notebook?.id) {
+      setAttachments([]);
+      setAttachmentsError(null);
+      return;
+    }
+
+    let ignore = false;
+    setAttachmentsLoading(true);
+    setAttachmentsError(null);
+
+    const url = buildAttachmentsListUrl(notebook.id);
+    fetch(url)
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error(
+            `Failed to load attachments (status ${response.status})`
+          );
+        }
+        const payload = await response.json();
+        const list = Array.isArray(payload?.data)
+          ? (payload.data as AttachmentMetadata[])
+          : [];
+        if (!ignore) {
+          setAttachments(list);
+        }
+      })
+      .catch((err) => {
+        if (!ignore) {
+          setAttachmentsError(
+            err instanceof Error ? err.message : "Failed to load attachments"
+          );
+        }
+      })
+      .finally(() => {
+        if (!ignore) {
+          setAttachmentsLoading(false);
+        }
+      });
+
+    return () => {
+      ignore = true;
+    };
   }, [notebook?.id]);
 
   useEffect(() => {
@@ -1421,6 +1525,8 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
                 <CellCard
                   key={cell.id}
                   cell={cell}
+                  notebookId={notebook.id}
+                  onAttachmentUploaded={handleAttachmentUploaded}
                   isRunning={runningCellId === cell.id}
                   queued={runQueue.includes(cell.id)}
                   canRun={socketReady}
@@ -1478,6 +1584,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     handleClearDepOutputs,
     handleAbortInstall,
     handleInterruptKernel,
+    handleAttachmentUploaded,
     theme,
   ]);
 
@@ -1691,11 +1798,16 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     return (
       <Tabs
         value={sidebarView}
-        onValueChange={(v) => setSidebarView(v as "setup" | "outline")}
+        onValueChange={(v) =>
+          setSidebarView(v as "outline" | "attachments" | "setup")
+        }
       >
         <TabsList className="h-8">
           <TabsTrigger value="outline" className="gap-1 px-2 py-1 text-xs">
             <ListTree className="h-4 w-4" /> Outline
+          </TabsTrigger>
+          <TabsTrigger value="attachments" className="gap-1 px-2 py-1 text-xs">
+            <Paperclip className="h-4 w-4" /> Attachments
           </TabsTrigger>
           <TabsTrigger value="setup" className="gap-1 px-2 py-1 text-xs">
             <SettingsIcon className="h-4 w-4" /> Setup
@@ -1709,7 +1821,16 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     if (!notebook) return null;
     return (
       <div className="h-full overflow-hidden">
-        {sidebarView === "setup" ? (
+        {sidebarView === "attachments" ? (
+          <AttachmentsPanel
+            notebookId={notebook.id}
+            attachments={attachments}
+            loading={attachmentsLoading}
+            error={attachmentsError}
+            onDelete={handleDeleteAttachment}
+            onAttachmentUploaded={handleAttachmentUploaded}
+          />
+        ) : sidebarView === "setup" ? (
           <SetupPanel
             env={notebook.env}
             onRemoveDependency={handleRemoveDependency}
@@ -1733,6 +1854,11 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     outlineItems,
     handleOutlineJump,
     runningCellId,
+    attachments,
+    attachmentsLoading,
+    attachmentsError,
+    handleDeleteAttachment,
+    handleAttachmentUploaded,
     handleRemoveDependency,
     depBusy,
     handleInstallDependencyInline,

@@ -110,6 +110,9 @@ vi.mock("../src/routes/notebooks.js", () => ({
 vi.mock("../src/routes/dependencies.js", () => ({
   registerDependencyRoutes: () => {},
 }));
+vi.mock("../src/routes/attachments.js", () => ({
+  registerAttachmentRoutes: () => {},
+}));
 vi.mock("../src/routes/sessions.js", () => ({
   registerSessionRoutes: () => {},
 }));

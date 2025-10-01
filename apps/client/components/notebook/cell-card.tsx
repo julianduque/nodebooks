@@ -27,9 +27,12 @@ import {
 import type { NotebookCell } from "@nodebooks/notebook-schema";
 import CodeCellView from "./code-cell-view";
 import MarkdownCellView from "./markdown-cell-view";
+import type { AttachmentMetadata } from "@/components/notebook/attachment-utils";
 
 interface CellCardProps {
   cell: NotebookCell;
+  notebookId: string;
+  onAttachmentUploaded?: (attachment: AttachmentMetadata, url: string) => void;
   onChange: (
     updater: (cell: NotebookCell) => NotebookCell,
     options?: { persist?: boolean; touch?: boolean }
@@ -90,6 +93,8 @@ const AddCellMenu = ({
 
 const CellCard = ({
   cell,
+  notebookId,
+  onAttachmentUploaded,
   onChange,
   onRun,
   onInterrupt,
@@ -325,7 +330,9 @@ const CellCard = ({
           editorKey={editorKey}
           path={editorPath}
           cell={cell}
+          notebookId={notebookId}
           onChange={onChange}
+          onAttachmentUploaded={onAttachmentUploaded}
         />
       )}
 

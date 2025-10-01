@@ -5,12 +5,18 @@ import initSqlJs, {
   type Database as SqlDatabase,
   type SqlJsStatic,
 } from "sql.js";
+import { customAlphabet } from "nanoid";
 import {
   ensureNotebookRuntimeVersion,
   NotebookSchema,
   type Notebook,
 } from "@nodebooks/notebook-schema";
-import type { NotebookStore, SettingsStore } from "../types.js";
+import type {
+  NotebookAttachment,
+  NotebookAttachmentContent,
+  NotebookStore,
+  SettingsStore,
+} from "../types.js";
 
 export interface SqliteNotebookStoreOptions {
   databaseFile?: string;
@@ -21,6 +27,10 @@ export class SqliteNotebookStore implements NotebookStore {
   private readonly file: string;
   private readonly ready: Promise<void>;
   private sqlModule!: SqlJsStatic;
+  private readonly nanoid = customAlphabet(
+    "1234567890abcdefghijklmnopqrstuvwxyz",
+    12
+  );
 
   constructor(options: SqliteNotebookStoreOptions = {}) {
     const here = path.dirname(fileURLToPath(import.meta.url));
@@ -108,12 +118,160 @@ export class SqliteNotebookStore implements NotebookStore {
       return undefined;
     }
 
+    const attachmentsStatement = this.db.prepare(
+      "DELETE FROM attachments WHERE notebook_id = ?1"
+    );
+    attachmentsStatement.run([id]);
+    attachmentsStatement.free();
+
     const statement = this.db.prepare("DELETE FROM notebooks WHERE id = ?1");
     statement.run([id]);
     statement.free();
 
     await this.persistToDisk();
     return existing;
+  }
+
+  async listAttachments(notebookId: string): Promise<NotebookAttachment[]> {
+    await this.ready;
+    const statement = this.db.prepare(
+      `SELECT id, notebook_id, filename, mime_type, size, created_at, updated_at
+       FROM attachments
+       WHERE notebook_id = ?1
+       ORDER BY created_at DESC, id ASC`
+    );
+    statement.bind([notebookId]);
+
+    const attachments: NotebookAttachment[] = [];
+    while (statement.step()) {
+      const row = statement.getAsObject() as {
+        id: string;
+        notebook_id: string;
+        filename: string;
+        mime_type: string;
+        size: number;
+        created_at: string;
+        updated_at: string;
+      };
+      attachments.push({
+        id: row.id,
+        notebookId: row.notebook_id,
+        filename: row.filename,
+        mimeType: row.mime_type,
+        size: row.size,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+      });
+    }
+    statement.free();
+    return attachments;
+  }
+
+  async getAttachment(
+    notebookId: string,
+    attachmentId: string
+  ): Promise<NotebookAttachmentContent | undefined> {
+    await this.ready;
+    const statement = this.db.prepare(
+      `SELECT id, notebook_id, filename, mime_type, size, content, created_at, updated_at
+       FROM attachments
+       WHERE notebook_id = ?1 AND id = ?2
+       LIMIT 1`
+    );
+    statement.bind([notebookId, attachmentId]);
+
+    let attachment: NotebookAttachmentContent | undefined;
+    if (statement.step()) {
+      const row = statement.getAsObject() as {
+        id: string;
+        notebook_id: string;
+        filename: string;
+        mime_type: string;
+        size: number;
+        created_at: string;
+        updated_at: string;
+        content: Uint8Array;
+      };
+      attachment = {
+        id: row.id,
+        notebookId: row.notebook_id,
+        filename: row.filename,
+        mimeType: row.mime_type,
+        size: row.size,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+        content: row.content,
+      };
+    }
+    statement.free();
+    return attachment;
+  }
+
+  async saveAttachment(
+    notebookId: string,
+    input: {
+      filename: string;
+      mimeType: string;
+      content: Uint8Array;
+    }
+  ): Promise<NotebookAttachment> {
+    await this.ready;
+    if (!(await this.get(notebookId))) {
+      throw new Error(`Notebook ${notebookId} not found`);
+    }
+
+    const id = this.nanoid();
+    const now = new Date().toISOString();
+    const content = new Uint8Array(input.content);
+    const size = content.byteLength;
+
+    const statement = this.db.prepare(
+      `INSERT INTO attachments (
+        id, notebook_id, filename, mime_type, size, content, created_at, updated_at
+      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`
+    );
+
+    statement.run([
+      id,
+      notebookId,
+      input.filename,
+      input.mimeType,
+      size,
+      content,
+      now,
+      now,
+    ]);
+    statement.free();
+
+    await this.persistToDisk();
+
+    return {
+      id,
+      notebookId,
+      filename: input.filename,
+      mimeType: input.mimeType,
+      size,
+      createdAt: now,
+      updatedAt: now,
+    };
+  }
+
+  async removeAttachment(
+    notebookId: string,
+    attachmentId: string
+  ): Promise<boolean> {
+    await this.ready;
+    const statement = this.db.prepare(
+      "DELETE FROM attachments WHERE notebook_id = ?1 AND id = ?2"
+    );
+    statement.run([notebookId, attachmentId]);
+    statement.free();
+    const changes = this.db.getRowsModified();
+    if (changes > 0) {
+      await this.persistToDisk();
+      return true;
+    }
+    return false;
   }
 
   async ensureReady() {
@@ -150,6 +308,8 @@ export class SqliteNotebookStore implements NotebookStore {
       this.db = new this.sqlModule.Database();
     }
 
+    this.db.run("PRAGMA foreign_keys = ON");
+
     this.db.run(
       `CREATE TABLE IF NOT EXISTS notebooks (
         id TEXT PRIMARY KEY,
@@ -163,6 +323,25 @@ export class SqliteNotebookStore implements NotebookStore {
     this.db.run(
       `CREATE INDEX IF NOT EXISTS idx_notebooks_updated_at
         ON notebooks (updated_at DESC)`
+    );
+
+    this.db.run(
+      `CREATE TABLE IF NOT EXISTS attachments (
+        id TEXT PRIMARY KEY,
+        notebook_id TEXT NOT NULL,
+        filename TEXT NOT NULL,
+        mime_type TEXT NOT NULL,
+        size INTEGER NOT NULL,
+        content BLOB NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (notebook_id) REFERENCES notebooks(id) ON DELETE CASCADE
+      )`
+    );
+
+    this.db.run(
+      `CREATE INDEX IF NOT EXISTS idx_attachments_notebook
+        ON attachments (notebook_id, created_at DESC, id ASC)`
     );
 
     this.db.run(

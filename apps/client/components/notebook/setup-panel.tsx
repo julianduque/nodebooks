@@ -67,7 +67,6 @@ const SetupPanel = ({
         .map(([name, value]) => ({ name, value: String(value ?? "") })),
     [env.variables]
   );
-
   return (
     <div className="flex h-full flex-col gap-2">
       <p className="text-xs font-semibold uppercase tracking-[0.3em] text-muted-foreground">
