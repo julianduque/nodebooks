@@ -29,10 +29,17 @@ interface SettingsPayload {
   theme: ThemeMode;
   kernelTimeoutMs: number;
   passwordEnabled: boolean;
+  aiEnabled: boolean;
   ai: AiSettingsPayload;
 }
 
-type SavingSection = "theme" | "kernel" | "password" | "ai" | null;
+type SavingSection =
+  | "theme"
+  | "kernel"
+  | "password"
+  | "ai"
+  | "aiEnabled"
+  | null;
 type FeedbackState = { type: "success" | "error"; message: string } | null;
 
 const isTheme = (value: unknown): value is ThemeMode => {
@@ -95,10 +102,13 @@ const parseSettings = (value: unknown): SettingsPayload | null => {
     return null;
   }
   const ai = parseAiSettings(record.ai);
+  const aiEnabled =
+    typeof record.aiEnabled === "boolean" ? record.aiEnabled : true;
   return {
     theme: record.theme,
     kernelTimeoutMs: record.kernelTimeoutMs,
     passwordEnabled: record.passwordEnabled,
+    aiEnabled,
     ai,
   };
 };
@@ -245,6 +255,79 @@ const PasswordSection = ({
   );
 };
 
+const AiToggleButton = ({
+  enabled,
+  onToggle,
+  disabled,
+}: {
+  enabled: boolean;
+  onToggle: (value: boolean) => void;
+  disabled: boolean;
+}) => {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={enabled}
+      onClick={() => onToggle(!enabled)}
+      disabled={disabled}
+      className={cn(
+        "relative inline-flex h-6 w-11 items-center rounded-full border border-border transition-colors",
+        enabled ? "bg-emerald-500/20" : "bg-muted",
+        disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer"
+      )}
+    >
+      <span className="sr-only">Toggle AI assistant</span>
+      <span
+        className={cn(
+          "inline-block h-5 w-5 transform rounded-full bg-background shadow transition-transform",
+          enabled ? "translate-x-5" : "translate-x-1"
+        )}
+      />
+    </button>
+  );
+};
+
+const AiEnabledSection = ({
+  enabled,
+  onToggle,
+  saving,
+}: {
+  enabled: boolean;
+  onToggle: (value: boolean) => void;
+  saving: boolean;
+}) => {
+  return (
+    <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="space-y-1">
+        <h3 className="text-sm font-semibold text-foreground">AI assistant</h3>
+        <p className="text-sm text-muted-foreground">
+          {enabled
+            ? "AI-powered generation is available in code and markdown cells."
+            : "Turn on AI to enable generation actions in your notebooks."}
+        </p>
+      </div>
+      <div className="flex items-center gap-3">
+        <span
+          className={cn(
+            "text-xs font-medium",
+            enabled
+              ? "text-emerald-600 dark:text-emerald-400"
+              : "text-muted-foreground"
+          )}
+        >
+          {enabled ? "Enabled" : "Disabled"}
+        </span>
+        <AiToggleButton
+          enabled={enabled}
+          onToggle={onToggle}
+          disabled={saving}
+        />
+      </div>
+    </div>
+  );
+};
+
 const AiSection = ({
   provider,
   onProviderChange,
@@ -278,12 +361,9 @@ const AiSection = ({
 }) => {
   return (
     <div className="space-y-4">
-      <div>
-        <h3 className="text-sm font-semibold text-foreground">AI assistant</h3>
-        <p className="text-sm text-muted-foreground">
-          Select a provider and credentials for AI-powered cell generation.
-        </p>
-      </div>
+      <p className="text-sm text-muted-foreground">
+        Update provider credentials used for AI-powered cell generation.
+      </p>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <label className="text-xs font-medium text-muted-foreground">
           Provider
@@ -323,8 +403,8 @@ const AiSection = ({
             />
           </label>
           <p className="text-xs text-muted-foreground">
-            Keys are stored securely on the server. Enter a new value to
-            replace the current key.
+            Keys are stored securely on the server. Enter a new value to replace
+            the current key.
           </p>
         </div>
       ) : (
@@ -383,6 +463,7 @@ const SettingsPage = () => {
   const [kernelTimeout, setKernelTimeout] = useState("10000");
   const [passwordDraft, setPasswordDraft] = useState("");
   const [passwordEnabled, setPasswordEnabled] = useState(false);
+  const [aiEnabled, setAiEnabled] = useState(true);
   const [aiProvider, setAiProvider] = useState<AiProvider>("openai");
   const [openaiModel, setOpenaiModel] = useState("");
   const [openaiApiKey, setOpenaiApiKey] = useState("");
@@ -413,6 +494,7 @@ const SettingsPage = () => {
       setThemeValue(parsed.theme);
       setKernelTimeout(String(parsed.kernelTimeoutMs));
       setPasswordEnabled(parsed.passwordEnabled);
+      setAiEnabled(parsed.aiEnabled);
       setAiProvider(parsed.ai.provider);
       setOpenaiModel(parsed.ai.openai.model ?? "");
       setOpenaiApiKey(parsed.ai.openai.apiKey ?? "");
@@ -452,6 +534,7 @@ const SettingsPage = () => {
       setThemeValue(data.theme);
       setKernelTimeout(String(data.kernelTimeoutMs));
       setPasswordEnabled(data.passwordEnabled);
+      setAiEnabled(data.aiEnabled);
       setAiProvider(data.ai.provider);
       setOpenaiModel(data.ai.openai.model ?? "");
       setOpenaiApiKey(data.ai.openai.apiKey ?? "");
@@ -739,6 +822,45 @@ const SettingsPage = () => {
     savingSection,
   ]);
 
+  const handleAiEnabledToggle = useCallback(
+    async (next: boolean) => {
+      if (savingSection === "aiEnabled" || next === aiEnabled) {
+        return;
+      }
+      setSavingSection("aiEnabled");
+      setFeedback(null);
+      try {
+        const response = await fetch(`${API_BASE_URL}/settings`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ aiEnabled: next }),
+        });
+        if (!response.ok) {
+          throw new Error(`Request failed with status ${response.status}`);
+        }
+        const body = await response.json();
+        const parsed = parseSettings(body?.data);
+        if (!parsed) {
+          throw new Error("Received malformed settings payload");
+        }
+        applyResponse(parsed);
+        setFeedback({
+          type: "success",
+          message: next ? "AI assistant enabled." : "AI assistant disabled.",
+        });
+      } catch (err) {
+        console.error(err);
+        setFeedback({
+          type: "error",
+          message: "Unable to update AI availability.",
+        });
+      } finally {
+        setSavingSection(null);
+      }
+    },
+    [aiEnabled, applyResponse, savingSection]
+  );
+
   const cardContent = useMemo(() => {
     if (loading) {
       return <LoadingOverlay label="Loading settings…" />;
@@ -794,23 +916,37 @@ const SettingsPage = () => {
             saving={savingSection === "kernel"}
           />
           <Separator />
-          <AiSection
-            provider={aiProvider}
-            onProviderChange={setAiProvider}
-            openaiModel={openaiModel}
-            onOpenaiModelChange={setOpenaiModel}
-            openaiApiKey={openaiApiKey}
-            onOpenaiApiKeyChange={setOpenaiApiKey}
-            herokuModelId={herokuModelId}
-            onHerokuModelIdChange={setHerokuModelId}
-            herokuInferenceKey={herokuInferenceKey}
-            onHerokuInferenceKeyChange={setHerokuInferenceKey}
-            herokuInferenceUrl={herokuInferenceUrl}
-            onHerokuInferenceUrlChange={setHerokuInferenceUrl}
-            onSave={handleAiSave}
-            saving={savingSection === "ai"}
+          <AiEnabledSection
+            enabled={aiEnabled}
+            onToggle={(next) => {
+              void handleAiEnabledToggle(next);
+            }}
+            saving={savingSection === "aiEnabled"}
           />
-          <Separator />
+          {aiEnabled ? (
+            <>
+              <Separator />
+              <AiSection
+                provider={aiProvider}
+                onProviderChange={setAiProvider}
+                openaiModel={openaiModel}
+                onOpenaiModelChange={setOpenaiModel}
+                openaiApiKey={openaiApiKey}
+                onOpenaiApiKeyChange={setOpenaiApiKey}
+                herokuModelId={herokuModelId}
+                onHerokuModelIdChange={setHerokuModelId}
+                herokuInferenceKey={herokuInferenceKey}
+                onHerokuInferenceKeyChange={setHerokuInferenceKey}
+                herokuInferenceUrl={herokuInferenceUrl}
+                onHerokuInferenceUrlChange={setHerokuInferenceUrl}
+                onSave={handleAiSave}
+                saving={savingSection === "ai"}
+              />
+              <Separator />
+            </>
+          ) : (
+            <Separator />
+          )}
           <PasswordSection
             enabled={passwordEnabled}
             password={passwordDraft}
@@ -836,6 +972,7 @@ const SettingsPage = () => {
     refresh,
     savingSection,
     themeValue,
+    aiEnabled,
     aiProvider,
     openaiModel,
     openaiApiKey,
@@ -843,6 +980,7 @@ const SettingsPage = () => {
     herokuInferenceKey,
     herokuInferenceUrl,
     handleAiSave,
+    handleAiEnabledToggle,
   ]);
 
   return (

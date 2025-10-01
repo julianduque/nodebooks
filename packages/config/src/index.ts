@@ -118,13 +118,22 @@ export function loadServerConfig(
   const templatesDir = resolvedEnv.NODEBOOKS_TEMPLATE_DIR;
 
   const runtimeAi = runtimeOverrides.ai ?? {};
-  const envProvider = (resolvedEnv.NODEBOOKS_AI_PROVIDER ?? "openai").toLowerCase();
+  const runtimeAiEnabled =
+    typeof runtimeOverrides.aiEnabled === "boolean"
+      ? runtimeOverrides.aiEnabled
+      : undefined;
+  const envProvider = (
+    resolvedEnv.NODEBOOKS_AI_PROVIDER ?? "openai"
+  ).toLowerCase();
   const provider =
     runtimeAi.provider === "heroku" || runtimeAi.provider === "openai"
       ? runtimeAi.provider
       : envProvider === "heroku"
         ? "heroku"
         : "openai";
+
+  const aiEnabled =
+    runtimeAiEnabled ?? bool(resolvedEnv.NODEBOOKS_AI_ENABLED, true);
 
   const openaiModelOverride =
     sanitizeString(runtimeAi.openai?.model) ??
@@ -146,6 +155,7 @@ export function loadServerConfig(
     sanitizeString(resolvedEnv.NODEBOOKS_HEROKU_INFERENCE_URL);
 
   const ai: AiConfig = {
+    enabled: aiEnabled,
     provider,
     openai: {
       model: openaiModel,

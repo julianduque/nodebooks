@@ -22,6 +22,7 @@ const ENV_KEYS = {
   herokuModelId: "NODEBOOKS_HEROKU_MODEL_ID",
   herokuInferenceKey: "NODEBOOKS_HEROKU_INFERENCE_KEY",
   herokuInferenceUrl: "NODEBOOKS_HEROKU_INFERENCE_URL",
+  aiEnabled: "NODEBOOKS_AI_ENABLED",
 } as const;
 
 const normalizeTheme = (value: unknown): ThemeMode | undefined => {
@@ -54,6 +55,16 @@ const normalizeAiString = (value: unknown): string | undefined => {
   }
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+};
+
+const normalizeAiEnabled = (value: unknown): boolean | undefined => {
+  if (value === null) {
+    return undefined;
+  }
+  if (typeof value !== "boolean") {
+    return undefined;
+  }
+  return value;
 };
 
 const normalizeAiSettings = (value: unknown): AiSettings | undefined => {
@@ -98,6 +109,7 @@ export interface SettingsSnapshot {
   theme: ThemeMode;
   kernelTimeoutMs: number;
   passwordEnabled: boolean;
+  aiEnabled: boolean;
   ai: {
     provider: AiProvider;
     openai: { model: string | null; apiKey: string | null };
@@ -113,6 +125,7 @@ export interface SettingsUpdate {
   theme?: ThemeMode;
   kernelTimeoutMs?: number;
   password?: string | null;
+  aiEnabled?: boolean;
   ai?: AiSettings | null;
 }
 
@@ -133,6 +146,7 @@ export class SettingsService {
     herokuModelId: process.env[ENV_KEYS.herokuModelId],
     herokuInferenceKey: process.env[ENV_KEYS.herokuInferenceKey],
     herokuInferenceUrl: process.env[ENV_KEYS.herokuInferenceUrl],
+    aiEnabled: process.env[ENV_KEYS.aiEnabled],
   };
 
   constructor(private readonly store: SettingsStore) {
@@ -157,6 +171,7 @@ export class SettingsService {
       theme: cfg.theme,
       kernelTimeoutMs: cfg.kernelTimeoutMs,
       passwordEnabled: this.passwordToken !== null,
+      aiEnabled: cfg.ai.enabled,
       ai: {
         provider: cfg.ai.provider,
         openai: {
@@ -183,6 +198,9 @@ export class SettingsService {
     }
     if (update.password !== undefined) {
       await this.applyPassword(update.password);
+    }
+    if (update.aiEnabled !== undefined) {
+      await this.applyAiEnabled(update.aiEnabled);
     }
     if (update.ai !== undefined) {
       await this.applyAi(update.ai);
@@ -225,6 +243,13 @@ export class SettingsService {
       normalized.password = password;
     } else {
       delete normalized.password;
+    }
+
+    const aiEnabled = normalizeAiEnabled(normalized.aiEnabled);
+    if (aiEnabled !== undefined) {
+      normalized.aiEnabled = aiEnabled;
+    } else {
+      delete normalized.aiEnabled;
     }
 
     const ai = normalizeAiSettings(normalized.ai);
@@ -272,6 +297,17 @@ export class SettingsService {
     await this.store.delete("password");
   }
 
+  private async applyAiEnabled(value: boolean) {
+    const enabled = normalizeAiEnabled(value);
+    if (enabled === undefined) {
+      delete this.settings.aiEnabled;
+      await this.store.delete("aiEnabled");
+      return;
+    }
+    this.settings.aiEnabled = enabled;
+    await this.store.set("aiEnabled", enabled);
+  }
+
   private async applyAi(value: AiSettings | null) {
     const ai = value === null ? undefined : normalizeAiSettings(value);
     if (ai) {
@@ -313,6 +349,15 @@ export class SettingsService {
         ? derivePasswordToken(envPassword)
         : null;
       delete snapshot.password;
+    }
+
+    const aiEnabled = normalizeAiEnabled(snapshot.aiEnabled);
+    if (aiEnabled !== undefined) {
+      process.env[ENV_KEYS.aiEnabled] = aiEnabled ? "true" : "false";
+      snapshot.aiEnabled = aiEnabled;
+    } else {
+      this.restoreInitialEnv("aiEnabled");
+      delete snapshot.aiEnabled;
     }
 
     const ai = normalizeAiSettings(snapshot.ai);

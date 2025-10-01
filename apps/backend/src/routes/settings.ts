@@ -20,9 +20,7 @@ const AiOpenAiSchema = z
 const AiHerokuSchema = z
   .object({
     modelId: z.string().min(1, { message: "Model ID is required" }),
-    inferenceKey: z
-      .string()
-      .min(1, { message: "Inference key is required" }),
+    inferenceKey: z.string().min(1, { message: "Inference key is required" }),
     inferenceUrl: z.string().url({ message: "Inference URL must be valid" }),
   })
   .partial()
@@ -42,7 +40,7 @@ const AiSettingsSchema = z
       if (!model) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          message: "Provide an OpenAI model", 
+          message: "Provide an OpenAI model",
           path: ["openai", "model"],
         });
       }
@@ -93,6 +91,7 @@ const SettingsUpdateSchema = z
       })
       .optional(),
     password: z.union([z.string(), z.null()]).optional(),
+    aiEnabled: z.boolean().optional(),
     ai: AiSettingsSchema.optional(),
   })
   .strict();
@@ -117,7 +116,7 @@ export const registerSettingsRoutes = async (
       return { error: "Invalid settings payload" };
     }
 
-    const { theme, kernelTimeoutMs, password, ai } = result.data;
+    const { theme, kernelTimeoutMs, password, ai, aiEnabled } = result.data;
     const updates: SettingsUpdate = {};
     if (theme !== undefined) {
       updates.theme = theme;
@@ -127,6 +126,9 @@ export const registerSettingsRoutes = async (
     }
     if (password !== undefined) {
       updates.password = password;
+    }
+    if (aiEnabled !== undefined) {
+      updates.aiEnabled = aiEnabled;
     }
     if (ai !== undefined) {
       updates.ai = ai;

@@ -37,6 +37,7 @@ export const GlobalSettingsSchema = z
     theme: ThemeModeSchema.optional(),
     kernelTimeoutMs: z.number().int().min(1_000).max(600_000).optional(),
     password: z.union([z.string(), z.null()]).optional(),
+    aiEnabled: z.boolean().optional(),
     ai: AiSettingsSchema.optional(),
   })
   .catchall(z.unknown());

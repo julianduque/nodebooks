@@ -1,7 +1,7 @@
 "use client";
 
 import clsx from "clsx";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "../ui/button";
 import {
   ArrowDown,
@@ -50,6 +50,8 @@ interface CellCardProps {
   editorPath?: string;
   active: boolean;
   onActivate: () => void;
+  aiEnabled: boolean;
+  dependencies?: Record<string, string>;
 }
 
 type CodeCellMetadata = Record<string, unknown> & { timeoutMs?: number };
@@ -108,8 +110,12 @@ const CellCard = ({
   editorKey,
   editorPath,
   onActivate,
+  aiEnabled,
+  dependencies,
 }: CellCardProps) => {
   const isCode = cell.type === "code";
+  const showAiActions = aiEnabled;
+  const codeLanguage = isCode ? cell.language : undefined;
   const [showConfig, setShowConfig] = useState(false);
   const [timeoutDraft, setTimeoutDraft] = useState("");
   const [timeoutError, setTimeoutError] = useState<string | null>(null);
@@ -118,6 +124,15 @@ const CellCard = ({
   const [aiError, setAiError] = useState<string | null>(null);
   const [aiGenerating, setAiGenerating] = useState(false);
   const aiControllerRef = useRef<AbortController | null>(null);
+  const aiCloseIntentRef = useRef<"auto" | null>(null);
+
+  useEffect(() => {
+    if (!aiEnabled && aiOpen) {
+      setAiOpen(false);
+      setAiError(null);
+      setAiPrompt("");
+    }
+  }, [aiEnabled, aiOpen]);
 
   const openConfig = useCallback(() => {
     if (!isCode) return;
@@ -190,27 +205,32 @@ const CellCard = ({
     ((cell.metadata as MarkdownUIMeta).ui?.edit ?? true);
 
   const updateCellSource = useCallback(
-    (
-      nextSource: string,
-      options?: { persist?: boolean; touch?: boolean }
-    ) => {
-      onChange(
-        (current) => {
-          if (current.id !== cell.id || current.type !== cell.type) {
-            return current;
-          }
-          return { ...current, source: nextSource } as NotebookCell;
-        },
-        options
-      );
+    (nextSource: string, options?: { persist?: boolean; touch?: boolean }) => {
+      onChange((current) => {
+        if (current.id !== cell.id || current.type !== cell.type) {
+          return current;
+        }
+        return { ...current, source: nextSource } as NotebookCell;
+      }, options);
     },
     [cell.id, cell.type, onChange]
   );
 
   const handleAiDialogChange = useCallback(
     (open: boolean) => {
+      if (!aiEnabled) {
+        setAiOpen(false);
+        setAiError(null);
+        if (!aiGenerating) {
+          setAiPrompt("");
+        }
+        aiCloseIntentRef.current = null;
+        return;
+      }
       if (!open) {
-        if (aiGenerating) {
+        const autoClose = aiCloseIntentRef.current === "auto";
+        aiCloseIntentRef.current = null;
+        if (aiGenerating && !autoClose) {
           try {
             aiControllerRef.current?.abort();
           } catch {
@@ -218,20 +238,36 @@ const CellCard = ({
           }
         }
         setAiOpen(false);
-        setAiError(null);
+        if (!aiGenerating || !autoClose) {
+          setAiError(null);
+        }
         if (!aiGenerating) {
           setAiPrompt("");
         }
         return;
       }
-      setAiError(null);
+      aiCloseIntentRef.current = null;
       setAiOpen(true);
     },
-    [aiGenerating]
+    [aiEnabled, aiGenerating]
   );
+
+  const handleAiAbort = useCallback(() => {
+    if (!aiGenerating) {
+      return;
+    }
+    try {
+      aiControllerRef.current?.abort();
+    } catch {
+      /* noop */
+    }
+  }, [aiGenerating]);
 
   const handleAiGenerate = useCallback(async () => {
     if (aiGenerating) {
+      return;
+    }
+    if (!aiEnabled) {
       return;
     }
     const trimmed = aiPrompt.trim();
@@ -243,19 +279,38 @@ const CellCard = ({
     onActivate();
     setAiGenerating(true);
     setAiError(null);
+    aiCloseIntentRef.current = "auto";
+    setAiOpen(false);
 
+    const originalSource = cell.source ?? "";
     const controller = new AbortController();
     aiControllerRef.current = controller;
 
     const payload: Record<string, unknown> = {
       cellType: cell.type,
       prompt: trimmed,
+      context: originalSource,
     };
+    if (cell.type === "code" && codeLanguage) {
+      payload.language = codeLanguage;
+    }
     if (cell.type === "code") {
-      payload.language = cell.language;
+      const envDependencies = Object.entries(dependencies ?? {})
+        .filter(
+          ([name, version]) =>
+            name.trim().length > 0 && version.trim().length > 0
+        )
+        .reduce<Record<string, string>>((acc, [name, version]) => {
+          acc[name] = version;
+          return acc;
+        }, {});
+      payload.dependencies = envDependencies;
     }
 
-    const originalSource = cell.source ?? "";
+    const prefix =
+      originalSource.length > 0
+        ? originalSource + (originalSource.endsWith("\n") ? "" : "\n\n")
+        : "";
     try {
       const response = await fetch(`${API_BASE_URL}/ai/generate`, {
         method: "POST",
@@ -265,11 +320,15 @@ const CellCard = ({
       });
       if (!response.ok) {
         let message: string | null = null;
-        try {
-          const data = await response.json();
-          message = typeof data?.error === "string" ? data.error : null;
-        } catch {
-          message = null;
+        if (response.status === 403) {
+          message = "AI assistant is disabled in settings.";
+        } else {
+          try {
+            const data = await response.json();
+            message = typeof data?.error === "string" ? data.error : null;
+          } catch {
+            message = null;
+          }
         }
         throw new Error(
           message ?? `Request failed with status ${response.status}`
@@ -280,8 +339,8 @@ const CellCard = ({
         throw new Error("This browser does not support streaming responses.");
       }
       const decoder = new TextDecoder();
-      let generated = "";
-      updateCellSource("", { touch: true });
+      let generated = prefix;
+      let appended = false;
       while (true) {
         const { value, done } = await reader.read();
         if (done) {
@@ -291,11 +350,14 @@ const CellCard = ({
           const chunk = decoder.decode(value, { stream: true });
           if (chunk.length > 0) {
             generated += chunk;
+            appended = true;
             updateCellSource(generated, { touch: true });
           }
         }
       }
-      updateCellSource(generated, { persist: true });
+      updateCellSource(appended ? generated : originalSource, {
+        persist: true,
+      });
       setAiPrompt("");
       setAiOpen(false);
     } catch (error) {
@@ -304,21 +366,26 @@ const CellCard = ({
         setAiError("Generation cancelled.");
       } else {
         setAiError(
-          error instanceof Error
-            ? error.message
-            : "Unable to generate content."
+          error instanceof Error ? error.message : "Unable to generate content."
         );
+      }
+      if (aiEnabled) {
+        aiCloseIntentRef.current = null;
+        setAiOpen(true);
       }
     } finally {
       aiControllerRef.current = null;
       setAiGenerating(false);
+      aiCloseIntentRef.current = null;
     }
   }, [
+    aiEnabled,
     aiGenerating,
     aiPrompt,
-    cell.language,
+    codeLanguage,
     cell.source,
     cell.type,
+    dependencies,
     onActivate,
     updateCellSource,
   ]);
@@ -335,32 +402,42 @@ const CellCard = ({
       tabIndex={-1}
     >
       <div className="absolute right-0 top-0 z-50 flex flex-col gap-2 rounded-2xl border border-border bg-card/95 p-2 text-muted-foreground shadow-lg backdrop-blur-sm opacity-0 pointer-events-none transition group-hover/cell:opacity-100 group-hover/cell:pointer-events-auto group-focus-within/cell:opacity-100 group-focus-within/cell:pointer-events-auto">
-        {isCode ? (
-          <>
+        {showAiActions &&
+          (aiGenerating ? (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handleAiAbort}
+              aria-label="Cancel AI generation"
+              title="Cancel AI generation"
+              className="text-emerald-400 hover:text-emerald-300"
+            >
+              <Loader2 className="h-4 w-4 animate-spin" />
+            </Button>
+          ) : (
             <Button
               variant="ghost"
               size="icon"
               onClick={() => {
                 setAiPrompt("");
                 setAiError(null);
+                aiCloseIntentRef.current = null;
                 setAiOpen(true);
                 onActivate();
               }}
-              disabled={aiGenerating}
               aria-label="Generate with AI"
               title="Generate with AI"
             >
-              {aiGenerating ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Sparkles className="h-4 w-4" />
-              )}
+              <Sparkles className="h-4 w-4" />
             </Button>
+          ))}
+        {isCode ? (
+          <>
             <Button
               variant="ghost"
               size="icon"
               onClick={onRun}
-              disabled={isRunning || !canRun}
+              disabled={isRunning || aiGenerating || !canRun}
               aria-label="Run cell"
               title="Run cell (Shift+Enter)"
             >
@@ -408,56 +485,35 @@ const CellCard = ({
             </Button>
           </>
         ) : (
-          <div className="flex gap-2">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => {
-                setAiPrompt("");
-                setAiError(null);
-                setAiOpen(true);
-                onActivate();
-              }}
-              disabled={aiGenerating}
-              aria-label="Generate with AI"
-              title="Generate with AI"
-            >
-              {aiGenerating ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Sparkles className="h-4 w-4" />
-              )}
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() =>
-                onChange(
-                  (current) => {
-                    if (current.type !== "markdown") return current;
-                    type U = { ui?: { edit?: boolean } };
-                    const ui = (current.metadata as U).ui ?? {};
-                    return {
-                      ...current,
-                      metadata: {
-                        ...current.metadata,
-                        ui: { ...ui, edit: !ui.edit },
-                      },
-                    } as NotebookCell;
-                  },
-                  mdEditing ? { persist: true } : undefined
-                )
-              }
-              aria-label="Toggle edit markdown"
-              title="Toggle edit markdown"
-            >
-              {mdEditing ? (
-                <Check className="h-4 w-4" />
-              ) : (
-                <Pencil className="h-4 w-4" />
-              )}
-            </Button>
-          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() =>
+              onChange(
+                (current) => {
+                  if (current.type !== "markdown") return current;
+                  type U = { ui?: { edit?: boolean } };
+                  const ui = (current.metadata as U).ui ?? {};
+                  return {
+                    ...current,
+                    metadata: {
+                      ...current.metadata,
+                      ui: { ...ui, edit: !ui.edit },
+                    },
+                  } as NotebookCell;
+                },
+                mdEditing ? { persist: true } : undefined
+              )
+            }
+            aria-label="Toggle edit markdown"
+            title="Toggle edit markdown"
+          >
+            {mdEditing ? (
+              <Check className="h-4 w-4" />
+            ) : (
+              <Pencil className="h-4 w-4" />
+            )}
+          </Button>
         )}
         {canMoveUp && (
           <Button
@@ -493,13 +549,13 @@ const CellCard = ({
         </Button>
       </div>
 
-      <Dialog open={aiOpen} onOpenChange={handleAiDialogChange}>
+      <Dialog open={aiEnabled && aiOpen} onOpenChange={handleAiDialogChange}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>AI assistant</DialogTitle>
             <DialogDescription>
-              Describe what you would like this {isCode ? "code" : "markdown"} cell
-              to contain.
+              Describe what you would like this {isCode ? "code" : "markdown"}{" "}
+              cell to contain.
             </DialogDescription>
           </DialogHeader>
           <form
@@ -538,12 +594,9 @@ const CellCard = ({
                 variant="outline"
                 onClick={() => {
                   if (aiGenerating) {
-                    try {
-                      aiControllerRef.current?.abort();
-                    } catch {
-                      /* noop */
-                    }
+                    handleAiAbort();
                   } else {
+                    aiCloseIntentRef.current = null;
                     setAiOpen(false);
                     setAiPrompt("");
                     setAiError(null);
@@ -572,6 +625,7 @@ const CellCard = ({
           onRun={onRun}
           isRunning={isRunning}
           queued={queued}
+          isGenerating={aiGenerating}
         />
       ) : (
         <MarkdownCellView

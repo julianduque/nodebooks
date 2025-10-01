@@ -16,6 +16,7 @@ export interface HerokuAiConfig {
 }
 
 export interface AiConfig {
+  enabled: boolean;
   provider: AiProvider;
   openai?: OpenAiConfig;
   heroku?: HerokuAiConfig;
@@ -45,6 +46,7 @@ export interface GlobalSettings {
   theme?: ThemeMode;
   kernelTimeoutMs?: number;
   password?: string | null;
+  aiEnabled?: boolean;
   ai?: Partial<AiConfig>;
   [key: string]: unknown;
 }
