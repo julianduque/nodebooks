@@ -1,6 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { BeforeMount, OnMount } from "@monaco-editor/react";
 import DOMPurify from "dompurify";
 import hljs from "highlight.js";
@@ -81,6 +87,36 @@ renderer.code = ({ text, lang }: Tokens.Code) => {
 };
 
 markdownRenderer.use({ renderer });
+
+const loadMermaid = (() => {
+  let mermaidPromise: Promise<typeof import("mermaid")> | null = null;
+  let initialized = false;
+  return async () => {
+    if (!mermaidPromise) {
+      mermaidPromise = import("mermaid");
+    }
+    const mermaidModule = await mermaidPromise;
+    const mermaid = mermaidModule.default;
+    if (!initialized) {
+      mermaid.initialize({ startOnLoad: false, securityLevel: "loose" });
+      initialized = true;
+    }
+    return mermaid;
+  };
+})();
+
+const waitNextTick = () =>
+  typeof window === "undefined"
+    ? Promise.resolve()
+    : new Promise<void>((resolve) => {
+        const timer = window.setTimeout(resolve, 0);
+        if (typeof window.requestAnimationFrame === "function") {
+          window.requestAnimationFrame(() => {
+            window.clearTimeout(timer);
+            resolve();
+          });
+        }
+      });
 
 const escapeMarkdownAltText = (value: string) => {
   const trimmed = value.trim();
@@ -164,76 +200,107 @@ const MarkdownCellView = ({
     onFiles: handleUploadedFiles,
   });
 
-  useEffect(() => {
+  const renderCacheRef = useRef<Map<string, string>>(new Map());
+
+  useLayoutEffect(() => {
     const container = previewEl;
     if (!container) return;
 
     let cancelled = false;
-    let scheduled = false;
+    let observer: MutationObserver | null = null;
+    let retries = 0;
 
     const renderMermaid = async () => {
-      const blocks = Array.from(
-        container.querySelectorAll<HTMLElement>(
-          "pre.mermaid:not([data-processed])"
-        )
-      );
-      if (blocks.length === 0) return;
+      if (cancelled) return;
+      observer?.disconnect();
 
-      const mermaidModule = await import("mermaid");
-      const mermaid = mermaidModule.default;
-      mermaid.initialize({ startOnLoad: false, securityLevel: "loose" });
+      await waitNextTick();
+      if (cancelled) return;
+
+      const blocks = Array.from(
+        container.querySelectorAll<HTMLElement>("pre.mermaid")
+      );
+      if (blocks.length === 0) {
+        if (!cancelled && retries < 3) {
+          retries += 1;
+          window.setTimeout(() => {
+            if (!cancelled) void renderMermaid();
+          }, 16);
+        } else if (!cancelled) {
+          observer?.observe(container, { childList: true, subtree: true });
+        }
+        return;
+      }
+      retries = 0;
+
+      const mermaid = await loadMermaid();
       let index = 0;
+
       for (const block of blocks) {
+        if (cancelled) break;
+
         const definitionAttr = block.dataset.definition ?? "";
         const definition = definitionAttr
           ? decodeURIComponent(definitionAttr)
           : (block.textContent ?? "");
         if (!definition) continue;
+
+        const cacheKey = `${cell.id}::${definition}`;
+        const cached = renderCacheRef.current.get(cacheKey);
+        if (cached) {
+          block.innerHTML = cached;
+          block.setAttribute("data-processed", "1");
+          block.setAttribute("data-rendered-definition", definition);
+          continue;
+        }
+
         try {
           const { svg } = await mermaid.render(
             `mermaid-${cell.id}-${index++}`,
             definition
           );
-          if (cancelled) return;
-          block.innerHTML = DOMPurify.sanitize(svg, {
+          if (cancelled || !container.contains(block)) continue;
+
+          const sanitized = DOMPurify.sanitize(svg, {
             USE_PROFILES: { svg: true, svgFilters: true },
-            // Allow mermaid's inline styles and style tags inside the SVG
             ADD_TAGS: ["style", "foreignObject"],
             ADD_ATTR: ["style", "class"],
           });
+
+          renderCacheRef.current.set(cacheKey, sanitized);
+          block.innerHTML = sanitized;
           block.setAttribute("data-processed", "1");
+          block.setAttribute("data-rendered-definition", definition);
         } catch (error) {
-          if (cancelled) return;
+          if (cancelled || !container.contains(block)) continue;
           block.classList.add("mermaid-error");
-          block.replaceChildren(
-            document.createTextNode(
-              error instanceof Error ? error.message : String(error)
-            )
-          );
+          block.textContent =
+            error instanceof Error ? error.message : String(error);
           block.setAttribute("data-processed", "1");
+          block.removeAttribute("data-rendered-definition");
+          renderCacheRef.current.delete(cacheKey);
         }
+      }
+
+      if (!cancelled) {
+        observer?.observe(container, { childList: true, subtree: true });
       }
     };
 
-    const schedule = () => {
-      if (scheduled) return;
-      scheduled = true;
-      queueMicrotask(() => {
-        scheduled = false;
-        if (!cancelled) void renderMermaid();
-      });
-    };
-
-    // initial pass after mount/commit and whenever html changes
-    schedule();
-
-    // observe any content replacement in preview (e.g., after cell persist)
-    const observer = new MutationObserver(schedule);
+    observer = new MutationObserver(() => {
+      void renderMermaid();
+    });
     observer.observe(container, { childList: true, subtree: true });
+
+    void renderMermaid();
+    const fallbackTimer = window.setTimeout(() => {
+      if (!cancelled) void renderMermaid();
+    }, 50);
 
     return () => {
       cancelled = true;
-      observer.disconnect();
+      observer?.disconnect();
+      window.clearTimeout(fallbackTimer);
     };
   }, [cell.id, previewEl, html]);
 

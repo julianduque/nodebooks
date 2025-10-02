@@ -353,6 +353,16 @@
   line-height: 1.5;
   color: var(--foreground);
 }
+.markdown-preview pre.mermaid:not([data-processed="1"]) {
+  color: transparent;
+  position: relative;
+}
+.markdown-preview pre.mermaid:not([data-processed="1"])::after {
+  content: "Rendering diagram…";
+  color: var(--muted-foreground);
+  display: block;
+  text-align: center;
+}
 
 /* Task list checkboxes (GFM) */
 .markdown-preview input[type="checkbox"] {
