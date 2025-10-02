@@ -530,9 +530,25 @@ export const CodeCellSchema = z.object({
   execution: OutputExecutionSchema.optional(),
 });
 
+export const ShellCellSchema = z.object({
+  id: z.string(),
+  type: z.literal("shell"),
+  source: z.string().default(""),
+  metadata: z
+    .object({
+      timeoutMs: z.number().int().positive().max(600_000).optional(),
+      cwd: z.string().max(1_000).optional(),
+      display: z.record(z.string(), z.unknown()).optional(),
+    })
+    .default({}),
+  outputs: z.array(NotebookOutputSchema).default([]),
+  execution: OutputExecutionSchema.optional(),
+});
+
 export const NotebookCellSchema = z.discriminatedUnion("type", [
   MarkdownCellSchema,
   CodeCellSchema,
+  ShellCellSchema,
 ]);
 
 export const NotebookFileEnvSchema = z.object({
@@ -561,9 +577,23 @@ export const NotebookFileCodeCellSchema = z.object({
   outputs: z.array(NotebookOutputSchema).optional(),
 });
 
+export const NotebookFileShellCellSchema = z.object({
+  type: z.literal("shell"),
+  source: z.string(),
+  metadata: z
+    .object({
+      timeoutMs: z.number().int().positive().max(600_000).optional(),
+      cwd: z.string().max(1_000).optional(),
+      display: z.record(z.string(), z.unknown()).optional(),
+    })
+    .optional(),
+  outputs: z.array(NotebookOutputSchema).optional(),
+});
+
 export const NotebookFileCellSchema = z.discriminatedUnion("type", [
   NotebookFileMarkdownCellSchema,
   NotebookFileCodeCellSchema,
+  NotebookFileShellCellSchema,
 ]);
 
 export const NotebookFileNotebookSchema = z.object({
@@ -607,6 +637,8 @@ export type NotebookCell = z.infer<typeof NotebookCellSchema>;
 export type NotebookEnv = z.infer<typeof NotebookEnvSchema>;
 export type CodeCell = z.infer<typeof CodeCellSchema>;
 export type MarkdownCell = z.infer<typeof MarkdownCellSchema>;
+export type ShellCell = z.infer<typeof ShellCellSchema>;
+export type ExecutableCell = CodeCell | ShellCell;
 export type NotebookOutput = z.infer<typeof NotebookOutputSchema>;
 export type StreamOutput = z.infer<typeof StreamOutputSchema>;
 export type DisplayDataOutput = z.infer<typeof DisplayDataSchema>;
@@ -617,6 +649,7 @@ export type NotebookFileMarkdownCell = z.infer<
   typeof NotebookFileMarkdownCellSchema
 >;
 export type NotebookFileCodeCell = z.infer<typeof NotebookFileCodeCellSchema>;
+export type NotebookFileShellCell = z.infer<typeof NotebookFileShellCellSchema>;
 export type NotebookFileCell = z.infer<typeof NotebookFileCellSchema>;
 export type NotebookFileNotebook = z.infer<typeof NotebookFileNotebookSchema>;
 export type NotebookFileSummary = z.infer<typeof NotebookFileSummarySchema>;
@@ -682,6 +715,17 @@ export const createMarkdownCell = (
   });
 };
 
+export const createShellCell = (partial?: Partial<ShellCell>): ShellCell => {
+  return ShellCellSchema.parse({
+    id: partial?.id ?? createId(),
+    type: "shell",
+    source: partial?.source ?? "",
+    metadata: partial?.metadata ?? {},
+    outputs: partial?.outputs ?? [],
+    execution: partial?.execution,
+  });
+};
+
 export const KernelHelloMessageSchema = z.object({
   type: z.literal("hello"),
   notebookId: z.string(),
@@ -721,13 +765,27 @@ export const KernelServerMessageSchema = z.discriminatedUnion("type", [
   KernelExecuteReplySchema,
 ]);
 
-export const KernelExecuteRequestSchema = z.object({
+const KernelExecuteBaseSchema = z.object({
   type: z.literal("execute_request"),
   cellId: z.string(),
-  code: z.string(),
-  language: z.enum(["js", "ts"]).default("js"),
   timeoutMs: z.number().int().positive().max(600_000).optional(),
 });
+
+const KernelExecuteCodeRequestSchema = KernelExecuteBaseSchema.extend({
+  cellType: z.literal("code"),
+  code: z.string(),
+  language: z.enum(["js", "ts"]).default("js"),
+});
+
+const KernelExecuteShellRequestSchema = KernelExecuteBaseSchema.extend({
+  cellType: z.literal("shell"),
+  command: z.string(),
+});
+
+export const KernelExecuteRequestSchema = z.discriminatedUnion("cellType", [
+  KernelExecuteCodeRequestSchema,
+  KernelExecuteShellRequestSchema,
+]);
 
 export const KernelInterruptRequestSchema = z.object({
   type: z.literal("interrupt_request"),
@@ -749,6 +807,10 @@ export type KernelDisplayMessage = z.infer<typeof KernelDisplayMessageSchema>;
 export type KernelErrorMessage = z.infer<typeof KernelErrorMessageSchema>;
 export type KernelServerMessage = z.infer<typeof KernelServerMessageSchema>;
 export type KernelExecuteRequest = z.infer<typeof KernelExecuteRequestSchema>;
+export type KernelExecuteCodeRequest = z.infer<typeof KernelExecuteCodeRequestSchema>;
+export type KernelExecuteShellRequest = z.infer<
+  typeof KernelExecuteShellRequestSchema
+>;
 export type KernelInterruptRequest = z.infer<
   typeof KernelInterruptRequestSchema
 >;

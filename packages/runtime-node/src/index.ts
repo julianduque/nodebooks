@@ -3,7 +3,7 @@ import { promises as fsPromises } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { formatWithOptions, inspect, promisify } from "node:util";
 import vm from "node:vm";
@@ -22,6 +22,7 @@ interface DisplayEmitOptions {
 }
 import type {
   CodeCell,
+  ShellCell,
   NotebookEnv,
   NotebookOutput,
   StreamOutput,
@@ -60,15 +61,17 @@ export interface NotebookRuntimeOptions {
   ) => Promise<void>;
 }
 
-export interface ExecuteOptions {
-  cell: CodeCell;
-  code: string;
+type CommonExecuteOptions = {
   notebookId: string;
   env: NotebookEnv;
   onStream?: (output: StreamOutput) => void;
   onDisplay?: (output: DisplayDataOutput) => void;
   timeoutMs?: number;
-}
+};
+
+export type ExecuteOptions =
+  | (CommonExecuteOptions & { cell: CodeCell; code: string })
+  | (CommonExecuteOptions & { cell: ShellCell; command: string });
 
 export interface ExecuteResult {
   outputs: NotebookOutput[];
@@ -976,25 +979,203 @@ export class NotebookRuntime {
     this.maybeResolveIntervalDoneWaiters();
   }
 
-  async execute({
+  private async executeShellCommand({
     cell,
-    code,
-    notebookId,
-    env,
+    command,
+    outputs,
+    started,
+    timeout,
     onStream,
-    onDisplay,
-    timeoutMs,
-  }: ExecuteOptions): Promise<ExecuteResult> {
+  }: {
+    cell: ShellCell;
+    command: string;
+    outputs: NotebookOutput[];
+    started: number;
+    timeout: number;
+    onStream: (name: StreamOutput["name"], text: string) => void;
+  }): Promise<ExecuteResult> {
+    if (!this.sandboxDir) {
+      throw new Error("Notebook runtime environment is not ready");
+    }
+
+    const trimmedCommand = command.trim();
+    if (!trimmedCommand) {
+      const ended = Date.now();
+      return {
+        outputs,
+        execution: {
+          started,
+          ended,
+          status: "ok",
+        },
+      } satisfies ExecuteResult;
+    }
+
+    const cwd = await this.resolveShellWorkingDirectory(
+      this.sandboxDir,
+      (cell.metadata as { cwd?: string }).cwd
+    );
+
+    const envVars: NodeJS.ProcessEnv = { ...process.env };
+    for (const [key, value] of Object.entries(this.exposedEnv ?? {})) {
+      envVars[key] = value;
+    }
+    envVars.PWD = cwd;
+
+    return await new Promise<ExecuteResult>((resolve) => {
+      let settled = false;
+      let killTimer: NodeJS.Timeout | null = null;
+      let forceKillTimer: NodeJS.Timeout | null = null;
+
+      const finalize = (
+        status: OutputExecution["status"],
+        error?: { name: string; message: string; stack?: string }
+      ) => {
+        if (settled) return;
+        settled = true;
+        if (killTimer) clearTimeout(killTimer);
+        if (forceKillTimer) clearTimeout(forceKillTimer);
+        const ended = Date.now();
+        if (error) {
+          outputs.push({
+            type: "error",
+            ename: error.name,
+            evalue: error.message,
+            traceback: error.stack ? error.stack.split("\n") : [],
+          });
+        }
+        resolve({
+          outputs,
+          execution: {
+            started,
+            ended,
+            status,
+            error,
+          },
+        });
+      };
+
+      try {
+        const child = spawn(trimmedCommand, {
+          cwd,
+          env: envVars,
+          shell: true,
+          windowsHide: true,
+        });
+
+        child.stdout?.on("data", (chunk) => {
+          try {
+            const text =
+              chunk instanceof Buffer ? chunk.toString("utf8") : String(chunk);
+            if (text) onStream("stdout", text);
+          } catch (err) {
+            void err;
+          }
+        });
+
+        child.stderr?.on("data", (chunk) => {
+          try {
+            const text =
+              chunk instanceof Buffer ? chunk.toString("utf8") : String(chunk);
+            if (text) onStream("stderr", text);
+          } catch (err) {
+            void err;
+          }
+        });
+
+        child.on("error", (error) => {
+          const err =
+            error instanceof Error
+              ? { name: error.name, message: error.message, stack: error.stack }
+              : { name: "ShellCommandError", message: String(error) };
+          finalize("error", err);
+        });
+
+        child.on("close", (code, signal) => {
+          if (signal) {
+            finalize("aborted");
+            return;
+          }
+          if (typeof code === "number" && code !== 0) {
+            finalize("error", {
+              name: "ShellCommandFailed",
+              message: `Command exited with code ${code}`,
+            });
+            return;
+          }
+          finalize("ok");
+        });
+
+        killTimer = setTimeout(() => {
+          try {
+            onStream(
+              "stderr",
+              `[timeout] Command exceeded ${timeout}ms and was stopped.\n`
+            );
+          } catch (err) {
+            void err;
+          }
+          try {
+            child.kill("SIGTERM");
+          } catch (err) {
+            void err;
+          }
+          forceKillTimer = setTimeout(() => {
+            try {
+              child.kill("SIGKILL");
+            } catch (err) {
+              void err;
+            }
+          }, 250);
+          finalize("aborted");
+        }, Math.max(1, timeout));
+      } catch (error) {
+        const err =
+          error instanceof Error
+            ? { name: error.name, message: error.message, stack: error.stack }
+            : { name: "ShellCommandError", message: String(error) };
+        finalize("error", err);
+      }
+    });
+  }
+
+  private async resolveShellWorkingDirectory(
+    baseDir: string,
+    rawCwd?: string
+  ): Promise<string> {
+    const trimmed = typeof rawCwd === "string" ? rawCwd.trim() : "";
+    if (!trimmed) {
+      return baseDir;
+    }
+    const target = resolve(baseDir, trimmed);
+    const normalizedBase = baseDir.endsWith(sep)
+      ? baseDir
+      : `${baseDir}${sep}`;
+    if (target !== baseDir && !target.startsWith(normalizedBase)) {
+      return baseDir;
+    }
+    await fsPromises.mkdir(target, { recursive: true });
+    return target;
+  }
+
+  async execute(options: ExecuteOptions): Promise<ExecuteResult> {
+    const { notebookId, env, onStream, onDisplay, timeoutMs } = options;
+    const cell = options.cell;
     const outputs: NotebookOutput[] = [];
     const started = Date.now();
-    const timeout = timeoutMs ?? cell.metadata.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    const timeout =
+      timeoutMs ?? cell.metadata.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     let softWaitTimedOut = false;
     this.pendingAsyncErrors = [];
 
-    this.console.setEmitter((name, text) => {
+    const pushStream = (name: StreamOutput["name"], text: string) => {
       const stream: StreamOutput = { type: "stream", name, text };
       outputs.push(stream);
       onStream?.(stream);
+    };
+
+    this.console.setEmitter((name, text) => {
+      pushStream(name, text);
     });
     // Build the per-notebook environment view exposed to user code via process.env
     const nextEnv: Record<string, string> = {};
@@ -1008,6 +1189,26 @@ export class NotebookRuntime {
     try {
       await this.ensureEnvironment(notebookId, env);
 
+      if (cell.type === "shell") {
+        const shellOptions = options as CommonExecuteOptions & {
+          cell: ShellCell;
+          command: string;
+        };
+        return await this.executeShellCommand({
+          cell,
+          command: shellOptions.command ?? cell.source ?? "",
+          outputs,
+          started,
+          timeout: Number(timeout),
+          onStream: pushStream,
+        });
+      }
+
+      const codeOptions = options as CommonExecuteOptions & {
+        cell: CodeCell;
+        code: string;
+      };
+      const code = codeOptions.code ?? cell.source ?? "";
       const rewritten = rewriteTopLevelDeclarations(code, cell.language);
       const wrapped =
         cell.language === "ts"

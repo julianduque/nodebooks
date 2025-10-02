@@ -330,7 +330,7 @@ const handleExecuteRequest = async ({
   }
 
   const cell = notebook.cells.find((item) => item.id === message.cellId);
-  if (!cell || cell.type !== "code") {
+  if (!cell || (cell.type !== "code" && cell.type !== "shell")) {
     sendMessage(connection, {
       type: "error",
       cellId: message.cellId,
@@ -341,10 +341,24 @@ const handleExecuteRequest = async ({
     return;
   }
 
-  const runnableCell = {
-    ...cell,
-    language: message.language ?? cell.language,
-  };
+  if (cell.type !== message.cellType) {
+    sendMessage(connection, {
+      type: "error",
+      cellId: message.cellId,
+      ename: "CellNotRunnable",
+      evalue: "Cell type mismatch for execution request",
+      traceback: [],
+    });
+    return;
+  }
+
+  const runnableCell =
+    cell.type === "code"
+      ? {
+          ...cell,
+          language: message.language ?? cell.language,
+        }
+      : cell;
 
   sendMessage(connection, { type: "status", state: "busy" });
 
@@ -369,9 +383,18 @@ const handleExecuteRequest = async ({
     const effectiveTimeoutMs = message.timeoutMs ?? cfg.kernelTimeoutMs;
     // Touch the pool so per-job defaults stay in sync with latest config
     void getWorkerPool();
+    const execOptions =
+      cell.type === "shell"
+        ? {
+            cell: runnableCell,
+            command: message.command,
+          }
+        : {
+            cell: runnableCell,
+            code: message.code,
+          };
     result = await runtime.execute({
-      cell: runnableCell,
-      code: message.code,
+      ...execOptions,
       notebookId: notebook.id,
       env: notebook.env,
       timeoutMs: effectiveTimeoutMs,

@@ -4,18 +4,21 @@ import type {
   StreamOutput,
   OutputExecution,
   CodeCell,
+  ShellCell,
 } from "@nodebooks/notebook-schema";
 import type { WorkerPool } from "./pool.js";
 
-export interface ExecuteOptions {
-  cell: CodeCell;
-  code: string;
+type CommonExecuteOptions = {
   notebookId: string;
   env: NotebookEnv;
   onStream?: (output: StreamOutput) => void;
   onDisplay?: (output: DisplayDataOutput) => void;
   timeoutMs?: number;
-}
+};
+
+export type ExecuteOptions =
+  | (CommonExecuteOptions & { cell: CodeCell; code: string })
+  | (CommonExecuteOptions & { cell: ShellCell; command: string });
 
 export interface ExecuteResult {
   outputs: Array<
@@ -38,9 +41,19 @@ export class WorkerClient {
       if (!this.reserved) {
         this.reserved = this.pool.reserve();
       }
+      const runOptions =
+        opts.cell.type === "shell"
+          ? {
+              cell: opts.cell,
+              command: opts.command,
+            }
+          : {
+              cell: opts.cell,
+              code: opts.code,
+            };
+
       const res = await this.reserved.run(jobId, {
-        cell: opts.cell,
-        code: opts.code,
+        ...runOptions,
         notebookId: opts.notebookId,
         env: opts.env,
         timeoutMs: opts.timeoutMs,

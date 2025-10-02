@@ -28,6 +28,7 @@ import {
 import type { NotebookCell } from "@nodebooks/notebook-schema";
 import { clientConfig } from "@nodebooks/config/client";
 import CodeCellView from "./code-cell-view";
+import ShellCellView from "./shell-cell-view";
 import MarkdownCellView from "./markdown-cell-view";
 import type { AttachmentMetadata } from "@/components/notebook/attachment-utils";
 
@@ -58,6 +59,10 @@ interface CellCardProps {
 }
 
 type CodeCellMetadata = Record<string, unknown> & { timeoutMs?: number };
+type ShellCellMetadata = Record<string, unknown> & {
+  timeoutMs?: number;
+  cwd?: string;
+};
 
 const AddCellMenu = ({
   onAdd,
@@ -119,11 +124,15 @@ const CellCard = ({
   dependencies,
 }: CellCardProps) => {
   const isCode = cell.type === "code";
-  const showAiActions = aiEnabled;
+  const isShell = cell.type === "shell";
+  const isExecutable = isCode || isShell;
+  const showAiActions = aiEnabled && isCode;
   const codeLanguage = isCode ? cell.language : undefined;
   const [showConfig, setShowConfig] = useState(false);
   const [timeoutDraft, setTimeoutDraft] = useState("");
   const [timeoutError, setTimeoutError] = useState<string | null>(null);
+  const [cwdDraft, setCwdDraft] = useState("");
+  const [cwdError, setCwdError] = useState<string | null>(null);
   const [aiOpen, setAiOpen] = useState(false);
   const [aiPrompt, setAiPrompt] = useState("");
   const [aiError, setAiError] = useState<string | null>(null);
@@ -140,70 +149,94 @@ const CellCard = ({
   }, [aiEnabled, aiOpen]);
 
   const openConfig = useCallback(() => {
-    if (!isCode) return;
-    const meta = cell.metadata as CodeCellMetadata;
+    if (!isExecutable) return;
+    const meta = cell.metadata as CodeCellMetadata & ShellCellMetadata;
     const timeoutValue =
       typeof meta?.timeoutMs === "number" ? String(meta.timeoutMs) : "";
     setTimeoutDraft(timeoutValue);
     setTimeoutError(null);
+    const cwdValue =
+      isShell && typeof meta?.cwd === "string" ? meta.cwd : "";
+    setCwdDraft(cwdValue);
+    setCwdError(null);
     setShowConfig(true);
-  }, [cell, isCode]);
+  }, [cell, isExecutable, isShell]);
 
   const handleTimeoutChange = useCallback((value: string) => {
     setTimeoutDraft(value);
     setTimeoutError(null);
   }, []);
 
+  const handleCwdChange = useCallback((value: string) => {
+    setCwdDraft(value);
+    setCwdError(null);
+  }, []);
+
   const handleConfigClose = useCallback(() => {
     setShowConfig(false);
     setTimeoutError(null);
+    setCwdError(null);
   }, []);
 
-  const handleTimeoutSave = useCallback(() => {
-    if (!isCode) {
+  const handleConfigSave = useCallback(() => {
+    if (!isExecutable) {
       handleConfigClose();
       return;
     }
-    const raw = timeoutDraft.trim();
-    if (raw.length === 0) {
-      onChange(
-        (current) => {
-          if (current.type !== "code") return current;
-          const meta = {
-            ...(current.metadata ?? {}),
-          } as CodeCellMetadata;
-          if (typeof meta.timeoutMs !== "undefined") {
-            delete meta.timeoutMs;
-          }
-          return { ...current, metadata: meta };
-        },
-        { persist: true }
-      );
-      handleConfigClose();
+    const rawTimeout = timeoutDraft.trim();
+    let parsedTimeout: number | undefined;
+    if (rawTimeout.length > 0) {
+      const parsed = Number.parseInt(rawTimeout, 10);
+      if (!Number.isFinite(parsed)) {
+        setTimeoutError("Enter a valid number in milliseconds.");
+        return;
+      }
+      if (parsed < 1000 || parsed > 600_000) {
+        setTimeoutError(
+          "Choose a value between 1,000 and 600,000 milliseconds."
+        );
+        return;
+      }
+      parsedTimeout = parsed;
+    }
+
+    const rawCwd = cwdDraft.trim();
+    if (isShell && rawCwd.length > 1000) {
+      setCwdError("Working directory must be fewer than 1,000 characters.");
       return;
     }
-    const parsed = Number.parseInt(raw, 10);
-    if (!Number.isFinite(parsed)) {
-      setTimeoutError("Enter a valid number in milliseconds.");
-      return;
-    }
-    if (parsed < 1000 || parsed > 600_000) {
-      setTimeoutError("Choose a value between 1,000 and 600,000 milliseconds.");
-      return;
-    }
+
     onChange(
       (current) => {
-        if (current.type !== "code") return current;
+        if (current.type !== "code" && current.type !== "shell") return current;
         const meta = {
           ...(current.metadata ?? {}),
-        } as CodeCellMetadata;
-        meta.timeoutMs = parsed;
+        } as CodeCellMetadata & ShellCellMetadata;
+        if (typeof parsedTimeout === "number") {
+          meta.timeoutMs = parsedTimeout;
+        } else {
+          delete meta.timeoutMs;
+        }
+        if (current.type === "shell") {
+          if (rawCwd.length > 0) {
+            meta.cwd = rawCwd;
+          } else {
+            delete meta.cwd;
+          }
+        }
         return { ...current, metadata: meta };
       },
       { persist: true }
     );
     handleConfigClose();
-  }, [handleConfigClose, isCode, onChange, timeoutDraft]);
+  }, [
+    cwdDraft,
+    handleConfigClose,
+    isExecutable,
+    isShell,
+    onChange,
+    timeoutDraft,
+  ]);
   type MarkdownUIMeta = { ui?: { edit?: boolean } };
   const mdEditing =
     cell.type === "markdown" &&
@@ -436,13 +469,15 @@ const CellCard = ({
               <Sparkles className="h-4 w-4" />
             </Button>
           ))}
-        {isCode ? (
+        {isExecutable ? (
           <>
             <Button
               variant="ghost"
               size="icon"
               onClick={onRun}
-              disabled={isRunning || aiGenerating || !canRun}
+              disabled={
+                isRunning || (!isShell && aiGenerating) || !canRun
+              }
               aria-label="Run cell"
               title="Run cell (Shift+Enter)"
             >
@@ -469,7 +504,7 @@ const CellCard = ({
               size="icon"
               onClick={() =>
                 onChange((current) =>
-                  current.type === "code"
+                  current.type === "code" || current.type === "shell"
                     ? { ...current, outputs: [], execution: undefined }
                     : current
                 )
@@ -621,7 +656,7 @@ const CellCard = ({
         </DialogContent>
       </Dialog>
 
-      {isCode ? (
+      {cell.type === "code" ? (
         <CodeCellView
           editorKey={editorKey}
           path={editorPath}
@@ -631,6 +666,15 @@ const CellCard = ({
           isRunning={isRunning}
           queued={queued}
           isGenerating={aiGenerating}
+        />
+      ) : cell.type === "shell" ? (
+        <ShellCellView
+          editorKey={editorKey}
+          cell={cell}
+          onChange={onChange}
+          onRun={onRun}
+          isRunning={isRunning}
+          queued={queued}
         />
       ) : (
         <MarkdownCellView
@@ -647,24 +691,24 @@ const CellCard = ({
       <div className="flex h-1 flex-1 mb-1 mt-1 justify-center overflow-hidden opacity-0 transition pointer-events-none group-hover/cell:h-10 group-focus-within/cell:h-10 group-hover/cell:opacity-100 group-focus-within/cell:opacity-100 group-hover/cell:pointer-events-auto group-focus-within/cell:pointer-events-auto">
         <AddCellMenu onAdd={onAddBelow} className="text-[11px]" />
       </div>
-      {isCode ? (
+      {isExecutable ? (
         <Dialog
           open={showConfig}
           onOpenChange={(open) => (!open ? handleConfigClose() : undefined)}
         >
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Cell timeout</DialogTitle>
+              <DialogTitle>Cell settings</DialogTitle>
               <DialogDescription>
-                Set a custom execution limit for this cell. Leave blank to use
-                the workspace default.
+                Configure execution options for this cell. Leave fields blank
+                to use the workspace defaults.
               </DialogDescription>
             </DialogHeader>
             <form
               className="mt-2 space-y-3"
               onSubmit={(event) => {
                 event.preventDefault();
-                handleTimeoutSave();
+                handleConfigSave();
               }}
             >
               <label className="block text-xs font-medium text-muted-foreground">
@@ -690,6 +734,31 @@ const CellCard = ({
                   Leave empty to use the workspace kernel timeout.
                 </p>
               )}
+              {isShell ? (
+                <label className="block text-xs font-medium text-muted-foreground">
+                  Working directory
+                  <input
+                    type="text"
+                    value={cwdDraft}
+                    onChange={(event) => handleCwdChange(event.target.value)}
+                    placeholder="Relative path (optional)"
+                    className="mt-1 w-full rounded-md border border-input bg-background px-2 py-1 text-[13px] text-foreground focus:outline-none"
+                    maxLength={1000}
+                  />
+                </label>
+              ) : null}
+              {isShell ? (
+                cwdError ? (
+                  <p className="text-xs font-medium text-rose-600 dark:text-rose-300">
+                    {cwdError}
+                  </p>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    Relative to the notebook sandbox. Leave empty to run in the
+                    default directory.
+                  </p>
+                )
+              ) : null}
               <DialogFooter className="gap-2 sm:gap-2">
                 <Button
                   type="button"

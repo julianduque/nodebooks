@@ -61,9 +61,19 @@ const handleRun = async (payload: IpcRunCell) => {
   };
 
   try {
+    const execOptions =
+      payload.cellType === "shell"
+        ? {
+            cell: payload.cell,
+            command: payload.command,
+          }
+        : {
+            cell: payload.cell,
+            code: payload.code,
+          };
+
     const result = await runtime.execute({
-      cell: payload.cell,
-      code: payload.code,
+      ...execOptions,
       notebookId: payload.notebookId,
       env: payload.env,
       timeoutMs: payload.timeoutMs,

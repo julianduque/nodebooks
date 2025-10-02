@@ -4,17 +4,33 @@ import {
   NotebookEnvSchema,
   NotebookOutputSchema,
   OutputExecutionSchema,
+  ShellCellSchema,
 } from "@nodebooks/notebook-schema";
 
-export const IpcRunCellSchema = z.object({
+const IpcRunBaseSchema = z.object({
   type: z.literal("RunCell"),
   jobId: z.string(),
-  cell: CodeCellSchema,
-  code: z.string(),
   notebookId: z.string(),
   env: NotebookEnvSchema,
   timeoutMs: z.number().int().positive().max(600_000).optional(),
 });
+
+const IpcRunCodeCellSchema = IpcRunBaseSchema.extend({
+  cellType: z.literal("code"),
+  cell: CodeCellSchema,
+  code: z.string(),
+});
+
+const IpcRunShellCellSchema = IpcRunBaseSchema.extend({
+  cellType: z.literal("shell"),
+  cell: ShellCellSchema,
+  command: z.string(),
+});
+
+export const IpcRunCellSchema = z.discriminatedUnion("cellType", [
+  IpcRunCodeCellSchema,
+  IpcRunShellCellSchema,
+]);
 
 export const IpcCancelSchema = z.object({
   type: z.literal("Cancel"),
@@ -63,6 +79,8 @@ export const IpcEventMessageSchema = z.discriminatedUnion("type", [
 ]);
 
 export type IpcRunCell = z.infer<typeof IpcRunCellSchema>;
+export type IpcRunCodeCell = z.infer<typeof IpcRunCodeCellSchema>;
+export type IpcRunShellCell = z.infer<typeof IpcRunShellCellSchema>;
 export type IpcCancel = z.infer<typeof IpcCancelSchema>;
 export type IpcPing = z.infer<typeof IpcPingSchema>;
 export type IpcControlMessage = z.infer<typeof IpcControlMessageSchema>;

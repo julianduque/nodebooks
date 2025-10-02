@@ -5,20 +5,28 @@ import { fileURLToPath } from "node:url";
 import os from "node:os";
 import type { IpcEventMessage, IpcRunCell } from "@nodebooks/runtime-protocol";
 import { IpcEventMessageSchema } from "@nodebooks/runtime-protocol";
-import type { CodeCell, NotebookEnv } from "@nodebooks/notebook-schema";
+import type { CodeCell, NotebookEnv, ShellCell } from "@nodebooks/notebook-schema";
 import { tryDecode, StreamKind } from "@nodebooks/runtime-protocol";
 import type { DisplayDataOutput } from "@nodebooks/notebook-schema";
 
-export interface ExecuteOptions {
-  cell: CodeCell;
-  code: string;
+type CommonExecuteOptions = {
   notebookId: string;
   env: NotebookEnv;
   timeoutMs?: number;
   onStdout?: (text: string) => void;
   onStderr?: (text: string) => void;
   onDisplay?: (obj: unknown) => void;
-}
+};
+
+export type ExecuteOptions =
+  | (CommonExecuteOptions & {
+      cell: CodeCell;
+      code: string;
+    })
+  | (CommonExecuteOptions & {
+      cell: ShellCell;
+      command: string;
+    });
 
 export interface ExecuteResult {
   outputs: unknown[];
@@ -198,15 +206,28 @@ export class WorkerPool {
 
       child.on("message", onMessage);
 
-      const payload: IpcRunCell = {
-        type: "RunCell",
-        jobId,
-        cell: opts.cell,
-        code: opts.code,
-        notebookId: opts.notebookId,
-        env: opts.env,
-        timeoutMs: opts.timeoutMs ?? this.opts.perJobTimeoutMs,
-      };
+      const payload: IpcRunCell =
+        opts.cell.type === "shell"
+          ? {
+              type: "RunCell",
+              cellType: "shell",
+              jobId,
+              cell: opts.cell,
+              command: opts.command,
+              notebookId: opts.notebookId,
+              env: opts.env,
+              timeoutMs: opts.timeoutMs ?? this.opts.perJobTimeoutMs,
+            }
+          : {
+              type: "RunCell",
+              cellType: "code",
+              jobId,
+              cell: opts.cell,
+              code: opts.code,
+              notebookId: opts.notebookId,
+              env: opts.env,
+              timeoutMs: opts.timeoutMs ?? this.opts.perJobTimeoutMs,
+            };
       // Track active job
       this.active.set(jobId, { worker, resolve, reject, bytes: 0 });
       child.send(payload);
@@ -326,15 +347,28 @@ export class WorkerPool {
           }
         };
         child.on("message", onMessage);
-        const payload: IpcRunCell = {
-          type: "RunCell",
-          jobId,
-          cell: opts.cell,
-          code: opts.code,
-          notebookId: opts.notebookId,
-          env: opts.env,
-          timeoutMs: opts.timeoutMs ?? this.opts.perJobTimeoutMs,
-        };
+        const payload: IpcRunCell =
+          opts.cell.type === "shell"
+            ? {
+                type: "RunCell",
+                cellType: "shell",
+                jobId,
+                cell: opts.cell,
+                command: opts.command,
+                notebookId: opts.notebookId,
+                env: opts.env,
+                timeoutMs: opts.timeoutMs ?? this.opts.perJobTimeoutMs,
+              }
+            : {
+                type: "RunCell",
+                cellType: "code",
+                jobId,
+                cell: opts.cell,
+                code: opts.code,
+                notebookId: opts.notebookId,
+                env: opts.env,
+                timeoutMs: opts.timeoutMs ?? this.opts.perJobTimeoutMs,
+              };
         child.send(payload);
       });
     };

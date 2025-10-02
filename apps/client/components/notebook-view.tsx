@@ -37,6 +37,7 @@ import { useRouter } from "next/navigation";
 import {
   createCodeCell,
   createMarkdownCell,
+  createShellCell,
   type KernelExecuteRequest,
   type KernelServerMessage,
   type KernelInterruptRequest,
@@ -572,7 +573,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         updateNotebookCell(
           message.cellId,
           (cell) => {
-            if (cell.type !== "code") {
+            if (cell.type !== "code" && cell.type !== "shell") {
               return cell;
             }
             const ended = Date.now();
@@ -613,7 +614,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         updateNotebookCell(
           message.cellId,
           (cell) => {
-            if (cell.type !== "code") {
+            if (cell.type !== "code" && cell.type !== "shell") {
               return cell;
             }
             return {
@@ -639,7 +640,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         updateNotebookCell(
           message.cellId,
           (cell) => {
-            if (cell.type !== "code") {
+            if (cell.type !== "code" && cell.type !== "shell") {
               return cell;
             }
             return {
@@ -667,7 +668,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         updateNotebookCell(
           message.cellId,
           (cell) => {
-            if (cell.type !== "code") {
+            if (cell.type !== "code" && cell.type !== "shell") {
               return cell;
             }
             const metadata: Record<string, unknown> = {
@@ -974,7 +975,9 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
       const nextCell =
         type === "code"
           ? createCodeCell({ language: "ts" })
-          : createMarkdownCell({ source: "" });
+          : type === "shell"
+            ? createShellCell({ source: "" })
+            : createMarkdownCell({ source: "" });
       updateNotebook((current) => {
         const cells = [...current.cells];
         if (typeof index === "number") {
@@ -1034,7 +1037,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
       }
       if (runningCellId === id || runningRef.current === id) return;
       const cell = notebook.cells.find((item) => item.id === id);
-      if (!cell || cell.type !== "code") return;
+      if (!cell || (cell.type !== "code" && cell.type !== "shell")) return;
       const socket = socketRef.current;
       if (!socket || socket.readyState !== WebSocket.OPEN) {
         setError("Kernel is not connected yet");
@@ -1046,7 +1049,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
       updateNotebookCell(
         id,
         (current) => {
-          if (current.type !== "code") return current;
+          if (current.type !== "code" && current.type !== "shell") return current;
           return {
             ...current,
             outputs: [],
@@ -1059,13 +1062,23 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         },
         { persist: false }
       );
-      const payload: KernelExecuteRequest = {
-        type: "execute_request",
-        cellId: id,
-        code: cell.source,
-        language: cell.language,
-        timeoutMs: cell.metadata.timeoutMs,
-      };
+      const payload: KernelExecuteRequest =
+        cell.type === "code"
+          ? {
+              type: "execute_request",
+              cellType: "code",
+              cellId: id,
+              code: cell.source,
+              language: cell.language,
+              timeoutMs: cell.metadata.timeoutMs,
+            }
+          : {
+              type: "execute_request",
+              cellType: "shell",
+              cellId: id,
+              command: cell.source,
+              timeoutMs: cell.metadata.timeoutMs,
+            };
       socket.send(JSON.stringify(payload));
     },
     [notebook, updateNotebookCell, runningCellId]
@@ -1215,7 +1228,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     );
 
     notebook.cells.forEach((cell) => {
-      if (cell.type === "code") {
+      if (cell.type === "code" || cell.type === "shell") {
         handleRunCell(cell.id);
       }
     });
@@ -1327,7 +1340,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     updateNotebook((current) => ({
       ...current,
       cells: current.cells.map((cell) =>
-        cell.type === "code"
+        cell.type === "code" || cell.type === "shell"
           ? { ...cell, outputs: [], execution: undefined }
           : cell
       ),

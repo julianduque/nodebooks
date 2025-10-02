@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 import { promises as fs } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { NODEBOOKS_UI_MIME, createCodeCell } from "@nodebooks/notebook-schema";
+import {
+  NODEBOOKS_UI_MIME,
+  createCodeCell,
+  createShellCell,
+} from "@nodebooks/notebook-schema";
 import { NotebookRuntime } from "../src/index.js";
 import type {
   DisplayDataOutput,
@@ -343,6 +347,80 @@ describe("NotebookRuntime", () => {
         | undefined;
       expect(payload?.ui).toBe("json");
       expect(payload?.json).toEqual({ hello: "name" });
+    });
+  });
+
+  it("executes shell commands and streams output", async () => {
+    await withRuntime(undefined, async (runtime) => {
+      const cell = createShellCell({
+        id: "cell-shell-success",
+        source: "echo shell-runtime",
+      });
+      const streams: StreamOutput[] = [];
+
+      const result = await runtime.execute({
+        cell,
+        command: cell.source ?? "",
+        notebookId: "notebook-shell-success",
+        env: createEnv(),
+        onStream: (output) => {
+          streams.push(output);
+        },
+      });
+
+      expect(result.execution.status).toBe("ok");
+      expect(
+        streams.some((stream) => stream.text.includes("shell-runtime"))
+      ).toBe(true);
+    });
+  });
+
+  it("reports non-zero shell exit codes as errors", async () => {
+    await withRuntime(undefined, async (runtime) => {
+      const cell = createShellCell({
+        id: "cell-shell-error",
+        source: "false",
+      });
+
+      const result = await runtime.execute({
+        cell,
+        command: cell.source ?? "",
+        notebookId: "notebook-shell-error",
+        env: createEnv(),
+      });
+
+      expect(result.execution.status).toBe("error");
+      const errorOutput = result.outputs.find(
+        (output) => output.type === "error"
+      );
+      expect(errorOutput).toBeDefined();
+      expect(String(errorOutput?.evalue ?? "")).toContain("code 1");
+    });
+  });
+
+  it("aborts shell commands that exceed the timeout", async () => {
+    await withRuntime(undefined, async (runtime) => {
+      const cell = createShellCell({
+        id: "cell-shell-timeout",
+        source: "sleep 2",
+      });
+      const streams: StreamOutput[] = [];
+
+      const result = await runtime.execute({
+        cell,
+        command: cell.source ?? "",
+        notebookId: "notebook-shell-timeout",
+        env: createEnv(),
+        timeoutMs: 100,
+        onStream: (output) => {
+          streams.push(output);
+        },
+      });
+
+      expect(result.execution.status).toBe("aborted");
+      expect(
+        streams.some((stream) => stream.text.includes("Command exceeded"))
+      ).toBe(true);
     });
   });
 
