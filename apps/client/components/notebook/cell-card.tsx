@@ -2,6 +2,7 @@
 
 import clsx from "clsx";
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { FocusEvent, SyntheticEvent } from "react";
 import { Button } from "../ui/button";
 import {
   ArrowDown,
@@ -395,6 +396,14 @@ const CellCard = ({
     updateCellSource,
   ]);
 
+  const stopToolbarPropagation = useCallback((event: SyntheticEvent) => {
+    event.stopPropagation();
+  }, []);
+
+  const stopToolbarFocus = useCallback((event: FocusEvent<HTMLElement>) => {
+    event.stopPropagation();
+  }, []);
+
   return (
     <article
       id={`cell-${cell.id}`}
@@ -406,7 +415,12 @@ const CellCard = ({
       onFocus={onActivate}
       tabIndex={-1}
     >
-      <div className="absolute right-0 top-0 z-50 flex flex-col gap-2 rounded-2xl border border-border bg-card/95 p-2 text-muted-foreground shadow-lg backdrop-blur-sm opacity-0 pointer-events-none transition group-hover/cell:opacity-100 group-hover/cell:pointer-events-auto group-focus-within/cell:opacity-100 group-focus-within/cell:pointer-events-auto">
+      <div
+        className="absolute right-0 top-0 z-50 flex flex-col gap-2 rounded-2xl border border-border bg-card/95 p-1.5 text-muted-foreground shadow-lg backdrop-blur-sm opacity-0 pointer-events-none transition group-hover/cell:opacity-100 group-hover/cell:pointer-events-auto group-focus-within/cell:opacity-100 group-focus-within/cell:pointer-events-auto [&>button]:size-10 [&>button]:rounded-xl"
+        onMouseDown={stopToolbarPropagation}
+        onTouchStart={stopToolbarPropagation}
+        onFocusCapture={stopToolbarFocus}
+      >
         {showAiActions &&
           (aiGenerating ? (
             <Button

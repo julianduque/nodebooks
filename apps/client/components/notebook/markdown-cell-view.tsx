@@ -1,12 +1,6 @@
 "use client";
 
-import {
-  useCallback,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { BeforeMount, OnMount } from "@monaco-editor/react";
 import DOMPurify from "dompurify";
 import hljs from "highlight.js";
