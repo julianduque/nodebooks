@@ -2,7 +2,7 @@
 
 import clsx from "clsx";
 import { Button } from "@/components/ui/button";
-import { Plus } from "lucide-react";
+import { Plus, Terminal } from "lucide-react";
 import type { NotebookCell } from "@nodebooks/notebook-schema";
 
 const AddCellMenu = ({
@@ -36,6 +36,15 @@ const AddCellMenu = ({
       >
         <Plus className="h-4 w-4" />
         Code
+      </Button>
+      <Button
+        variant="outline"
+        size="sm"
+        className="gap-2"
+        onClick={() => onAdd("shell")}
+      >
+        <Terminal className="h-4 w-4" />
+        Shell
       </Button>
     </div>
   );

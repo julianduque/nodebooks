@@ -2,16 +2,19 @@ import {
   createCodeCell,
   createEmptyNotebook,
   createMarkdownCell,
+  createShellCell,
   ensureNotebookRuntimeVersion,
   NotebookEnvSchema,
   type CodeCell,
   type MarkdownCell,
+  type ShellCell,
   type Notebook,
   type NotebookCell,
   type NotebookEnv,
   type NotebookFile,
   type NotebookFileCell,
   type NotebookFileCodeCell,
+  type NotebookFileShellCell,
   type NotebookFileNotebook,
 } from "@nodebooks/notebook-schema";
 
@@ -30,6 +33,13 @@ const cloneCells = (cells: NotebookFileCell[]): NotebookCell[] => {
       return createMarkdownCell({
         source: cell.source,
         metadata: cell.metadata ?? {},
+      });
+    }
+    if (cell.type === "shell") {
+      const shellCell = cell as NotebookFileShellCell;
+      return createShellCell({
+        metadata: shellCell.metadata ?? {},
+        buffer: shellCell.buffer ?? "",
       });
     }
     const codeCell = cell as NotebookFileCodeCell;
@@ -105,10 +115,26 @@ const serializeCodeCell = (cell: CodeCell): NotebookFileCell => {
   return result;
 };
 
+const serializeShellCell = (cell: ShellCell): NotebookFileCell => {
+  const result: NotebookFileCell = {
+    type: "shell",
+  };
+  if (!isEmptyRecord(cell.metadata)) {
+    result.metadata = cell.metadata;
+  }
+  if (cell.buffer && cell.buffer.length > 0) {
+    result.buffer = cell.buffer;
+  }
+  return result;
+};
+
 const serializeCells = (cells: NotebookCell[]): NotebookFileCell[] => {
   return cells.map((cell) => {
     if (cell.type === "markdown") {
       return serializeMarkdownCell(cell);
+    }
+    if (cell.type === "shell") {
+      return serializeShellCell(cell as ShellCell);
     }
     return serializeCodeCell(cell as CodeCell);
   });

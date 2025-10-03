@@ -515,6 +515,13 @@ export const MarkdownCellSchema = z.object({
   metadata: z.record(z.string(), z.unknown()).default({}),
 });
 
+export const ShellCellSchema = z.object({
+  id: z.string(),
+  type: z.literal("shell"),
+  metadata: z.record(z.string(), z.unknown()).default({}),
+  buffer: z.string().default(""),
+});
+
 export const CodeCellSchema = z.object({
   id: z.string(),
   type: z.literal("code"),
@@ -532,6 +539,7 @@ export const CodeCellSchema = z.object({
 
 export const NotebookCellSchema = z.discriminatedUnion("type", [
   MarkdownCellSchema,
+  ShellCellSchema,
   CodeCellSchema,
 ]);
 
@@ -546,6 +554,12 @@ export const NotebookFileMarkdownCellSchema = z.object({
   type: z.literal("markdown"),
   source: z.string(),
   metadata: z.record(z.string(), z.unknown()).optional(),
+});
+
+export const NotebookFileShellCellSchema = z.object({
+  type: z.literal("shell"),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+  buffer: z.string().optional(),
 });
 
 export const NotebookFileCodeCellSchema = z.object({
@@ -563,6 +577,7 @@ export const NotebookFileCodeCellSchema = z.object({
 
 export const NotebookFileCellSchema = z.discriminatedUnion("type", [
   NotebookFileMarkdownCellSchema,
+  NotebookFileShellCellSchema,
   NotebookFileCodeCellSchema,
 ]);
 
@@ -607,6 +622,7 @@ export type NotebookCell = z.infer<typeof NotebookCellSchema>;
 export type NotebookEnv = z.infer<typeof NotebookEnvSchema>;
 export type CodeCell = z.infer<typeof CodeCellSchema>;
 export type MarkdownCell = z.infer<typeof MarkdownCellSchema>;
+export type ShellCell = z.infer<typeof ShellCellSchema>;
 export type NotebookOutput = z.infer<typeof NotebookOutputSchema>;
 export type StreamOutput = z.infer<typeof StreamOutputSchema>;
 export type DisplayDataOutput = z.infer<typeof DisplayDataSchema>;
@@ -616,6 +632,7 @@ export type NotebookFileEnv = z.infer<typeof NotebookFileEnvSchema>;
 export type NotebookFileMarkdownCell = z.infer<
   typeof NotebookFileMarkdownCellSchema
 >;
+export type NotebookFileShellCell = z.infer<typeof NotebookFileShellCellSchema>;
 export type NotebookFileCodeCell = z.infer<typeof NotebookFileCodeCellSchema>;
 export type NotebookFileCell = z.infer<typeof NotebookFileCellSchema>;
 export type NotebookFileNotebook = z.infer<typeof NotebookFileNotebookSchema>;
@@ -679,6 +696,15 @@ export const createMarkdownCell = (
     type: "markdown",
     source: partial?.source ?? "",
     metadata: partial?.metadata ?? {},
+  });
+};
+
+export const createShellCell = (partial?: Partial<ShellCell>): ShellCell => {
+  return ShellCellSchema.parse({
+    id: partial?.id ?? createId(),
+    type: "shell",
+    metadata: partial?.metadata ?? {},
+    buffer: partial?.buffer ?? "",
   });
 };
 

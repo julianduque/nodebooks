@@ -16,6 +16,7 @@ import {
   Settings as SettingsIcon,
   Trash2,
   Plus,
+  Terminal,
   XCircle,
 } from "lucide-react";
 import {
@@ -30,6 +31,7 @@ import type { NotebookCell } from "@nodebooks/notebook-schema";
 import { clientConfig } from "@nodebooks/config/client";
 import CodeCellView from "./code-cell-view";
 import MarkdownCellView from "./markdown-cell-view";
+import ShellCellView from "./shell-cell-view";
 import type { AttachmentMetadata } from "@/components/notebook/attachment-utils";
 
 interface CellCardProps {
@@ -92,6 +94,15 @@ const AddCellMenu = ({
         <Plus className="h-4 w-4" />
         Code
       </Button>
+      <Button
+        variant="outline"
+        size="sm"
+        className="h-7 px-2 text-xs gap-1"
+        onClick={() => onAdd("shell")}
+      >
+        <Terminal className="h-4 w-4" />
+        Shell
+      </Button>
     </div>
   );
 };
@@ -120,7 +131,9 @@ const CellCard = ({
   dependencies,
 }: CellCardProps) => {
   const isCode = cell.type === "code";
-  const showAiActions = aiEnabled;
+  const isMarkdown = cell.type === "markdown";
+  const isShell = cell.type === "shell";
+  const showAiActions = aiEnabled && !isShell;
   const codeLanguage = isCode ? cell.language : undefined;
   const [showConfig, setShowConfig] = useState(false);
   const [timeoutDraft, setTimeoutDraft] = useState("");
@@ -503,7 +516,7 @@ const CellCard = ({
               <SettingsIcon className="h-4 w-4" />
             </Button>
           </>
-        ) : (
+        ) : isMarkdown ? (
           <Button
             variant="ghost"
             size="icon"
@@ -533,7 +546,7 @@ const CellCard = ({
               <Pencil className="h-4 w-4" />
             )}
           </Button>
-        )}
+        ) : null}
         {canMoveUp && (
           <Button
             variant="ghost"
@@ -635,7 +648,7 @@ const CellCard = ({
         </DialogContent>
       </Dialog>
 
-      {isCode ? (
+      {cell.type === "code" ? (
         <CodeCellView
           editorKey={editorKey}
           path={editorPath}
@@ -646,7 +659,7 @@ const CellCard = ({
           queued={queued}
           isGenerating={aiGenerating}
         />
-      ) : (
+      ) : cell.type === "markdown" ? (
         <MarkdownCellView
           editorKey={editorKey}
           path={editorPath}
@@ -654,6 +667,12 @@ const CellCard = ({
           notebookId={notebookId}
           onChange={onChange}
           onAttachmentUploaded={onAttachmentUploaded}
+        />
+      ) : (
+        <ShellCellView
+          cell={cell}
+          notebookId={notebookId}
+          onChange={onChange}
         />
       )}
 
