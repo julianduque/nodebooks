@@ -142,7 +142,7 @@ const CodeCellView = ({
     undefined;
 
   return (
-    <div className="relative rounded-2xl bg-slate-900 text-slate-100 shadow-lg ring-1 ring-slate-900/60">
+    <div className="relative overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 text-slate-100 shadow-lg">
       <div className="pointer-events-none absolute left-1 top-1 z-10 flex items-center gap-2">
         {isGenerating ? (
           <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-semibold text-emerald-200">
@@ -183,9 +183,9 @@ const CodeCellView = ({
       </div>
 
       {!hideEditor ? (
-        <div className="rounded-2xl p-2">
+        <div className="px-2 pb-2 pt-2">
           <MonacoEditor
-            className="rounded-xl border border-slate-800"
+            className="rounded-xl border border-slate-800/70 bg-slate-950/80 shadow-inner overflow-hidden"
             key={editorKey}
             path={path ?? `${cell.id}.${cell.language === "ts" ? "ts" : "js"}`}
             height={editorHeight || 0}
@@ -209,7 +209,7 @@ const CodeCellView = ({
               automaticLayout: true,
               readOnly: isRunning || isGenerating,
               fixedOverflowWidgets: true,
-              padding: { top: 22, bottom: 18 },
+              padding: { top: 18, bottom: 18 },
               scrollbar: {
                 vertical: "hidden",
                 horizontal: "auto",
@@ -223,7 +223,7 @@ const CodeCellView = ({
       ) : null}
 
       {(hideEditor || cell.outputs.length > 0) && (
-        <div className="space-y-2 rounded-b-2xl bg-slate-900/60 p-4 text-sm text-slate-100">
+        <div className="space-y-3 border-t border-slate-800/70 bg-slate-950 px-4 py-4 text-sm text-slate-100">
           {cell.outputs.length > 0 ? (
             cell.outputs.map((output, index) => (
               <OutputView key={index} output={output} />

@@ -50,7 +50,7 @@ export default function HomePage() {
     const res = await fetch(`${API_BASE_URL}/notebooks`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ template: "starter" }),
+      body: JSON.stringify({ template: "blank" }),
     });
     const payload = await res.json();
     const created: Notebook | undefined = payload?.data;

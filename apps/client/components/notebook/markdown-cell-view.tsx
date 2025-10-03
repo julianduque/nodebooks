@@ -397,15 +397,15 @@ const MarkdownCellView = ({
 
   return (
     <div
-      className="relative flex flex-col gap-3"
+      className="relative flex flex-col gap-3 overflow-hidden rounded-2xl text-card-foreground"
       onDragEnter={handleDragEnter}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
       {isUploading ? (
-        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-xl bg-background/70 backdrop-blur-sm">
-          <div className="rounded-md bg-background/90 px-4 py-2 text-xs font-medium text-foreground shadow">
+        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+          <div className="rounded-md bg-background/95 px-4 py-2 text-xs font-medium text-foreground shadow">
             {uploadStatus
               ? `Uploading attachment ${uploadStatus.current} of ${uploadStatus.total}…`
               : "Uploading attachment…"}
@@ -413,62 +413,65 @@ const MarkdownCellView = ({
         </div>
       ) : null}
       {isDraggingOver ? (
-        <div className="pointer-events-none absolute inset-0 z-10 rounded-xl border-2 border-dashed border-primary/80 bg-primary/10" />
+        <div className="pointer-events-none absolute inset-0 z-10 border-2 border-dashed border-primary/70 bg-primary/10" />
       ) : null}
       {isEditing ? (
-        <div className="relative rounded-xl border border-border bg-transparent">
-          <MonacoEditor
-            key={editorKey}
-            path={path ?? `${cell.id}.md`}
-            height={editorHeight || 0}
-            language="markdown"
-            defaultLanguage="markdown"
-            theme="vs-dark"
-            value={cell.source}
-            onMount={handleMount}
-            beforeMount={handleBeforeMount}
-            onChange={(value: string | undefined) =>
-              onChange((current) =>
-                current.type === "markdown"
-                  ? { ...current, source: value ?? "" }
-                  : current
-              )
-            }
-            options={{
-              minimap: { enabled: false },
-              fontSize: 14,
-              lineNumbers: "off",
-              scrollBeyondLastLine: false,
-              wordWrap: "on",
-              automaticLayout: true,
-              fixedOverflowWidgets: true,
-              padding: { top: 12, bottom: 12 },
-              scrollbar: {
-                vertical: "hidden",
-                horizontal: "auto",
-                handleMouseWheel: false,
-                alwaysConsumeMouseWheel: false,
-              },
-              overviewRulerLanes: 0,
-            }}
-          />
+        <div className="relative">
+          <div className="px-5 pt-5">
+            <MonacoEditor
+              className="rounded-xl border border-slate-800/70 bg-slate-950/80 shadow-inner overflow-hidden"
+              key={editorKey}
+              path={path ?? `${cell.id}.md`}
+              height={editorHeight || 0}
+              language="markdown"
+              defaultLanguage="markdown"
+              theme="vs-dark"
+              value={cell.source}
+              onMount={handleMount}
+              beforeMount={handleBeforeMount}
+              onChange={(value: string | undefined) =>
+                onChange((current) =>
+                  current.type === "markdown"
+                    ? { ...current, source: value ?? "" }
+                    : current
+                )
+              }
+              options={{
+                minimap: { enabled: false },
+                fontSize: 14,
+                lineNumbers: "off",
+                scrollBeyondLastLine: false,
+                wordWrap: "on",
+                automaticLayout: true,
+                fixedOverflowWidgets: true,
+                padding: { top: 12, bottom: 12 },
+                scrollbar: {
+                  vertical: "hidden",
+                  horizontal: "auto",
+                  handleMouseWheel: false,
+                  alwaysConsumeMouseWheel: false,
+                },
+                overviewRulerLanes: 0,
+              }}
+            />
+          </div>
           <div
-            className="markdown-preview space-y-3 border-t border-border p-5 text-sm leading-7 text-foreground"
+            className="markdown-preview space-y-3 bg-card px-5 pb-5 pt-4 text-sm leading-7 text-card-foreground"
             ref={setPreviewRef}
             dangerouslySetInnerHTML={{ __html: html }}
           />
         </div>
       ) : (
-        <div className="relative">
+        <div className="relative px-5 py-5">
           <div
-            className="markdown-preview space-y-3 rounded-xl border border-transparent p-5 text-sm leading-7 text-foreground transition group-hover/cell:border-border"
+            className="markdown-preview space-y-3 text-sm leading-7 text-card-foreground"
             ref={setPreviewRef}
             dangerouslySetInnerHTML={{ __html: html }}
           />
         </div>
       )}
       {uploadError ? (
-        <p className="text-xs text-rose-500">{uploadError}</p>
+        <p className="px-5 pb-5 text-xs text-rose-500">{uploadError}</p>
       ) : null}
     </div>
   );

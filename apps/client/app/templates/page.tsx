@@ -81,7 +81,7 @@ export default function TemplatesPage() {
   }, []);
 
   const createFrom = useCallback(
-    async (template: NotebookTemplateId = "starter") => {
+    async (template: NotebookTemplateId = "blank") => {
       try {
         const res = await fetch(`${API_BASE_URL}/notebooks`, {
           method: "POST",
@@ -185,7 +185,7 @@ export default function TemplatesPage() {
   }, [loading, error, templates, createFrom]);
 
   return (
-    <AppShell title="Templates" onNewNotebook={() => createFrom("starter")}>
+    <AppShell title="Templates" onNewNotebook={() => createFrom("blank")}>
       <h1 className="text-3xl font-semibold text-foreground">
         Template Gallery
       </h1>

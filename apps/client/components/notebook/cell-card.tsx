@@ -45,7 +45,7 @@ interface CellCardProps {
   onRun: () => void;
   onInterrupt?: () => void;
   onDelete: () => void;
-  onAddBelow: (type: NotebookCell["type"]) => void;
+  onAddBelow: (type: NotebookCell["type"]) => void | Promise<void>;
   onMove: (direction: "up" | "down") => void;
   isRunning: boolean;
   queued?: boolean;
@@ -66,7 +66,7 @@ const AddCellMenu = ({
   onAdd,
   className,
 }: {
-  onAdd: (type: NotebookCell["type"]) => void;
+  onAdd: (type: NotebookCell["type"]) => void | Promise<void>;
   className?: string;
 }) => {
   return (
@@ -135,6 +135,7 @@ const CellCard = ({
   const isShell = cell.type === "shell";
   const showAiActions = aiEnabled && !isShell;
   const codeLanguage = isCode ? cell.language : undefined;
+  const cellContent = cell.type === "shell" ? cell.buffer : cell.source;
   const [showConfig, setShowConfig] = useState(false);
   const [timeoutDraft, setTimeoutDraft] = useState("");
   const [timeoutError, setTimeoutError] = useState<string | null>(null);
@@ -229,7 +230,10 @@ const CellCard = ({
         if (current.id !== cell.id || current.type !== cell.type) {
           return current;
         }
-        return { ...current, source: nextSource } as NotebookCell;
+        if (current.type === "shell") {
+          return { ...current, buffer: nextSource };
+        }
+        return { ...current, source: nextSource };
       }, options);
     },
     [cell.id, cell.type, onChange]
@@ -301,7 +305,7 @@ const CellCard = ({
     aiCloseIntentRef.current = "auto";
     setAiOpen(false);
 
-    const originalSource = cell.source ?? "";
+    const originalSource = cellContent;
     const controller = new AbortController();
     aiControllerRef.current = controller;
 
@@ -402,7 +406,7 @@ const CellCard = ({
     aiGenerating,
     aiPrompt,
     codeLanguage,
-    cell.source,
+    cellContent,
     cell.type,
     dependencies,
     onActivate,

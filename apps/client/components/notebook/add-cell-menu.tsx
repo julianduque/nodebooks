@@ -9,9 +9,13 @@ const AddCellMenu = ({
   onAdd,
   className,
 }: {
-  onAdd: (type: NotebookCell["type"]) => void;
+  onAdd: (type: NotebookCell["type"]) => void | Promise<void>;
   className?: string;
 }) => {
+  const handleAdd = (type: NotebookCell["type"]) => {
+    void onAdd(type);
+  };
+
   return (
     <div
       className={clsx(
@@ -23,7 +27,7 @@ const AddCellMenu = ({
         variant="outline"
         size="sm"
         className="gap-2"
-        onClick={() => onAdd("markdown")}
+        onClick={() => handleAdd("markdown")}
       >
         <Plus className="h-4 w-4" />
         Markdown
@@ -32,7 +36,7 @@ const AddCellMenu = ({
         variant="outline"
         size="sm"
         className="gap-2"
-        onClick={() => onAdd("code")}
+        onClick={() => handleAdd("code")}
       >
         <Plus className="h-4 w-4" />
         Code
@@ -41,7 +45,7 @@ const AddCellMenu = ({
         variant="outline"
         size="sm"
         className="gap-2"
-        onClick={() => onAdd("shell")}
+        onClick={() => handleAdd("shell")}
       >
         <Terminal className="h-4 w-4" />
         Shell

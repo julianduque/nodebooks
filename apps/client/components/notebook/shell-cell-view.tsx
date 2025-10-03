@@ -1,14 +1,8 @@
 "use client";
 
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
-import { Terminal } from "@xterm/xterm";
-import { FitAddon } from "@xterm/addon-fit";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { Terminal as XTermTerminal } from "@xterm/xterm";
+import type { FitAddon as XTermFitAddon } from "@xterm/addon-fit";
 import type { NotebookCell } from "@nodebooks/notebook-schema";
 import { clientConfig } from "@nodebooks/config/client";
 import { useTheme } from "@/components/theme-context";
@@ -41,10 +35,7 @@ interface TerminalServerMessage {
   message?: string;
 }
 
-const buildWsUrl = (
-  notebookId: string,
-  cellId: string
-): string | null => {
+const buildWsUrl = (notebookId: string, cellId: string): string | null => {
   const encodedNotebook = encodeURIComponent(notebookId);
   const encodedCell = encodeURIComponent(cellId);
   const path = `/ws/notebooks/${encodedNotebook}/shells/${encodedCell}`;
@@ -61,16 +52,24 @@ const buildWsUrl = (
 
 const ShellCellView = ({ cell, notebookId, onChange }: ShellCellViewProps) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const termRef = useRef<Terminal | null>(null);
-  const fitRef = useRef<FitAddon | null>(null);
+  const termRef = useRef<XTermTerminal | null>(null);
+  const fitRef = useRef<XTermFitAddon | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const bufferRef = useRef<string>(cell.buffer ?? "");
-  const dimsRef = useRef<{ cols: number; rows: number }>({ cols: 80, rows: 24 });
+  const dimsRef = useRef<{ cols: number; rows: number }>({
+    cols: 80,
+    rows: 24,
+  });
+  const onChangeRef = useRef<ShellCellViewProps["onChange"] | null>(onChange);
   const { theme } = useTheme();
   const [status, setStatus] = useState<TerminalStatus>("connecting");
   const [error, setError] = useState<string | null>(null);
   const [exitCode, setExitCode] = useState<number | null>(null);
+
+  useEffect(() => {
+    onChangeRef.current = onChange;
+  }, [onChange]);
 
   const applyBufferUpdate = useCallback(
     (producer: (current: string) => string) => {
@@ -79,7 +78,11 @@ const ShellCellView = ({ cell, notebookId, onChange }: ShellCellViewProps) => {
         return;
       }
       bufferRef.current = next.slice(-MAX_BUFFER_LENGTH);
-      onChange(
+      const update = onChangeRef.current;
+      if (!update) {
+        return;
+      }
+      update(
         (current) => {
           if (current.id !== cell.id || current.type !== "shell") {
             return current;
@@ -89,7 +92,7 @@ const ShellCellView = ({ cell, notebookId, onChange }: ShellCellViewProps) => {
         { persist: false, touch: false }
       );
     },
-    [cell.id, onChange]
+    [cell.id]
   );
 
   useEffect(() => {
@@ -113,107 +116,134 @@ const ShellCellView = ({ cell, notebookId, onChange }: ShellCellViewProps) => {
     };
   }, [theme]);
 
-  const attachTerminal = useCallback(() => {
-    if (!containerRef.current) {
-      return;
-    }
-    const term = new Terminal({
-      convertEol: true,
-      cursorBlink: true,
-      fontFamily: "Menlo, Monaco, 'Courier New', monospace",
-      fontSize: 13,
-      theme: themeOptions,
-      allowProposedApi: true,
-      rendererType: "canvas",
-    });
-    const fit = new FitAddon();
-    term.loadAddon(fit);
-    termRef.current = term;
-    fitRef.current = fit;
-    const container = containerRef.current;
-    term.open(container);
-    try {
-      fit.fit();
-    } catch (err) {
-      void err;
-    }
-    dimsRef.current = { cols: term.cols, rows: term.rows };
-    const observer = new ResizeObserver(() => {
-      if (!fitRef.current || !termRef.current) {
+  useEffect(() => {
+    let disposed = false;
+    let cleanup: (() => void) | null = null;
+
+    const setup = async () => {
+      if (!containerRef.current) {
         return;
       }
       try {
-        fitRef.current.fit();
+        const [{ Terminal }, { FitAddon }] = await Promise.all([
+          import("@xterm/xterm"),
+          import("@xterm/addon-fit"),
+        ]);
+        if (disposed || !containerRef.current) {
+          return;
+        }
+        const term = new Terminal({
+          convertEol: true,
+          cursorBlink: true,
+          fontFamily: "Menlo, Monaco, 'Courier New', monospace",
+          fontSize: 14,
+          theme: themeOptions,
+          allowProposedApi: true,
+        });
+        const fit = new FitAddon();
+        term.loadAddon(fit);
+        termRef.current = term;
+        fitRef.current = fit;
+        const container = containerRef.current;
+        term.open(container);
+
+        const performFit = () => {
+          if (!fitRef.current || !termRef.current) {
+            return;
+          }
+          try {
+            fitRef.current.fit();
+          } catch (err) {
+            void err;
+          }
+          dimsRef.current = {
+            cols: termRef.current.cols,
+            rows: termRef.current.rows,
+          };
+        };
+
+        if (typeof window !== "undefined") {
+          window.requestAnimationFrame(() => {
+            if (!disposed) {
+              performFit();
+            }
+          });
+        } else {
+          performFit();
+        }
+
+        const observer = new ResizeObserver(() => {
+          performFit();
+          if (
+            socketRef.current?.readyState === WebSocket.OPEN &&
+            termRef.current
+          ) {
+            const payload = {
+              type: "resize" as const,
+              cols: termRef.current.cols,
+              rows: termRef.current.rows,
+            };
+            try {
+              socketRef.current.send(JSON.stringify(payload));
+            } catch (err) {
+              void err;
+            }
+          }
+        });
+        observer.observe(container);
+        resizeObserverRef.current = observer;
+
+        term.onData((chunk) => {
+          if (socketRef.current?.readyState === WebSocket.OPEN) {
+            try {
+              socketRef.current.send(
+                JSON.stringify({ type: "input", data: chunk })
+              );
+            } catch (err) {
+              void err;
+            }
+          }
+        });
+
+        const handlePointerFocus = () => {
+          term.focus();
+        };
+        container.addEventListener("mousedown", handlePointerFocus);
+
+        cleanup = () => {
+          try {
+            observer.disconnect();
+          } catch (err) {
+            void err;
+          }
+          resizeObserverRef.current = null;
+          try {
+            container.removeEventListener("mousedown", handlePointerFocus);
+          } catch (err) {
+            void err;
+          }
+          try {
+            term.dispose();
+          } catch (err) {
+            void err;
+          }
+          termRef.current = null;
+          fitRef.current = null;
+        };
       } catch (err) {
+        setError("Failed to load terminal");
         void err;
       }
-      dimsRef.current = {
-        cols: termRef.current.cols,
-        rows: termRef.current.rows,
-      };
-      if (socketRef.current?.readyState === WebSocket.OPEN) {
-        const payload = {
-          type: "resize" as const,
-          cols: termRef.current.cols,
-          rows: termRef.current.rows,
-        };
-        try {
-          socketRef.current.send(JSON.stringify(payload));
-        } catch (err) {
-          void err;
-        }
-      }
-    });
-    if (container) {
-      observer.observe(container);
-    }
-    resizeObserverRef.current = observer;
-
-    term.onData((chunk) => {
-      if (socketRef.current?.readyState === WebSocket.OPEN) {
-        try {
-          socketRef.current.send(
-            JSON.stringify({ type: "input", data: chunk })
-          );
-        } catch (err) {
-          void err;
-        }
-      }
-    });
-
-    const handlePointerFocus = () => {
-      term.focus();
     };
-    container?.addEventListener("mousedown", handlePointerFocus);
+
+    setup();
 
     return () => {
-      try {
-        observer.disconnect();
-      } catch (err) {
-        void err;
-      }
-      resizeObserverRef.current = null;
-      try {
-        container?.removeEventListener("mousedown", handlePointerFocus);
-      } catch (err) {
-        void err;
-      }
-      try {
-        term.dispose();
-      } catch (err) {
-        void err;
-      }
-      termRef.current = null;
-      fitRef.current = null;
+      disposed = true;
+      cleanup?.();
+      cleanup = null;
     };
   }, [themeOptions]);
-
-  useEffect(() => {
-    const dispose = attachTerminal();
-    return () => {
-      dispose?.();
-    };
-  }, [attachTerminal]);
 
   const appendToTerminal = useCallback((text: string) => {
     const term = termRef.current;
@@ -230,82 +260,202 @@ const ShellCellView = ({ cell, notebookId, onChange }: ShellCellViewProps) => {
       setError("Terminal is unavailable in this environment.");
       return;
     }
-    const socket = new WebSocket(url);
-    socketRef.current = socket;
+    const targetUrl = url;
+
     setStatus("connecting");
     setError(null);
     setExitCode(null);
 
-    socket.onopen = () => {
-      const term = termRef.current;
-      if (term && socket.readyState === WebSocket.OPEN) {
-        const payload = {
-          type: "init" as const,
-          cols: term.cols,
-          rows: term.rows,
-        };
-        dimsRef.current = { cols: term.cols, rows: term.rows };
+    let ignoreEvents = false;
+    let cleanupSocket: (() => void) | null = null;
+    let rafId: number | null = null;
+    const retryTimeouts: number[] = [];
+    let attempts = 0;
+
+    function scheduleRetry() {
+      if (ignoreEvents) {
+        return;
+      }
+      if (attempts >= 3) {
+        return;
+      }
+      if (typeof window === "undefined") {
+        connect();
+        return;
+      }
+      const timeout = window.setTimeout(
+        () => {
+          if (!ignoreEvents) {
+            connect();
+          }
+        },
+        500 * (attempts + 1)
+      );
+      retryTimeouts.push(timeout);
+    }
+
+    function connect() {
+      if (ignoreEvents) {
+        return;
+      }
+      attempts += 1;
+      setStatus("connecting");
+      const socket = new WebSocket(targetUrl);
+      socketRef.current = socket;
+
+      const safeClose = (code = 1000, reason = "shell cell unmounted") => {
         try {
-          socket.send(JSON.stringify(payload));
+          socket.close(code, reason);
         } catch (err) {
           void err;
         }
-      }
-    };
+      };
 
-    socket.onerror = () => {
-      setStatus("error");
-      setError("Terminal connection error");
-    };
+      let sawReady = false;
+      let scheduledRetry = false;
 
-    socket.onclose = () => {
-      if (socketRef.current === socket) {
-        socketRef.current = null;
-      }
-      setStatus((prev) => (prev === "error" ? prev : "closed"));
-    };
+      const triggerRetry = (message?: string) => {
+        if (scheduledRetry) {
+          return;
+        }
+        scheduledRetry = true;
+        if (!ignoreEvents) {
+          setStatus("connecting");
+          setError(
+            message ? `${message} — retrying…` : "Retrying shell connection…"
+          );
+        }
+        scheduleRetry();
+      };
 
-    socket.onmessage = (event) => {
-      try {
-        const message = JSON.parse(event.data) as TerminalServerMessage;
-        if (message.type === "ready") {
-          setStatus("ready");
-          const initial = message.buffer ?? "";
-          if (initial.length > 0) {
-            appendToTerminal(initial);
-            applyBufferUpdate(() => initial);
+      const handleOpen = () => {
+        if (ignoreEvents) {
+          safeClose();
+          return;
+        }
+        const term = termRef.current;
+        if (term && socket.readyState === WebSocket.OPEN) {
+          const payload = {
+            type: "init" as const,
+            cols: term.cols,
+            rows: term.rows,
+          };
+          dimsRef.current = { cols: term.cols, rows: term.rows };
+          try {
+            socket.send(JSON.stringify(payload));
+          } catch (err) {
+            void err;
           }
+        }
+      };
+
+      const handleError = () => {
+        if (ignoreEvents) {
           return;
         }
-        if (message.type === "data") {
-          const chunk = message.data ?? "";
-          appendToTerminal(chunk);
-          applyBufferUpdate((current) => `${current}${chunk}`);
-          return;
-        }
-        if (message.type === "exit") {
-          setExitCode(message.code ?? 0);
-          setStatus("closed");
-          return;
-        }
-        if (message.type === "error") {
-          setError(message.message ?? "Terminal error");
-          setStatus("error");
-        }
-      } catch {
-        setError("Received malformed terminal data");
         setStatus("error");
-      }
-    };
+        setError("Terminal connection error");
+        triggerRetry("Terminal connection error");
+      };
+
+      const handleClose = () => {
+        if (socketRef.current === socket) {
+          socketRef.current = null;
+        }
+        if (ignoreEvents) {
+          return;
+        }
+        setStatus((prev) => (prev === "error" ? prev : "closed"));
+        if (!sawReady) {
+          triggerRetry();
+        }
+      };
+
+      const handleMessage = (event: MessageEvent) => {
+        if (ignoreEvents) {
+          return;
+        }
+        try {
+          const message = JSON.parse(event.data) as TerminalServerMessage;
+          if (message.type === "ready") {
+            sawReady = true;
+            setError(null);
+            setStatus("ready");
+            const initial = message.buffer ?? "";
+            if (initial.length > 0) {
+              appendToTerminal(initial);
+              applyBufferUpdate(() => initial);
+            }
+            return;
+          }
+          if (message.type === "data") {
+            const chunk = message.data ?? "";
+            appendToTerminal(chunk);
+            applyBufferUpdate((current) => `${current}${chunk}`);
+            return;
+          }
+          if (message.type === "exit") {
+            setExitCode(message.code ?? 0);
+            setStatus("closed");
+            return;
+          }
+          if (message.type === "error") {
+            setError(message.message ?? "Terminal error");
+            setStatus("error");
+            const text = message.message ?? "";
+            if (text.toLowerCase().includes("shell cell not found")) {
+              triggerRetry("Shell cell not found");
+            }
+          }
+        } catch {
+          setError("Received malformed terminal data");
+          setStatus("error");
+          triggerRetry("Malformed terminal data");
+        }
+      };
+
+      socket.addEventListener("open", handleOpen);
+      socket.addEventListener("error", handleError);
+      socket.addEventListener("close", handleClose);
+      socket.addEventListener("message", handleMessage);
+
+      cleanupSocket = () => {
+        socket.removeEventListener("open", handleOpen);
+        socket.removeEventListener("error", handleError);
+        socket.removeEventListener("close", handleClose);
+        socket.removeEventListener("message", handleMessage);
+        if (socketRef.current === socket) {
+          socketRef.current = null;
+        }
+        if (socket.readyState === WebSocket.CONNECTING) {
+          const closeAfterConnect = () => safeClose();
+          socket.addEventListener("open", closeAfterConnect, { once: true });
+          socket.addEventListener("error", closeAfterConnect, { once: true });
+        } else if (
+          socket.readyState === WebSocket.OPEN ||
+          socket.readyState === WebSocket.CLOSING
+        ) {
+          safeClose();
+        }
+      };
+    }
+    if (typeof window !== "undefined") {
+      rafId = window.requestAnimationFrame(connect);
+    } else {
+      connect();
+    }
 
     return () => {
-      if (socketRef.current === socket) {
-        socketRef.current = null;
+      ignoreEvents = true;
+      if (typeof window !== "undefined" && rafId !== null) {
+        window.cancelAnimationFrame(rafId);
       }
-      try {
-        socket.close(1000, "shell cell unmounted");
-      } catch (err) {
-        void err;
+      cleanupSocket?.();
+      cleanupSocket = null;
+      if (typeof window !== "undefined") {
+        for (const timeout of retryTimeouts) {
+          window.clearTimeout(timeout);
+        }
       }
     };
   }, [appendToTerminal, applyBufferUpdate, cell.id, notebookId]);
@@ -340,16 +490,16 @@ const ShellCellView = ({ cell, notebookId, onChange }: ShellCellViewProps) => {
   }, [status]);
 
   return (
-    <div className="relative rounded-2xl bg-slate-950 text-slate-50 shadow-lg ring-1 ring-slate-900/60">
-      <div className="pointer-events-none absolute left-3 top-3 z-10 flex items-center gap-2">
-        {statusBadge}
-        {exitCode !== null ? (
-          <span className="inline-flex items-center gap-1 rounded-full bg-slate-800/70 px-2 py-0.5 text-[10px] font-semibold text-slate-200">
-            Exit {exitCode}
-          </span>
-        ) : null}
-      </div>
-      <div className="pointer-events-none absolute right-3 top-3 z-10">
+    <div className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 text-slate-50 shadow-lg">
+      <div className="flex flex-wrap items-center justify-between gap-2 px-2 py-2">
+        <div className="flex items-center gap-2">
+          {statusBadge}
+          {exitCode !== null ? (
+            <span className="inline-flex items-center gap-1 rounded-full bg-slate-800/70 px-2 py-0.5 text-[10px] font-semibold text-slate-200">
+              Exit {exitCode}
+            </span>
+          ) : null}
+        </div>
         <Badge
           variant="secondary"
           className="bg-slate-800/80 text-[10px] uppercase tracking-[0.2em] text-slate-200"
@@ -357,16 +507,18 @@ const ShellCellView = ({ cell, notebookId, onChange }: ShellCellViewProps) => {
           Shell
         </Badge>
       </div>
-      <div
-        ref={containerRef}
-        className={cn(
-          "min-h-[260px] w-full overflow-hidden rounded-2xl border border-slate-800/60 bg-slate-950",
-          status === "error" ? "opacity-60" : ""
-        )}
-      />
-      {error ? (
-        <p className="px-4 pb-3 pt-2 text-[12px] text-rose-300">{error}</p>
-      ) : null}
+      <div className="px-4 pb-4">
+        <div
+          ref={containerRef}
+          className={cn(
+            "min-h-[260px] w-full overflow-hidden border border-slate-800/60 bg-slate-950",
+            status === "error" ? "opacity-60" : ""
+          )}
+        />
+        {error ? (
+          <p className="mt-3 text-[12px] text-rose-300">{error}</p>
+        ) : null}
+      </div>
     </div>
   );
 };

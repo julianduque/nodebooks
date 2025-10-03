@@ -31,7 +31,6 @@ import {
   ListTree,
   Paperclip,
   Download,
-  Terminal,
 } from "lucide-react";
 import ConfirmDialog from "@/components/ui/confirm";
 import { useRouter } from "next/navigation";
@@ -496,10 +495,20 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
       const payload = await response.json();
       const saved: Notebook | undefined = payload?.data;
       if (saved) {
-        setNotebook(saved);
+        setNotebook((prev) => {
+          if (!prev || prev.id !== saved.id) {
+            notebookRef.current = saved;
+            return saved;
+          }
+          const merged: Notebook = {
+            ...saved,
+            cells: prev.cells,
+          };
+          notebookRef.current = merged;
+          return merged;
+        });
         setDirty(false);
         setError(null);
-        notebookRef.current = saved;
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save notebook");
@@ -771,7 +780,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
           const created = await fetch(`${API_BASE_URL}/notebooks`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ template: "starter" }),
+            body: JSON.stringify({ template: "blank" }),
             signal: controller.signal,
           });
           if (!created.ok) {
@@ -934,7 +943,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
   // Notebook selection/navigation handled by router pages
 
   const handleCreateNotebook = useCallback(
-    async (template: NotebookTemplateId = "starter") => {
+    async (template: NotebookTemplateId = "blank") => {
       try {
         const response = await fetch(`${API_BASE_URL}/notebooks`, {
           method: "POST",
@@ -988,9 +997,15 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         }
         return { ...current, cells };
       });
-      scheduleAutoSave();
+      setActiveCellId(nextCell.id);
+      if (type === "shell") {
+        clearPendingSave();
+        void saveNotebookNow();
+      } else {
+        scheduleAutoSave();
+      }
     },
-    [updateNotebook, scheduleAutoSave]
+    [updateNotebook, scheduleAutoSave, saveNotebookNow, clearPendingSave]
   );
 
   const handleDeleteCell = useCallback(
@@ -1494,9 +1509,33 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
       );
     }
 
+    if (notebook.cells.length === 0) {
+      return (
+        <div className="flex flex-1 items-center justify-center p-10">
+          <Card className="w-full max-w-lg text-center">
+            <CardContent className="space-y-6 py-10">
+              <div className="space-y-2">
+                <p className="text-lg font-semibold text-foreground">
+                  Start building your notebook
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  Add a Markdown note, run JavaScript or TypeScript, or open a
+                  shell session to begin.
+                </p>
+              </div>
+              <AddCellMenu
+                onAdd={(type) => handleAddCell(type)}
+                className="mt-0 flex justify-center gap-2 text-[13px]"
+              />
+            </CardContent>
+          </Card>
+        </div>
+      );
+    }
+
     return (
       <div className="flex min-h-full flex-1 flex-col">
-        <div className="flex flex-1 overflow-hidden">
+        <div className="flex flex-1 overflow-visible">
           <div className="flex-1 px-2 py-2">
             {error ? (
               <AlertCallout
@@ -1604,12 +1643,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
                 />
               ))}
             </div>
-            <div className="mt-2 mb-2 flex justify-center py-3 opacity-0 transition hover:opacity-100 focus-within:opacity-100">
-              <AddCellMenu
-                onAdd={(type) => handleAddCell(type)}
-                className="pointer-events-auto text-[11px]"
-              />
-            </div>
+            {/* bottom add menu omitted when cells exist; inline add controls live on each cell */}
           </div>
         </div>
       </div>
@@ -1734,24 +1768,6 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         </div>
         <div className="flex flex-1 flex-wrap items-center justify-end gap-1.5 sm:flex-none sm:gap-2">
           <Button
-            variant="outline"
-            size="sm"
-            className="hidden sm:inline-flex items-center gap-2"
-            onClick={() => handleAddCell("shell")}
-          >
-            <Terminal className="h-4 w-4" /> Shell
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="sm:hidden"
-            onClick={() => handleAddCell("shell")}
-            aria-label="Add shell cell"
-            title="Add shell cell"
-          >
-            <Terminal className="h-4 w-4" />
-          </Button>
-          <Button
             variant={dirty ? "secondary" : "ghost"}
             size="icon"
             onClick={handleSaveNow}
@@ -1856,7 +1872,6 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     handleRunAll,
     handleExportNotebook,
     handleSaveNow,
-    handleAddCell,
     shareStatus,
     handleShare,
     sessionId,
