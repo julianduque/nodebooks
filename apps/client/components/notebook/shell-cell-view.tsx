@@ -13,8 +13,6 @@ import {
   type TerminalPreferences,
 } from "./editor-preferences";
 
-import "@xterm/xterm/css/xterm.css";
-
 const API_BASE_URL = clientConfig().apiBaseUrl ?? "/api";
 const MAX_BUFFER_LENGTH = 1_000_000;
 
