@@ -56,8 +56,8 @@ const formatDependenciesForPrompt = (
 const buildCodeSystemPrompt = (dependencies?: Record<string, string>) =>
   "You are an expert TypeScript and Node.js developer working inside a NodeBooks code cell." +
   " Generate runnable code for Node.js 22 using ES modules." +
-  " If need to display UI elements, use the UI components from '@nodebooks/notebook-ui'; the related types are available below. Do not invent any UI components not available in the types." +
-  ` <nodebooks-ui>${uiHelpersModuleDts}</nodebooks-ui>` +
+  " If need to display UI elements, use the UI components from '@nodebooks/ui'; the related types are available below. Do not invent any UI components not available in the @nodebooks/ui types." +
+  ` <@nodebooks/ui>${uiHelpersModuleDts}</@nodebooks/ui>` +
   " Do not use React or any other UI library. Keep in mind the UI components are mostly server-side, so do not use any client-side code." +
   " Preserve and extend any existing code context; do not remove useful logic. Keep function signatures and exports stable unless change is required." +
   " Import all used symbols. Avoid unused imports and dead code." +
@@ -65,7 +65,7 @@ const buildCodeSystemPrompt = (dependencies?: Record<string, string>) =>
   " Use only existing project dependencies and the Node.js standard library." +
   ` <dependencies>${formatDependenciesForPrompt(dependencies)}</dependencies>` +
   ` ${COMMON_GUARDRAIL}` +
-  " Return only executable code with no comments or markdown fences.";
+  " Return only executable code without markdown enclosures.";
 
 const extractChunkText = (chunk: AIMessageChunk): string => {
   const { content } = chunk;
