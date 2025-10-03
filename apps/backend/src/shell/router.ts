@@ -2,7 +2,7 @@ import type { IncomingMessage } from "node:http";
 import type { Socket } from "node:net";
 import WebSocket, { WebSocketServer, type RawData } from "ws";
 import { z } from "zod";
-import { spawn, type IPty } from "node-pty";
+import { spawn, type IPty } from "@lydell/node-pty";
 import { loadServerConfig } from "@nodebooks/config";
 import {
   ShellCellSchema,
@@ -158,7 +158,8 @@ const createShellSession = async (
     return;
   }
   const cell = notebook.cells.find(
-    (item) => item.id === params.cellId && item.type === "shell"
+    (item): item is ShellCell =>
+      item.id === params.cellId && item.type === "shell"
   );
   if (!cell) {
     sendMessage(connection, {
@@ -188,7 +189,7 @@ const createShellSession = async (
     notebookId: params.notebookId,
     cellId: params.cellId,
     pty,
-    buffer: typeof (cell as ShellCell).buffer === "string" ? cell.buffer : "",
+    buffer: typeof cell.buffer === "string" ? cell.buffer : "",
     clients: new Set([connection]),
     saveTimer: null,
     store,
@@ -243,10 +244,8 @@ const createShellSession = async (
   connection.on("message", (raw: RawData) => {
     let parsed: TerminalClientMessage | null = null;
     try {
-      parsed = TerminalClientMessageSchema.parse(
-        JSON.parse(raw.toString())
-      );
-    } catch (error) {
+      parsed = TerminalClientMessageSchema.parse(JSON.parse(raw.toString()));
+    } catch {
       sendMessage(connection, {
         type: "error",
         message: "Invalid terminal message",
@@ -330,11 +329,7 @@ export const createShellUpgradeHandler = (
       ? options.getPasswordToken
       : () => options.passwordToken ?? null;
 
-  return (
-    req: IncomingMessage,
-    socket: Socket,
-    head: Buffer
-  ): boolean => {
+  return (req: IncomingMessage, socket: Socket, head: Buffer): boolean => {
     const url = req.url || "";
     const match = url.match(pattern);
     if (!match) {
@@ -346,7 +341,9 @@ export const createShellUpgradeHandler = (
       const cookies = parseCookieHeader(req.headers.cookie);
       if (!isTokenValid(cookies[PASSWORD_COOKIE_NAME], activeToken)) {
         try {
-          socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n");
+          socket.write(
+            "HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n"
+          );
         } catch (err) {
           void err;
         }

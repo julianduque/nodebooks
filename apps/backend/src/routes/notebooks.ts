@@ -78,7 +78,7 @@ export const registerNotebookRoutes = (
   app.post("/notebooks", async (request, reply) => {
     const body = NotebookCreateSchema.parse(request.body ?? {});
 
-    const templateId = body.template ?? "starter";
+    const templateId = body.template ?? "blank";
     let templateNotebook;
     try {
       templateNotebook = createNotebookFromTemplate(templateId);

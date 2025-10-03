@@ -6,14 +6,13 @@ NodeBooks is a JS/TS notebook environment. It supports editing Markdown and code
 
 - 📝 Edit Markdown and code cells
 - ⚡ Run TypeScript/JavaScript in a sandboxed runtime
+- 💻Run shell terminal cells
 - 📡 Stream outputs to the browser in real time
 - 📦 Install and use npm dependencies per notebook
 - 🔐 Notebook-scoped environment variables
 - 🧩 Rich display components (tables, charts, images, alerts)
 - 💾 Persistence: SQLite (bundled) and PostgreSQL
-- 🔁 Live kernel over WebSockets with heartbeats
-- 🧪 Vitest across workspaces, ESLint + Prettier
-- 🧰 Monorepo via PNPM workspaces
+- 🔁 Live kernel over WebSockets
 
 ## Project Layout
 
