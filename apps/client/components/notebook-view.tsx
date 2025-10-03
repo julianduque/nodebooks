@@ -31,12 +31,14 @@ import {
   ListTree,
   Paperclip,
   Download,
+  Terminal,
 } from "lucide-react";
 import ConfirmDialog from "@/components/ui/confirm";
 import { useRouter } from "next/navigation";
 import {
   createCodeCell,
   createMarkdownCell,
+  createShellCell,
   type KernelExecuteRequest,
   type KernelServerMessage,
   type KernelInterruptRequest,
@@ -974,7 +976,9 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
       const nextCell =
         type === "code"
           ? createCodeCell({ language: "ts" })
-          : createMarkdownCell({ source: "" });
+          : type === "shell"
+            ? createShellCell()
+            : createMarkdownCell({ source: "" });
       updateNotebook((current) => {
         const cells = [...current.cells];
         if (typeof index === "number") {
@@ -1730,6 +1734,24 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         </div>
         <div className="flex flex-1 flex-wrap items-center justify-end gap-1.5 sm:flex-none sm:gap-2">
           <Button
+            variant="outline"
+            size="sm"
+            className="hidden sm:inline-flex items-center gap-2"
+            onClick={() => handleAddCell("shell")}
+          >
+            <Terminal className="h-4 w-4" /> Shell
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="sm:hidden"
+            onClick={() => handleAddCell("shell")}
+            aria-label="Add shell cell"
+            title="Add shell cell"
+          >
+            <Terminal className="h-4 w-4" />
+          </Button>
+          <Button
             variant={dirty ? "secondary" : "ghost"}
             size="icon"
             onClick={handleSaveNow}
@@ -1834,6 +1856,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     handleRunAll,
     handleExportNotebook,
     handleSaveNow,
+    handleAddCell,
     shareStatus,
     handleShare,
     sessionId,

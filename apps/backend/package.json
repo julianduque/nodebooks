@@ -27,6 +27,7 @@
     "fastify": "^5.6.1",
     "heroku-langchain": "^0.4.2",
     "langchain": "^0.3.35",
+    "node-pty": "^1.0.0",
     "nanoid": "^5.1.6",
     "next": "^15.5.4",
     "pg": "^8.16.3",

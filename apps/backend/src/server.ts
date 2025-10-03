@@ -28,6 +28,7 @@ import { registerTypesRoutes } from "./routes/types.js";
 import { registerAiRoutes } from "./routes/ai.js";
 import { registerAttachmentRoutes } from "./routes/attachments.js";
 import { createKernelUpgradeHandler } from "./kernel/router.js";
+import { createShellUpgradeHandler } from "./shell/router.js";
 import {
   PASSWORD_COOKIE_NAME,
   derivePasswordToken,
@@ -297,6 +298,9 @@ export const createServer = async ({
   const kernelUpgrade = createKernelUpgradeHandler("/api", sessions, store, {
     getPasswordToken: () => settingsService.getPasswordToken(),
   });
+  const shellUpgrade = createShellUpgradeHandler("/api", store, {
+    getPasswordToken: () => settingsService.getPasswordToken(),
+  });
   app.server.on(
     "upgrade",
     (req: IncomingMessage, socket: Socket, head: Buffer) => {
@@ -307,6 +311,9 @@ export const createServer = async ({
           return;
         }
         if (kernelUpgrade(req, socket, head)) {
+          return;
+        }
+        if (shellUpgrade(req, socket, head)) {
           return;
         }
       } catch (_err) {
