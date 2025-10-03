@@ -531,7 +531,16 @@ export const CodeCellSchema = z.object({
     .object({
       timeoutMs: z.number().int().positive().max(600_000).optional(),
       display: z.record(z.string(), z.unknown()).optional(),
+      editor: z
+        .object({
+          fontSize: z.number().int().min(8).max(72).optional(),
+          wordWrap: z.enum(["off", "on"]).optional(),
+          minimap: z.boolean().optional(),
+          lineNumbers: z.enum(["off", "on"]).optional(),
+        })
+        .optional(),
     })
+    .catchall(z.unknown())
     .default({}),
   outputs: z.array(NotebookOutputSchema).default([]),
   execution: OutputExecutionSchema.optional(),

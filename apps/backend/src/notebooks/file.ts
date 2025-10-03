@@ -28,28 +28,42 @@ const cloneEnv = (env?: NotebookFileNotebook["env"]): NotebookEnv => {
 };
 
 const cloneCells = (cells: NotebookFileCell[]): NotebookCell[] => {
-  return cells.map((cell) => {
+  const result: NotebookCell[] = [];
+  for (const cell of cells) {
     if (cell.type === "markdown") {
-      return createMarkdownCell({
-        source: cell.source,
-        metadata: cell.metadata ?? {},
-      });
+      result.push(
+        createMarkdownCell({
+          source: cell.source,
+          metadata: cell.metadata ?? {},
+        })
+      );
+      continue;
     }
     if (cell.type === "shell") {
       const shellCell = cell as NotebookFileShellCell;
-      return createShellCell({
+      const shell = createShellCell({
         metadata: shellCell.metadata ?? {},
         buffer: shellCell.buffer ?? "",
       });
+      const timeout =
+        typeof shellCell.metadata?.timeoutMs === "number"
+          ? { timeoutMs: shellCell.metadata.timeoutMs }
+          : {};
+      const metadata = { ...shell.metadata, ...timeout };
+      result.push({ ...shell, metadata });
+      continue;
     }
     const codeCell = cell as NotebookFileCodeCell;
-    return createCodeCell({
-      language: codeCell.language ?? "ts",
-      source: codeCell.source,
-      metadata: codeCell.metadata ?? {},
-      outputs: codeCell.outputs ?? [],
-    });
-  });
+    result.push(
+      createCodeCell({
+        language: codeCell.language ?? "ts",
+        source: codeCell.source,
+        metadata: codeCell.metadata ?? {},
+        outputs: codeCell.outputs ?? [],
+      })
+    );
+  }
+  return result;
 };
 
 export const createNotebookFromFileDefinition = (

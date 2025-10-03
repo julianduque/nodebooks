@@ -345,11 +345,7 @@ const VariableDialog = ({
             <Button type="button" variant="outline" onClick={onCancel}>
               Cancel
             </Button>
-            <Button
-              type="submit"
-              variant="default"
-              className="px-3 text-[11px]"
-            >
+            <Button type="submit" variant="default">
               Save
             </Button>
           </DialogFooter>

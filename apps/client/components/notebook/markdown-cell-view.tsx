@@ -13,6 +13,10 @@ import {
   useAttachmentUploader,
   type AttachmentMetadata,
 } from "@/components/notebook/attachment-utils";
+import {
+  DEFAULT_MARKDOWN_EDITOR_SETTINGS,
+  type MonacoEditorSettings,
+} from "./editor-preferences";
 
 const escapeHtml = (value: string) =>
   value
@@ -143,6 +147,16 @@ const MarkdownCellView = ({
 
   type MarkdownUIMeta = { ui?: { edit?: boolean } };
   const isEditing = (cell.metadata as MarkdownUIMeta).ui?.edit ?? true;
+  const editorPrefs =
+    (cell.metadata as { editor?: MonacoEditorSettings }).editor ?? {};
+  const editorFontSize =
+    editorPrefs.fontSize ?? DEFAULT_MARKDOWN_EDITOR_SETTINGS.fontSize;
+  const editorWordWrap =
+    editorPrefs.wordWrap ?? DEFAULT_MARKDOWN_EDITOR_SETTINGS.wordWrap;
+  const editorMinimap =
+    editorPrefs.minimap ?? DEFAULT_MARKDOWN_EDITOR_SETTINGS.minimap;
+  const editorLineNumbers =
+    editorPrefs.lineNumbers ?? DEFAULT_MARKDOWN_EDITOR_SETTINGS.lineNumbers;
 
   const { uploadFiles, isUploading, uploadStatus, uploadError } =
     useAttachmentUploader({
@@ -437,11 +451,11 @@ const MarkdownCellView = ({
                 )
               }
               options={{
-                minimap: { enabled: false },
-                fontSize: 14,
-                lineNumbers: "off",
+                minimap: { enabled: editorMinimap },
+                fontSize: editorFontSize,
+                lineNumbers: editorLineNumbers,
                 scrollBeyondLastLine: false,
-                wordWrap: "on",
+                wordWrap: editorWordWrap,
                 automaticLayout: true,
                 fixedOverflowWidgets: true,
                 padding: { top: 12, bottom: 12 },

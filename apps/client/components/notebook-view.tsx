@@ -143,6 +143,9 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
   const [attachments, setAttachments] = useState<AttachmentMetadata[]>([]);
   const [attachmentsLoading, setAttachmentsLoading] = useState(false);
   const [attachmentsError, setAttachmentsError] = useState<string | null>(null);
+  const [pendingShellIds, setPendingShellIds] = useState<Set<string>>(
+    new Set<string>()
+  );
 
   const handleAttachmentUploaded = useCallback(
     (attachment: AttachmentMetadata) => {
@@ -154,6 +157,51 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     },
     []
   );
+
+  const markShellPendingPersistence = useCallback((cellId: string) => {
+    setPendingShellIds((prev) => {
+      if (prev.has(cellId)) {
+        return prev;
+      }
+      const next = new Set(prev);
+      next.add(cellId);
+      return next;
+    });
+  }, []);
+
+  const removeShellPendingPersistence = useCallback((cellId: string) => {
+    setPendingShellIds((prev) => {
+      if (!prev.has(cellId)) {
+        return prev;
+      }
+      const next = new Set(prev);
+      next.delete(cellId);
+      return next;
+    });
+  }, []);
+
+  const resolveShellPendingPersistence = useCallback((cellIds: string[]) => {
+    if (cellIds.length === 0) {
+      return;
+    }
+    setPendingShellIds((prev) => {
+      let needsUpdate = false;
+      for (const id of cellIds) {
+        if (prev.has(id)) {
+          needsUpdate = true;
+          break;
+        }
+      }
+      if (!needsUpdate) {
+        return prev;
+      }
+      const next = new Set(prev);
+      for (const id of cellIds) {
+        next.delete(id);
+      }
+      return next;
+    });
+  }, []);
 
   const handleDeleteAttachment = useCallback(async (attachmentId: string) => {
     const current = notebookRef.current;
@@ -208,6 +256,9 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
   // dependency install panel is in Setup sidebar now
 
   const socketRef = useRef<WebSocket | null>(null);
+  const handleServerMessageRef = useRef<(message: KernelServerMessage) => void>(
+    () => undefined
+  );
   const saveTimerRef = useRef<NodeJS.Timeout | null>(null);
   const sessionRef = useRef<NotebookSessionSummary | null>(null);
   const renameInputRef = useRef<HTMLInputElement | null>(null);
@@ -257,6 +308,10 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
 
   useEffect(() => {
     setActionError(null);
+  }, [notebook?.id]);
+
+  useEffect(() => {
+    setPendingShellIds(new Set());
   }, [notebook?.id]);
 
   const refreshAiAvailability = useCallback(async () => {
@@ -453,67 +508,103 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     (
       updater: (current: Notebook) => Notebook,
       options: { persist?: boolean; touch?: boolean } = {}
-    ) => {
-      setNotebook((prev) => {
-        if (!prev) {
-          return prev;
-        }
-        const base = updater(prev);
-        const next =
-          options.touch === false
-            ? base
-            : { ...base, updatedAt: new Date().toISOString() };
-        if (options.persist !== false && next !== prev) {
-          setDirty(true);
-        }
-        notebookRef.current = next;
-        // list summaries are handled in route pages
-        return next;
-      });
+    ): Notebook | undefined => {
+      const prev = notebookRef.current;
+      if (!prev) {
+        return undefined;
+      }
+      const base = updater(prev);
+      const next =
+        options.touch === false
+          ? base
+          : { ...base, updatedAt: new Date().toISOString() };
+      if (options.persist !== false && next !== prev) {
+        setDirty(true);
+      }
+      notebookRef.current = next;
+      setNotebook(next);
+      // list summaries are handled in route pages
+      return next;
     },
     []
   );
 
-  const saveNotebookNow = useCallback(async () => {
-    const current = notebookRef.current;
-    if (!current) {
-      return;
-    }
-    try {
-      const response = await fetch(`${API_BASE_URL}/notebooks/${current.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: current.name,
-          env: current.env,
-          cells: current.cells,
-        }),
-      });
-      if (!response.ok) {
-        throw new Error(`Failed to save notebook (status ${response.status})`);
+  const saveNotebookNow = useCallback(
+    async (
+      options: { resolveShellIds?: string[]; notebookSnapshot?: Notebook } = {}
+    ) => {
+      const current = options.notebookSnapshot ?? notebookRef.current;
+      if (!current) {
+        return;
       }
-      const payload = await response.json();
-      const saved: Notebook | undefined = payload?.data;
-      if (saved) {
-        setNotebook((prev) => {
-          if (!prev || prev.id !== saved.id) {
-            notebookRef.current = saved;
-            return saved;
+      const resolveShellIds =
+        options.resolveShellIds ?? Array.from(pendingShellIds);
+      try {
+        const response = await fetch(
+          `${API_BASE_URL}/notebooks/${current.id}`,
+          {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              name: current.name,
+              env: current.env,
+              cells: current.cells,
+            }),
           }
-          const merged: Notebook = {
-            ...saved,
-            cells: prev.cells,
-          };
-          notebookRef.current = merged;
-          return merged;
-        });
-        setDirty(false);
-        setError(null);
+        );
+        if (!response.ok) {
+          throw new Error(
+            `Failed to save notebook (status ${response.status})`
+          );
+        }
+        const payload = await response.json();
+        const saved: Notebook | undefined = payload?.data;
+        if (saved) {
+          setNotebook((prev) => {
+            if (!prev || prev.id !== saved.id) {
+              notebookRef.current = saved;
+              return saved;
+            }
+            const merged: Notebook = {
+              ...saved,
+              cells: prev.cells,
+            };
+            notebookRef.current = merged;
+            return merged;
+          });
+          setDirty(false);
+          setError(null);
+          if (resolveShellIds.length > 0) {
+            const shellIdsOnServer = new Set(
+              saved.cells
+                .filter((cell) => cell.type === "shell")
+                .map((cell) => cell.id)
+            );
+            const missing = resolveShellIds.filter(
+              (id) => !shellIdsOnServer.has(id)
+            );
+            if (missing.length === 0) {
+              resolveShellPendingPersistence(resolveShellIds);
+              setActionError(null);
+            } else {
+              const resolved = resolveShellIds.filter((id) =>
+                shellIdsOnServer.has(id)
+              );
+              if (resolved.length > 0) {
+                resolveShellPendingPersistence(resolved);
+              }
+              setActionError("Shell cell is still syncing. Please try again.");
+            }
+          }
+        }
+      } catch (err) {
+        setError(
+          err instanceof Error ? err.message : "Failed to save notebook"
+        );
       }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save notebook");
-    }
-  }, []);
+    },
+    [pendingShellIds, resolveShellPendingPersistence]
+  );
 
   const scheduleAutoSave = useCallback(
     ({
@@ -736,6 +827,10 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     [updateNotebookCell, scheduleAutoSave]
   );
 
+  useEffect(() => {
+    handleServerMessageRef.current = handleServerMessage;
+  }, [handleServerMessage]);
+
   const handleInterruptKernel = useCallback(() => {
     if (!notebook) return;
     const socket = socketRef.current;
@@ -804,6 +899,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
               initial = p?.data;
             }
           }
+          notebookRef.current = initial ?? null;
           if (initial) {
             setNotebook(initial);
             setDirty(false);
@@ -817,6 +913,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
               ? err.message
               : "Unable to load notebooks from the API"
           );
+          notebookRef.current = null;
           setNotebook(null);
           setDirty(false);
         }
@@ -914,7 +1011,11 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     socket.onmessage = (event) => {
       try {
         const message = JSON.parse(event.data) as KernelServerMessage;
-        handleServerMessage(message);
+        try {
+          handleServerMessageRef.current(message);
+        } catch (err) {
+          console.error("Failed to handle kernel message", err);
+        }
       } catch (err) {
         console.error("Failed to parse kernel message", err);
       }
@@ -930,7 +1031,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         // ignore
       }
     };
-  }, [sessionId, socketGeneration, handleServerMessage]);
+  }, [sessionId, socketGeneration]);
 
   useEffect(() => {
     return () => {
@@ -988,7 +1089,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
           : type === "shell"
             ? createShellCell()
             : createMarkdownCell({ source: "" });
-      updateNotebook((current) => {
+      const updatedNotebook = updateNotebook((current) => {
         const cells = [...current.cells];
         if (typeof index === "number") {
           cells.splice(index, 0, nextCell);
@@ -999,13 +1100,23 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
       });
       setActiveCellId(nextCell.id);
       if (type === "shell") {
+        markShellPendingPersistence(nextCell.id);
         clearPendingSave();
-        void saveNotebookNow();
+        void saveNotebookNow({
+          resolveShellIds: [nextCell.id],
+          notebookSnapshot: updatedNotebook,
+        });
       } else {
         scheduleAutoSave();
       }
     },
-    [updateNotebook, scheduleAutoSave, saveNotebookNow, clearPendingSave]
+    [
+      updateNotebook,
+      scheduleAutoSave,
+      saveNotebookNow,
+      clearPendingSave,
+      markShellPendingPersistence,
+    ]
   );
 
   const handleDeleteCell = useCallback(
@@ -1014,9 +1125,10 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         ...current,
         cells: current.cells.filter((cell) => cell.id !== id),
       }));
+      removeShellPendingPersistence(id);
       scheduleAutoSave({ markDirty: true });
     },
-    [updateNotebook, scheduleAutoSave]
+    [updateNotebook, scheduleAutoSave, removeShellPendingPersistence]
   );
 
   const handleMoveCell = useCallback(
@@ -1640,6 +1752,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
                   onAddBelow={(type) => handleAddCell(type, index + 1)}
                   aiEnabled={aiEnabled}
                   dependencies={notebook.env.packages}
+                  pendingShellPersist={pendingShellIds.has(cell.id)}
                 />
               ))}
             </div>
@@ -1671,6 +1784,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     handleAttachmentUploaded,
     theme,
     aiEnabled,
+    pendingShellIds,
   ]);
 
   const topbarMain = useMemo(() => {
