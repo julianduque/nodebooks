@@ -127,4 +127,46 @@ describe("MarkdownCellView mermaid rendering", () => {
       expect(block.querySelector("svg")).not.toBeNull();
     }
   });
+
+  it("enters edit mode when the preview is double clicked", async () => {
+    const cell: Extract<NotebookCell, { type: "markdown" }> = {
+      id: "cell-2",
+      type: "markdown",
+      source: "Hello world",
+      metadata: { ui: { edit: false } },
+    };
+
+    const onChange = vi.fn();
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        <MarkdownCellView
+          cell={cell}
+          notebookId="notebook-1"
+          onChange={onChange as never}
+          editorKey="key"
+        />
+      );
+    });
+
+    const preview =
+      container.querySelector<HTMLDivElement>(".markdown-preview");
+    expect(preview).not.toBeNull();
+
+    await act(async () => {
+      preview?.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    });
+
+    expect(onChange).toHaveBeenCalledTimes(1);
+    const [updater, options] = onChange.mock.calls[0] as [
+      (current: NotebookCell) => NotebookCell,
+      { persist?: boolean; touch?: boolean } | undefined,
+    ];
+    const updated = updater(cell);
+    expect((updated.metadata as { ui?: { edit?: boolean } }).ui?.edit).toBe(
+      true
+    );
+    expect(options).toBeUndefined();
+  });
 });

@@ -334,6 +334,11 @@ const MarkdownCellView = ({
     [onChange]
   );
 
+  const handlePreviewDoubleClick = useCallback(() => {
+    if (isEditing) return;
+    setEdit(true);
+  }, [isEditing, setEdit]);
+
   const handleMount = useCallback<OnMount>(
     (editor, monaco) => {
       editor.addAction({
@@ -480,6 +485,7 @@ const MarkdownCellView = ({
           <div
             className="markdown-preview space-y-3 text-sm leading-7 text-card-foreground"
             ref={setPreviewRef}
+            onDoubleClick={handlePreviewDoubleClick}
             dangerouslySetInnerHTML={{ __html: html }}
           />
         </div>
