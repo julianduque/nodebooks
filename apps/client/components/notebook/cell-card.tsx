@@ -33,6 +33,13 @@ import CodeCellView from "./code-cell-view";
 import MarkdownCellView from "./markdown-cell-view";
 import ShellCellView from "./shell-cell-view";
 import type { AttachmentMetadata } from "@/components/notebook/attachment-utils";
+import {
+  DEFAULT_CODE_EDITOR_SETTINGS,
+  DEFAULT_MARKDOWN_EDITOR_SETTINGS,
+  DEFAULT_TERMINAL_PREFERENCES,
+  type MonacoEditorSettings,
+  type TerminalPreferences,
+} from "./editor-preferences";
 
 interface CellCardProps {
   cell: NotebookCell;
@@ -58,9 +65,40 @@ interface CellCardProps {
   onActivate: () => void;
   aiEnabled: boolean;
   dependencies?: Record<string, string>;
+  pendingShellPersist?: boolean;
 }
 
-type CodeCellMetadata = Record<string, unknown> & { timeoutMs?: number };
+type CodeCellMetadata = Record<string, unknown> & {
+  timeoutMs?: number;
+  editor?: MonacoEditorSettings;
+};
+
+type MarkdownCellMetadata = Record<string, unknown> & {
+  ui?: { edit?: boolean };
+  editor?: MonacoEditorSettings;
+};
+
+type ShellCellMetadata = Record<string, unknown> & {
+  terminal?: TerminalPreferences;
+};
+
+const FONT_SIZE_PRESETS = [10, 12, 14, 16, 18, 20, 24, 28, 32] as const;
+type FontSizePreset = (typeof FONT_SIZE_PRESETS)[number];
+type FontSizePresetString = `${FontSizePreset}`;
+type FontSizeSelection = "default" | "custom" | FontSizePresetString;
+
+const FONT_SIZE_PRESET_STRINGS = new Set<string>(
+  FONT_SIZE_PRESETS.map((size) => String(size))
+);
+
+const fontSizeSelectionForValue = (value: string): FontSizeSelection => {
+  if (value.length === 0) {
+    return "default";
+  }
+  return FONT_SIZE_PRESET_STRINGS.has(value)
+    ? (value as FontSizePresetString)
+    : "custom";
+};
 
 const AddCellMenu = ({
   onAdd,
@@ -126,10 +164,13 @@ const CellCard = ({
   canMoveDown,
   editorKey,
   editorPath,
+  active: _active,
   onActivate,
   aiEnabled,
   dependencies,
+  pendingShellPersist = false,
 }: CellCardProps) => {
+  void _active;
   const isCode = cell.type === "code";
   const isMarkdown = cell.type === "markdown";
   const isShell = cell.type === "shell";
@@ -139,6 +180,29 @@ const CellCard = ({
   const [showConfig, setShowConfig] = useState(false);
   const [timeoutDraft, setTimeoutDraft] = useState("");
   const [timeoutError, setTimeoutError] = useState<string | null>(null);
+  const [editorFontSizeDraft, setEditorFontSizeDraft] = useState("");
+  const [editorFontSizeSelection, setEditorFontSizeSelection] =
+    useState<FontSizeSelection>("default");
+  const [editorWordWrapDraft, setEditorWordWrapDraft] = useState<
+    "default" | "on" | "off"
+  >("default");
+  const [editorLineNumbersDraft, setEditorLineNumbersDraft] = useState<
+    "default" | "on" | "off"
+  >("default");
+  const [editorMinimapDraft, setEditorMinimapDraft] = useState<
+    "default" | "show" | "hide"
+  >("default");
+  const [editorError, setEditorError] = useState<string | null>(null);
+  const [terminalFontSizeDraft, setTerminalFontSizeDraft] = useState("");
+  const [terminalFontSizeSelection, setTerminalFontSizeSelection] =
+    useState<FontSizeSelection>("default");
+  const [terminalCursorBlinkDraft, setTerminalCursorBlinkDraft] = useState<
+    "default" | "on" | "off"
+  >("default");
+  const [terminalCursorStyleDraft, setTerminalCursorStyleDraft] = useState<
+    "default" | "block" | "bar" | "underline"
+  >("default");
+  const [terminalError, setTerminalError] = useState<string | null>(null);
   const [aiOpen, setAiOpen] = useState(false);
   const [aiPrompt, setAiPrompt] = useState("");
   const [aiError, setAiError] = useState<string | null>(null);
@@ -155,74 +219,367 @@ const CellCard = ({
   }, [aiEnabled, aiOpen]);
 
   const openConfig = useCallback(() => {
-    if (!isCode) return;
-    const meta = cell.metadata as CodeCellMetadata;
-    const timeoutValue =
-      typeof meta?.timeoutMs === "number" ? String(meta.timeoutMs) : "";
-    setTimeoutDraft(timeoutValue);
-    setTimeoutError(null);
-    setShowConfig(true);
-  }, [cell, isCode]);
+    if (isCode) {
+      const meta = cell.metadata as CodeCellMetadata;
+      const timeoutValue =
+        typeof meta?.timeoutMs === "number" ? String(meta.timeoutMs) : "";
+      setTimeoutDraft(timeoutValue);
+    } else {
+      setTimeoutDraft("");
+    }
 
-  const handleTimeoutChange = useCallback((value: string) => {
-    setTimeoutDraft(value);
+    if (isCode || isMarkdown) {
+      const meta = (cell.metadata as
+        | CodeCellMetadata
+        | MarkdownCellMetadata) ?? { editor: undefined };
+      const editorMeta = (meta.editor ?? {}) as MonacoEditorSettings;
+      const editorFontSizeValue =
+        typeof editorMeta.fontSize === "number"
+          ? String(editorMeta.fontSize)
+          : "";
+      setEditorFontSizeDraft(editorFontSizeValue);
+      setEditorFontSizeSelection(
+        fontSizeSelectionForValue(editorFontSizeValue)
+      );
+      setEditorWordWrapDraft(editorMeta.wordWrap ?? "default");
+      setEditorLineNumbersDraft(editorMeta.lineNumbers ?? "default");
+      setEditorMinimapDraft(
+        typeof editorMeta.minimap === "boolean"
+          ? editorMeta.minimap
+            ? "show"
+            : "hide"
+          : "default"
+      );
+    } else {
+      setEditorFontSizeDraft("");
+      setEditorFontSizeSelection("default");
+      setEditorWordWrapDraft("default");
+      setEditorLineNumbersDraft("default");
+      setEditorMinimapDraft("default");
+    }
+
+    if (isShell) {
+      const meta = cell.metadata as ShellCellMetadata;
+      const terminalMeta = (meta.terminal ?? {}) as TerminalPreferences;
+      const terminalFontSizeValue =
+        typeof terminalMeta.fontSize === "number"
+          ? String(terminalMeta.fontSize)
+          : "";
+      setTerminalFontSizeDraft(terminalFontSizeValue);
+      setTerminalFontSizeSelection(
+        fontSizeSelectionForValue(terminalFontSizeValue)
+      );
+      setTerminalCursorBlinkDraft(
+        typeof terminalMeta.cursorBlink === "boolean"
+          ? terminalMeta.cursorBlink
+            ? "on"
+            : "off"
+          : "default"
+      );
+      setTerminalCursorStyleDraft(terminalMeta.cursorStyle ?? "default");
+    } else {
+      setTerminalFontSizeDraft("");
+      setTerminalFontSizeSelection("default");
+      setTerminalCursorBlinkDraft("default");
+      setTerminalCursorStyleDraft("default");
+    }
+
     setTimeoutError(null);
-  }, []);
+    setEditorError(null);
+    setTerminalError(null);
+    setShowConfig(true);
+  }, [cell, isCode, isMarkdown, isShell]);
 
   const handleConfigClose = useCallback(() => {
     setShowConfig(false);
     setTimeoutError(null);
+    setEditorError(null);
+    setTerminalError(null);
   }, []);
 
-  const handleTimeoutSave = useCallback(() => {
-    if (!isCode) {
-      handleConfigClose();
-      return;
+  const handleConfigSave = useCallback(() => {
+    setTimeoutError(null);
+    setEditorError(null);
+    setTerminalError(null);
+
+    let timeoutValue: number | null | undefined;
+    if (isCode) {
+      const raw = timeoutDraft.trim();
+      if (raw.length === 0) {
+        timeoutValue = null;
+      } else {
+        const parsed = Number.parseInt(raw, 10);
+        if (!Number.isFinite(parsed)) {
+          setTimeoutError("Enter a valid number in milliseconds.");
+          return;
+        }
+        if (parsed < 1000 || parsed > 600_000) {
+          setTimeoutError(
+            "Choose a value between 1,000 and 600,000 milliseconds."
+          );
+          return;
+        }
+        timeoutValue = parsed;
+      }
     }
-    const raw = timeoutDraft.trim();
-    if (raw.length === 0) {
-      onChange(
-        (current) => {
-          if (current.type !== "code") return current;
+
+    let editorSettings: MonacoEditorSettings | undefined;
+    if (isCode || isMarkdown) {
+      const defaults = isCode
+        ? DEFAULT_CODE_EDITOR_SETTINGS
+        : DEFAULT_MARKDOWN_EDITOR_SETTINGS;
+      const settings: MonacoEditorSettings = {};
+      let hasValue = false;
+
+      const rawFont = editorFontSizeDraft.trim();
+      if (rawFont.length > 0) {
+        const parsed = Number.parseInt(rawFont, 10);
+        if (!Number.isFinite(parsed)) {
+          setEditorError("Enter a whole number for editor font size.");
+          return;
+        }
+        if (parsed < 8 || parsed > 72) {
+          setEditorError("Choose a font size between 8 and 72.");
+          return;
+        }
+        if (parsed !== defaults.fontSize) {
+          settings.fontSize = parsed;
+          hasValue = true;
+        }
+      }
+
+      const wordWrap =
+        editorWordWrapDraft === "default" ? undefined : editorWordWrapDraft;
+      if (wordWrap && wordWrap !== defaults.wordWrap) {
+        settings.wordWrap = wordWrap;
+        hasValue = true;
+      }
+
+      const lineNumbers =
+        editorLineNumbersDraft === "default"
+          ? undefined
+          : editorLineNumbersDraft;
+      if (lineNumbers && lineNumbers !== defaults.lineNumbers) {
+        settings.lineNumbers = lineNumbers;
+        hasValue = true;
+      }
+
+      if (editorMinimapDraft === "show") {
+        if (defaults.minimap !== true) {
+          settings.minimap = true;
+          hasValue = true;
+        } else {
+          settings.minimap = true;
+          hasValue = true;
+        }
+      } else if (editorMinimapDraft === "hide") {
+        if (defaults.minimap !== false) {
+          settings.minimap = false;
+          hasValue = true;
+        } else {
+          settings.minimap = false;
+          hasValue = true;
+        }
+      }
+
+      editorSettings = hasValue ? settings : undefined;
+    }
+
+    let terminalSettings: TerminalPreferences | undefined;
+    if (isShell) {
+      const defaults = DEFAULT_TERMINAL_PREFERENCES;
+      const settings: TerminalPreferences = {};
+      let hasValue = false;
+
+      const rawFont = terminalFontSizeDraft.trim();
+      if (rawFont.length > 0) {
+        const parsed = Number.parseInt(rawFont, 10);
+        if (!Number.isFinite(parsed)) {
+          setTerminalError("Enter a whole number for terminal font size.");
+          return;
+        }
+        if (parsed < 8 || parsed > 72) {
+          setTerminalError("Choose a font size between 8 and 72.");
+          return;
+        }
+        if (parsed !== defaults.fontSize) {
+          settings.fontSize = parsed;
+          hasValue = true;
+        }
+      }
+
+      if (terminalCursorBlinkDraft !== "default") {
+        const blinkValue = terminalCursorBlinkDraft === "on";
+        if (blinkValue !== defaults.cursorBlink) {
+          settings.cursorBlink = blinkValue;
+          hasValue = true;
+        }
+      }
+
+      if (terminalCursorStyleDraft !== "default") {
+        if (terminalCursorStyleDraft !== defaults.cursorStyle) {
+          settings.cursorStyle = terminalCursorStyleDraft;
+          hasValue = true;
+        }
+      }
+
+      terminalSettings = hasValue ? settings : undefined;
+    }
+
+    const mergeEditorSettings = (
+      previous: MonacoEditorSettings | undefined,
+      next: MonacoEditorSettings | undefined
+    ): MonacoEditorSettings | undefined => {
+      const merged: MonacoEditorSettings = { ...(previous ?? {}) };
+
+      if (typeof next?.fontSize === "undefined") {
+        delete merged.fontSize;
+      } else {
+        merged.fontSize = next.fontSize;
+      }
+
+      if (typeof next?.wordWrap === "undefined") {
+        delete merged.wordWrap;
+      } else {
+        merged.wordWrap = next.wordWrap;
+      }
+
+      if (typeof next?.lineNumbers === "undefined") {
+        delete merged.lineNumbers;
+      } else {
+        merged.lineNumbers = next.lineNumbers;
+      }
+
+      if (typeof next?.minimap === "undefined") {
+        delete merged.minimap;
+      } else {
+        merged.minimap = next.minimap;
+      }
+
+      return Object.keys(merged).length > 0 ? merged : undefined;
+    };
+
+    const mergeTerminalSettings = (
+      previous: TerminalPreferences | undefined,
+      next: TerminalPreferences | undefined
+    ): TerminalPreferences | undefined => {
+      const merged: TerminalPreferences = { ...(previous ?? {}) };
+
+      if (typeof next?.fontSize === "undefined") {
+        delete merged.fontSize;
+      } else {
+        merged.fontSize = next.fontSize;
+      }
+
+      if (typeof next?.cursorBlink === "undefined") {
+        delete merged.cursorBlink;
+      } else {
+        merged.cursorBlink = next.cursorBlink;
+      }
+
+      if (typeof next?.cursorStyle === "undefined") {
+        delete merged.cursorStyle;
+      } else {
+        merged.cursorStyle = next.cursorStyle;
+      }
+
+      return Object.keys(merged).length > 0 ? merged : undefined;
+    };
+
+    onChange(
+      (current) => {
+        if (current.id !== cell.id) {
+          return current;
+        }
+        if (current.type === "code" && isCode) {
           const meta = {
             ...(current.metadata ?? {}),
           } as CodeCellMetadata;
-          if (typeof meta.timeoutMs !== "undefined") {
+          if (timeoutValue === null) {
             delete meta.timeoutMs;
+          } else if (typeof timeoutValue === "number") {
+            meta.timeoutMs = timeoutValue;
+          }
+          const previousEditor = (current.metadata as CodeCellMetadata).editor;
+          const mergedEditor = mergeEditorSettings(
+            previousEditor,
+            editorSettings
+          );
+          if (mergedEditor) {
+            meta.editor = mergedEditor;
+          } else {
+            delete meta.editor;
           }
           return { ...current, metadata: meta };
-        },
-        { persist: true }
-      );
-      handleConfigClose();
-      return;
-    }
-    const parsed = Number.parseInt(raw, 10);
-    if (!Number.isFinite(parsed)) {
-      setTimeoutError("Enter a valid number in milliseconds.");
-      return;
-    }
-    if (parsed < 1000 || parsed > 600_000) {
-      setTimeoutError("Choose a value between 1,000 and 600,000 milliseconds.");
-      return;
-    }
-    onChange(
-      (current) => {
-        if (current.type !== "code") return current;
-        const meta = {
-          ...(current.metadata ?? {}),
-        } as CodeCellMetadata;
-        meta.timeoutMs = parsed;
-        return { ...current, metadata: meta };
+        }
+        if (current.type === "markdown" && isMarkdown) {
+          const meta = {
+            ...(current.metadata ?? {}),
+          } as MarkdownCellMetadata;
+          const previousEditor = (current.metadata as MarkdownCellMetadata)
+            .editor;
+          const mergedEditor = mergeEditorSettings(
+            previousEditor,
+            editorSettings
+          );
+          if (mergedEditor) {
+            meta.editor = mergedEditor;
+          } else {
+            delete meta.editor;
+          }
+          return { ...current, metadata: meta };
+        }
+        if (current.type === "shell" && isShell) {
+          const meta = {
+            ...(current.metadata ?? {}),
+          } as ShellCellMetadata;
+          const previousTerminal = (current.metadata as ShellCellMetadata)
+            .terminal;
+          const mergedTerminal = mergeTerminalSettings(
+            previousTerminal,
+            terminalSettings
+          );
+          if (mergedTerminal) {
+            meta.terminal = mergedTerminal;
+          } else {
+            delete meta.terminal;
+          }
+          return { ...current, metadata: meta };
+        }
+        return current;
       },
       { persist: true }
     );
+
     handleConfigClose();
-  }, [handleConfigClose, isCode, onChange, timeoutDraft]);
+  }, [
+    cell.id,
+    editorFontSizeDraft,
+    editorLineNumbersDraft,
+    editorMinimapDraft,
+    editorWordWrapDraft,
+    handleConfigClose,
+    isCode,
+    isMarkdown,
+    isShell,
+    onChange,
+    terminalCursorBlinkDraft,
+    terminalCursorStyleDraft,
+    terminalFontSizeDraft,
+    timeoutDraft,
+  ]);
   type MarkdownUIMeta = { ui?: { edit?: boolean } };
   const mdEditing =
     cell.type === "markdown" &&
     ((cell.metadata as MarkdownUIMeta).ui?.edit ?? true);
+  const editorDefaults = isCode
+    ? DEFAULT_CODE_EDITOR_SETTINGS
+    : DEFAULT_MARKDOWN_EDITOR_SETTINGS;
+  const minimapDefaultLabel = editorDefaults.minimap ? "shown" : "hidden";
+  const terminalDefaultStyle = DEFAULT_TERMINAL_PREFERENCES.cursorStyle;
+  const terminalDefaultStyleLabel =
+    terminalDefaultStyle.charAt(0).toUpperCase() +
+    terminalDefaultStyle.slice(1);
 
   const updateCellSource = useCallback(
     (nextSource: string, options?: { persist?: boolean; touch?: boolean }) => {
@@ -421,106 +778,92 @@ const CellCard = ({
     event.stopPropagation();
   }, []);
 
-  return (
-    <article
-      id={`cell-${cell.id}`}
-      className={clsx(
-        "group/cell relative z-0 rounded-xl transition hover:z-40 focus-within:z-50 pr-14",
-        "border-l-2 border-transparent hover:border-emerald-300/80"
-      )}
-      onMouseDown={onActivate}
-      onFocus={onActivate}
-      tabIndex={-1}
-    >
-      <div
-        className="absolute right-0 top-0 z-50 flex flex-col gap-2 rounded-2xl border border-border bg-card/95 p-1.5 text-muted-foreground shadow-lg backdrop-blur-sm opacity-0 pointer-events-none transition group-hover/cell:opacity-100 group-hover/cell:pointer-events-auto group-focus-within/cell:opacity-100 group-focus-within/cell:pointer-events-auto [&>button]:size-10 [&>button]:rounded-xl"
-        onMouseDown={stopToolbarPropagation}
-        onTouchStart={stopToolbarPropagation}
-        onFocusCapture={stopToolbarFocus}
-      >
-        {showAiActions &&
-          (aiGenerating ? (
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={handleAiAbort}
-              aria-label="Cancel AI generation"
-              title="Cancel AI generation"
-              className="text-emerald-400 hover:text-emerald-300"
-            >
+  const actionButtons = (
+    <>
+      {showAiActions &&
+        (aiGenerating ? (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={handleAiAbort}
+            aria-label="Cancel AI generation"
+            title="Cancel AI generation"
+            className="text-emerald-400 hover:text-emerald-300"
+          >
+            <Loader2 className="h-4 w-4 animate-spin" />
+          </Button>
+        ) : (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => {
+              setAiPrompt("");
+              setAiError(null);
+              aiCloseIntentRef.current = null;
+              setAiOpen(true);
+              onActivate();
+            }}
+            aria-label="Generate with AI"
+            title="Generate with AI"
+          >
+            <Sparkles className="h-4 w-4" />
+          </Button>
+        ))}
+      {isCode ? (
+        <>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onRun}
+            disabled={isRunning || aiGenerating || !canRun}
+            aria-label="Run cell"
+            title="Run cell (Shift+Enter)"
+          >
+            {isRunning ? (
               <Loader2 className="h-4 w-4 animate-spin" />
-            </Button>
-          ) : (
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => {
-                setAiPrompt("");
-                setAiError(null);
-                aiCloseIntentRef.current = null;
-                setAiOpen(true);
-                onActivate();
-              }}
-              aria-label="Generate with AI"
-              title="Generate with AI"
-            >
-              <Sparkles className="h-4 w-4" />
-            </Button>
-          ))}
-        {isCode ? (
-          <>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={onRun}
-              disabled={isRunning || aiGenerating || !canRun}
-              aria-label="Run cell"
-              title="Run cell (Shift+Enter)"
-            >
-              {isRunning ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Play className="h-4 w-4" />
-              )}
-            </Button>
-            {isRunning && (
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={onInterrupt}
-                aria-label="Abort cell"
-                title="Abort cell"
-                className="text-rose-600 hover:text-rose-600"
-              >
-                <XCircle className="h-4 w-4" />
-              </Button>
+            ) : (
+              <Play className="h-4 w-4" />
             )}
+          </Button>
+          {isRunning && (
             <Button
               variant="ghost"
               size="icon"
-              onClick={() =>
-                onChange((current) =>
-                  current.type === "code"
-                    ? { ...current, outputs: [], execution: undefined }
-                    : current
-                )
-              }
-              aria-label="Clear outputs"
-              title="Clear outputs"
+              onClick={onInterrupt}
+              aria-label="Abort cell"
+              title="Abort cell"
+              className="text-rose-600 hover:text-rose-600"
             >
-              <Eraser className="h-4 w-4" />
+              <XCircle className="h-4 w-4" />
             </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={openConfig}
-              aria-label="Configure cell"
-              title="Cell settings"
-            >
-              <SettingsIcon className="h-4 w-4" />
-            </Button>
-          </>
-        ) : isMarkdown ? (
+          )}
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() =>
+              onChange((current) =>
+                current.type === "code"
+                  ? { ...current, outputs: [], execution: undefined }
+                  : current
+              )
+            }
+            aria-label="Clear outputs"
+            title="Clear outputs"
+          >
+            <Eraser className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={openConfig}
+            aria-label="Configure cell"
+            title="Cell settings"
+          >
+            <SettingsIcon className="h-4 w-4" />
+          </Button>
+        </>
+      ) : isMarkdown ? (
+        <>
           <Button
             variant="ghost"
             size="icon"
@@ -550,41 +893,73 @@ const CellCard = ({
               <Pencil className="h-4 w-4" />
             )}
           </Button>
-        ) : null}
-        {canMoveUp && (
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => onMove("up")}
-            aria-label="Move cell up"
-            title="Move cell up"
+            onClick={openConfig}
+            aria-label="Configure cell"
+            title="Cell settings"
           >
-            <ArrowUp className="h-4 w-4" />
+            <SettingsIcon className="h-4 w-4" />
           </Button>
-        )}
-        {canMoveDown && (
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => onMove("down")}
-            aria-label="Move cell down"
-            title="Move cell down"
-          >
-            <ArrowDown className="h-4 w-4" />
-          </Button>
-        )}
+        </>
+      ) : isShell ? (
         <Button
           variant="ghost"
           size="icon"
-          className="text-rose-600 hover:text-rose-600"
-          onClick={onDelete}
-          aria-label="Delete cell"
-          title="Delete cell"
+          onClick={openConfig}
+          aria-label="Configure cell"
+          title="Cell settings"
         >
-          <Trash2 className="h-4 w-4" />
+          <SettingsIcon className="h-4 w-4" />
         </Button>
-      </div>
+      ) : null}
+      {canMoveUp && (
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => onMove("up")}
+          aria-label="Move cell up"
+          title="Move cell up"
+        >
+          <ArrowUp className="h-4 w-4" />
+        </Button>
+      )}
+      {canMoveDown && (
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => onMove("down")}
+          aria-label="Move cell down"
+          title="Move cell down"
+        >
+          <ArrowDown className="h-4 w-4" />
+        </Button>
+      )}
+      <Button
+        variant="ghost"
+        size="icon"
+        className="text-rose-600 hover:text-rose-600"
+        onClick={onDelete}
+        aria-label="Delete cell"
+        title="Delete cell"
+      >
+        <Trash2 className="h-4 w-4" />
+      </Button>
+    </>
+  );
 
+  return (
+    <article
+      id={`cell-${cell.id}`}
+      className={clsx(
+        "group/cell relative z-0 rounded-xl transition hover:z-40 focus-within:z-50",
+        "border-l-2 border-transparent hover:border-emerald-300/80"
+      )}
+      onMouseDown={onActivate}
+      onFocus={onActivate}
+      tabIndex={-1}
+    >
       <Dialog open={aiEnabled && aiOpen} onOpenChange={handleAiDialogChange}>
         <DialogContent>
           <DialogHeader>
@@ -677,76 +1052,356 @@ const CellCard = ({
           cell={cell}
           notebookId={notebookId}
           onChange={onChange}
+          pendingPersist={pendingShellPersist}
         />
       )}
 
-      {/* Collapse the inline add menu when idle so it doesn't add gap */}
-      <div className="flex h-1 flex-1 mb-1 mt-1 justify-center overflow-hidden opacity-0 transition pointer-events-none group-hover/cell:h-10 group-focus-within/cell:h-10 group-hover/cell:opacity-100 group-focus-within/cell:opacity-100 group-hover/cell:pointer-events-auto group-focus-within/cell:pointer-events-auto">
-        <AddCellMenu onAdd={onAddBelow} className="text-[11px]" />
-      </div>
-      {isCode ? (
-        <Dialog
-          open={showConfig}
-          onOpenChange={(open) => (!open ? handleConfigClose() : undefined)}
+      {/* Collapse the inline controls when idle so they don't add gap */}
+      <div className="pointer-events-none mb-2 mt-2 flex max-h-0 w-full justify-center overflow-hidden opacity-0 transition-all duration-200 group-hover/cell:max-h-24 group-hover/cell:opacity-100 group-hover/cell:pointer-events-auto group-focus-within/cell:max-h-24 group-focus-within/cell:opacity-100 group-focus-within/cell:pointer-events-auto">
+        <div
+          className="pointer-events-auto z-50 flex w-full flex-wrap items-center gap-2 rounded-2xl border border-border bg-card/95 px-3 py-2 text-muted-foreground backdrop-blur-sm"
+          onMouseDown={stopToolbarPropagation}
+          onTouchStart={stopToolbarPropagation}
+          onFocusCapture={stopToolbarFocus}
         >
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Cell timeout</DialogTitle>
-              <DialogDescription>
-                Set a custom execution limit for this cell. Leave blank to use
-                the workspace default.
-              </DialogDescription>
-            </DialogHeader>
-            <form
-              className="mt-2 space-y-3"
-              onSubmit={(event) => {
-                event.preventDefault();
-                handleTimeoutSave();
-              }}
-            >
-              <label className="block text-xs font-medium text-muted-foreground">
-                Timeout (ms)
-                <input
-                  type="number"
-                  inputMode="numeric"
-                  min={1000}
-                  max={600000}
-                  step={500}
-                  value={timeoutDraft}
-                  onChange={(event) => handleTimeoutChange(event.target.value)}
-                  placeholder="Use default"
-                  className="mt-1 w-full rounded-md border border-input bg-background px-2 py-1 text-[13px] text-foreground focus:outline-none"
-                />
-              </label>
-              {timeoutError ? (
-                <p className="text-xs font-medium text-rose-600 dark:text-rose-300">
-                  {timeoutError}
-                </p>
-              ) : (
-                <p className="text-xs text-muted-foreground">
-                  Leave empty to use the workspace kernel timeout.
-                </p>
+          <div className="flex flex-1 flex-wrap items-center gap-1 [&>button]:h-10 [&>button]:w-10 [&>button]:rounded-xl">
+            {actionButtons}
+          </div>
+          <AddCellMenu
+            onAdd={onAddBelow}
+            className="ml-auto flex flex-wrap items-center gap-1 text-[11px] [&>button]:h-8 [&>button]:w-auto [&>button]:rounded-lg sm:border-l sm:border-border/60 sm:pl-2 sm:[&>button]:min-w-[6.5rem]"
+          />
+        </div>
+      </div>
+      <Dialog
+        open={showConfig}
+        onOpenChange={(open) => (!open ? handleConfigClose() : undefined)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {isCode
+                ? "Code cell settings"
+                : isMarkdown
+                  ? "Markdown cell settings"
+                  : "Shell cell settings"}
+            </DialogTitle>
+            <DialogDescription>
+              {isShell
+                ? "Tune terminal preferences for this shell cell."
+                : "Adjust editor preferences for this cell."}
+            </DialogDescription>
+          </DialogHeader>
+          <form
+            className="mt-2 space-y-4"
+            onSubmit={(event) => {
+              event.preventDefault();
+              handleConfigSave();
+            }}
+          >
+            <div className="space-y-4">
+              {isCode ? (
+                <section className="space-y-2">
+                  <h4 className="text-sm font-semibold text-foreground">
+                    Execution
+                  </h4>
+                  <label className="block text-xs font-medium text-muted-foreground">
+                    Timeout (ms)
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      min={1000}
+                      max={600000}
+                      step={500}
+                      value={timeoutDraft}
+                      onChange={(event) => {
+                        setTimeoutDraft(event.target.value);
+                        setTimeoutError(null);
+                      }}
+                      placeholder="Use default"
+                      className="mt-1 w-full rounded-md border border-input bg-background px-2 py-1 text-[13px] text-foreground focus:outline-none"
+                    />
+                  </label>
+                  {timeoutError ? (
+                    <p className="text-xs font-medium text-rose-600 dark:text-rose-300">
+                      {timeoutError}
+                    </p>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      Leave empty to use the workspace kernel timeout.
+                    </p>
+                  )}
+                </section>
+              ) : null}
+
+              {(isCode || isMarkdown) && (
+                <section className="space-y-2">
+                  <h4 className="text-sm font-semibold text-foreground">
+                    Editor
+                  </h4>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <label className="block text-xs font-medium text-muted-foreground">
+                      Font size
+                      <div className="mt-1 space-y-2">
+                        <select
+                          className="w-full rounded-md border border-input bg-background px-2 py-1 text-[13px] text-foreground focus:outline-none"
+                          value={editorFontSizeSelection}
+                          onChange={(event) => {
+                            const next = event.target
+                              .value as FontSizeSelection;
+                            setEditorFontSizeSelection(next);
+                            setEditorError(null);
+                            if (next === "default") {
+                              setEditorFontSizeDraft("");
+                              return;
+                            }
+                            if (next === "custom") {
+                              const trimmed = editorFontSizeDraft.trim();
+                              if (
+                                trimmed.length === 0 ||
+                                FONT_SIZE_PRESET_STRINGS.has(trimmed)
+                              ) {
+                                setEditorFontSizeDraft("");
+                              } else {
+                                setEditorFontSizeDraft(trimmed);
+                              }
+                              return;
+                            }
+                            setEditorFontSizeDraft(next);
+                          }}
+                        >
+                          <option value="default">
+                            Default ({editorDefaults.fontSize})
+                          </option>
+                          {FONT_SIZE_PRESETS.map((size) => (
+                            <option key={size} value={String(size)}>
+                              {size}
+                            </option>
+                          ))}
+                          <option value="custom">Custom</option>
+                        </select>
+                        {editorFontSizeSelection === "custom" ? (
+                          <input
+                            type="number"
+                            inputMode="numeric"
+                            min={8}
+                            max={72}
+                            value={editorFontSizeDraft}
+                            onChange={(event) => {
+                              setEditorFontSizeSelection("custom");
+                              setEditorFontSizeDraft(event.target.value);
+                              setEditorError(null);
+                            }}
+                            placeholder="Enter a size"
+                            className="w-full rounded-md border border-input bg-background px-2 py-1 text-[13px] text-foreground focus:outline-none"
+                          />
+                        ) : null}
+                      </div>
+                    </label>
+                    <label className="block text-xs font-medium text-muted-foreground">
+                      Word wrap
+                      <select
+                        className="mt-1 w-full rounded-md border border-input bg-background px-2 py-1 text-[13px] text-foreground focus:outline-none"
+                        value={editorWordWrapDraft}
+                        onChange={(event) =>
+                          setEditorWordWrapDraft(
+                            event.target.value as typeof editorWordWrapDraft
+                          )
+                        }
+                      >
+                        <option value="default">
+                          Default (
+                          {editorDefaults.wordWrap === "on" ? "on" : "off"})
+                        </option>
+                        <option value="on">On</option>
+                        <option value="off">Off</option>
+                      </select>
+                    </label>
+                    <label className="block text-xs font-medium text-muted-foreground">
+                      Line numbers
+                      <select
+                        className="mt-1 w-full rounded-md border border-input bg-background px-2 py-1 text-[13px] text-foreground focus:outline-none"
+                        value={editorLineNumbersDraft}
+                        onChange={(event) =>
+                          setEditorLineNumbersDraft(
+                            event.target.value as typeof editorLineNumbersDraft
+                          )
+                        }
+                      >
+                        <option value="default">
+                          Default (
+                          {editorDefaults.lineNumbers === "on" ? "on" : "off"})
+                        </option>
+                        <option value="on">On</option>
+                        <option value="off">Off</option>
+                      </select>
+                    </label>
+                    <label className="block text-xs font-medium text-muted-foreground">
+                      Minimap
+                      <select
+                        className="mt-1 w-full rounded-md border border-input bg-background px-2 py-1 text-[13px] text-foreground focus:outline-none"
+                        value={editorMinimapDraft}
+                        onChange={(event) =>
+                          setEditorMinimapDraft(
+                            event.target.value as typeof editorMinimapDraft
+                          )
+                        }
+                      >
+                        <option value="default">
+                          Default ({minimapDefaultLabel})
+                        </option>
+                        <option value="show">Show</option>
+                        <option value="hide">Hide</option>
+                      </select>
+                    </label>
+                  </div>
+                  {editorError ? (
+                    <p className="text-xs font-medium text-rose-600 dark:text-rose-300">
+                      {editorError}
+                    </p>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      Leave fields blank to use workspace defaults.
+                    </p>
+                  )}
+                </section>
               )}
-              <DialogFooter className="gap-2 sm:gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={handleConfigClose}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="submit"
-                  variant="default"
-                  className="px-3 text-[11px]"
-                >
-                  Save
-                </Button>
-              </DialogFooter>
-            </form>
-          </DialogContent>
-        </Dialog>
-      ) : null}
+
+              {isShell ? (
+                <section className="space-y-2">
+                  <h4 className="text-sm font-semibold text-foreground">
+                    Terminal
+                  </h4>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <label className="block text-xs font-medium text-muted-foreground">
+                      Font size
+                      <div className="mt-1 space-y-2">
+                        <select
+                          className="w-full rounded-md border border-input bg-background px-2 py-1 text-[13px] text-foreground focus:outline-none"
+                          value={terminalFontSizeSelection}
+                          onChange={(event) => {
+                            const next = event.target
+                              .value as FontSizeSelection;
+                            setTerminalFontSizeSelection(next);
+                            setTerminalError(null);
+                            if (next === "default") {
+                              setTerminalFontSizeDraft("");
+                              return;
+                            }
+                            if (next === "custom") {
+                              const trimmed = terminalFontSizeDraft.trim();
+                              if (
+                                trimmed.length === 0 ||
+                                FONT_SIZE_PRESET_STRINGS.has(trimmed)
+                              ) {
+                                setTerminalFontSizeDraft("");
+                              } else {
+                                setTerminalFontSizeDraft(trimmed);
+                              }
+                              return;
+                            }
+                            setTerminalFontSizeDraft(next);
+                          }}
+                        >
+                          <option value="default">
+                            Default ({DEFAULT_TERMINAL_PREFERENCES.fontSize})
+                          </option>
+                          {FONT_SIZE_PRESETS.map((size) => (
+                            <option key={size} value={String(size)}>
+                              {size}
+                            </option>
+                          ))}
+                          <option value="custom">Custom</option>
+                        </select>
+                        {terminalFontSizeSelection === "custom" ? (
+                          <input
+                            type="number"
+                            inputMode="numeric"
+                            min={8}
+                            max={72}
+                            value={terminalFontSizeDraft}
+                            onChange={(event) => {
+                              setTerminalFontSizeSelection("custom");
+                              setTerminalFontSizeDraft(event.target.value);
+                              setTerminalError(null);
+                            }}
+                            placeholder="Enter a size"
+                            className="w-full rounded-md border border-input bg-background px-2 py-1 text-[13px] text-foreground focus:outline-none"
+                          />
+                        ) : null}
+                      </div>
+                    </label>
+                    <label className="block text-xs font-medium text-muted-foreground">
+                      Cursor blink
+                      <select
+                        className="mt-1 w-full rounded-md border border-input bg-background px-2 py-1 text-[13px] text-foreground focus:outline-none"
+                        value={terminalCursorBlinkDraft}
+                        onChange={(event) =>
+                          setTerminalCursorBlinkDraft(
+                            event.target
+                              .value as typeof terminalCursorBlinkDraft
+                          )
+                        }
+                      >
+                        <option value="default">
+                          Default (
+                          {DEFAULT_TERMINAL_PREFERENCES.cursorBlink
+                            ? "on"
+                            : "off"}
+                          )
+                        </option>
+                        <option value="on">On</option>
+                        <option value="off">Off</option>
+                      </select>
+                    </label>
+                    <label className="block text-xs font-medium text-muted-foreground sm:col-span-2">
+                      Cursor style
+                      <select
+                        className="mt-1 w-full rounded-md border border-input bg-background px-2 py-1 text-[13px] text-foreground focus:outline-none"
+                        value={terminalCursorStyleDraft}
+                        onChange={(event) =>
+                          setTerminalCursorStyleDraft(
+                            event.target
+                              .value as typeof terminalCursorStyleDraft
+                          )
+                        }
+                      >
+                        <option value="default">
+                          Default ({terminalDefaultStyleLabel})
+                        </option>
+                        <option value="block">Block</option>
+                        <option value="bar">Bar</option>
+                        <option value="underline">Underline</option>
+                      </select>
+                    </label>
+                  </div>
+                  {terminalError ? (
+                    <p className="text-xs font-medium text-rose-600 dark:text-rose-300">
+                      {terminalError}
+                    </p>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      Leave fields blank to use workspace defaults.
+                    </p>
+                  )}
+                </section>
+              ) : null}
+            </div>
+            <DialogFooter className="gap-2 sm:gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleConfigClose}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" variant="default">
+                Save
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </article>
   );
 };

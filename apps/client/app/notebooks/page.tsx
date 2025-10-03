@@ -8,13 +8,14 @@ import {
   type ChangeEvent,
 } from "react";
 import AppShell from "../../components/app-shell";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Play, Trash2, Plus, Download, Upload, Loader2 } from "lucide-react";
+import { Play, Trash2, Download, Upload, Loader2 } from "lucide-react";
 import ConfirmDialog from "@/components/ui/confirm";
 import type { Notebook } from "@nodebooks/notebook-schema";
 import { useRouter } from "next/navigation";
 import LoadingOverlay from "@/components/ui/loading-overlay";
+import NewNotebookCallout from "@/components/notebook/new-notebook-callout";
 
 import { clientConfig } from "@nodebooks/config/client";
 const API_BASE_URL = clientConfig().apiBaseUrl;
@@ -201,19 +202,7 @@ export default function NotebooksPage() {
       {loading ? (
         <LoadingOverlay label="Loading notebooks…" />
       ) : list.length === 0 ? (
-        <Card className="max-w-xl">
-          <CardContent className="flex items-center justify-between gap-4">
-            <p className="text-sm text-muted-foreground">No notebooks yet.</p>
-            <Button
-              size="sm"
-              variant="default"
-              className="gap-2"
-              onClick={handleCreate}
-            >
-              <Plus className="h-4 w-4" /> New notebook
-            </Button>
-          </CardContent>
-        </Card>
+        <NewNotebookCallout onCreate={handleCreate} />
       ) : (
         <div className="mt-8 space-y-3">
           {list.map((n) => (

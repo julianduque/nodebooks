@@ -3,12 +3,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import AppShell from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { ChevronRight, NotebookPen, Plus, Trash2 } from "lucide-react";
+import { ChevronRight, NotebookPen, Trash2 } from "lucide-react";
 import ConfirmDialog from "../components/ui/confirm";
 import type { Notebook } from "@nodebooks/notebook-schema";
 import { useRouter } from "next/navigation";
 import LoadingOverlay from "@/components/ui/loading-overlay";
+import NewNotebookCallout from "@/components/notebook/new-notebook-callout";
 
 import { clientConfig } from "@nodebooks/config/client";
 const API_BASE_URL = clientConfig().apiBaseUrl;
@@ -62,19 +62,7 @@ export default function HomePage() {
       return <LoadingOverlay label="Loading notebooks…" />;
     }
     if (list.length === 0) {
-      return (
-        <Card className="mt-8 max-w-xl">
-          <CardContent className="flex items-center justify-between gap-4">
-            <p className="text-sm text-muted-foreground">
-              Spin up a new notebook with example cells.
-            </p>
-            <Button className="gap-2" onClick={handleCreate}>
-              <Plus className="h-4 w-4" />
-              Create notebook
-            </Button>
-          </CardContent>
-        </Card>
-      );
+      return <NewNotebookCallout onCreate={handleCreate} />;
     }
     const recent = [...list]
       .sort((a, b) => (a.updatedAt > b.updatedAt ? -1 : 1))

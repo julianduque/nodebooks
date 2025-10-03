@@ -9,6 +9,10 @@ import { Loader2, Zap } from "lucide-react";
 import OutputView from "@/components/notebook/output-view";
 import { initMonaco } from "@/components/notebook/monaco-setup";
 import { useTheme } from "@/components/theme-context";
+import {
+  DEFAULT_CODE_EDITOR_SETTINGS,
+  type MonacoEditorSettings,
+} from "./editor-preferences";
 
 interface CodeCellViewProps {
   cell: Extract<NotebookCell, { type: "code" }>;
@@ -40,6 +44,16 @@ const CodeCellView = ({
   const heightRef = useRef(0);
   const { theme } = useTheme();
   const monacoTheme = theme === "dark" ? "vs-dark" : "vs-dark";
+  const editorPrefs =
+    (cell.metadata as { editor?: MonacoEditorSettings }).editor ?? {};
+  const editorFontSize =
+    editorPrefs.fontSize ?? DEFAULT_CODE_EDITOR_SETTINGS.fontSize;
+  const editorWordWrap =
+    editorPrefs.wordWrap ?? DEFAULT_CODE_EDITOR_SETTINGS.wordWrap;
+  const editorMinimap =
+    editorPrefs.minimap ?? DEFAULT_CODE_EDITOR_SETTINGS.minimap;
+  const editorLineNumbers =
+    editorPrefs.lineNumbers ?? DEFAULT_CODE_EDITOR_SETTINGS.lineNumbers;
   useEffect(() => {
     runShortcutRef.current = onRun;
   }, [onRun]);
@@ -201,11 +215,11 @@ const CodeCellView = ({
             onMount={handleEditorMount}
             beforeMount={handleBeforeMount}
             options={{
-              minimap: { enabled: false },
-              fontSize: 14,
-              lineNumbers: "on",
+              minimap: { enabled: editorMinimap },
+              fontSize: editorFontSize,
+              lineNumbers: editorLineNumbers,
               scrollBeyondLastLine: false,
-              wordWrap: "on",
+              wordWrap: editorWordWrap,
               automaticLayout: true,
               readOnly: isRunning || isGenerating,
               fixedOverflowWidgets: true,

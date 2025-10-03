@@ -8,6 +8,10 @@ import { clientConfig } from "@nodebooks/config/client";
 import { useTheme } from "@/components/theme-context";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/components/lib/utils";
+import {
+  DEFAULT_TERMINAL_PREFERENCES,
+  type TerminalPreferences,
+} from "./editor-preferences";
 
 import "@xterm/xterm/css/xterm.css";
 
@@ -23,6 +27,7 @@ interface ShellCellViewProps {
     updater: (cell: NotebookCell) => NotebookCell,
     options?: { persist?: boolean; touch?: boolean }
   ) => void;
+  pendingPersist?: boolean;
 }
 
 type TerminalStatus = "connecting" | "ready" | "closed" | "error";
@@ -50,7 +55,12 @@ const buildWsUrl = (notebookId: string, cellId: string): string | null => {
   return null;
 };
 
-const ShellCellView = ({ cell, notebookId, onChange }: ShellCellViewProps) => {
+const ShellCellView = ({
+  cell,
+  notebookId,
+  onChange,
+  pendingPersist = false,
+}: ShellCellViewProps) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<XTermTerminal | null>(null);
   const fitRef = useRef<XTermFitAddon | null>(null);
@@ -66,6 +76,16 @@ const ShellCellView = ({ cell, notebookId, onChange }: ShellCellViewProps) => {
   const [status, setStatus] = useState<TerminalStatus>("connecting");
   const [error, setError] = useState<string | null>(null);
   const [exitCode, setExitCode] = useState<number | null>(null);
+  const [readyToConnect, setReadyToConnect] =
+    useState<boolean>(!pendingPersist);
+  const terminalPrefs =
+    (cell.metadata as { terminal?: TerminalPreferences }).terminal ?? {};
+  const terminalFontSize =
+    terminalPrefs.fontSize ?? DEFAULT_TERMINAL_PREFERENCES.fontSize;
+  const terminalCursorBlink =
+    terminalPrefs.cursorBlink ?? DEFAULT_TERMINAL_PREFERENCES.cursorBlink;
+  const terminalCursorStyle =
+    terminalPrefs.cursorStyle ?? DEFAULT_TERMINAL_PREFERENCES.cursorStyle;
 
   useEffect(() => {
     onChangeRef.current = onChange;
@@ -98,6 +118,18 @@ const ShellCellView = ({ cell, notebookId, onChange }: ShellCellViewProps) => {
   useEffect(() => {
     bufferRef.current = cell.buffer ?? "";
   }, [cell.buffer, cell.id]);
+
+  useEffect(() => {
+    if (pendingPersist) {
+      if (!socketRef.current) {
+        setStatus("connecting");
+        setError(null);
+      }
+      setReadyToConnect(false);
+      return;
+    }
+    setReadyToConnect(true);
+  }, [pendingPersist]);
 
   const themeOptions = useMemo(() => {
     if (theme === "light") {
@@ -134,9 +166,10 @@ const ShellCellView = ({ cell, notebookId, onChange }: ShellCellViewProps) => {
         }
         const term = new Terminal({
           convertEol: true,
-          cursorBlink: true,
+          cursorBlink: terminalCursorBlink,
+          cursorStyle: terminalCursorStyle,
           fontFamily: "Menlo, Monaco, 'Courier New', monospace",
-          fontSize: 14,
+          fontSize: terminalFontSize,
           theme: themeOptions,
           allowProposedApi: true,
         });
@@ -243,7 +276,12 @@ const ShellCellView = ({ cell, notebookId, onChange }: ShellCellViewProps) => {
       cleanup?.();
       cleanup = null;
     };
-  }, [themeOptions]);
+  }, [
+    themeOptions,
+    terminalCursorBlink,
+    terminalCursorStyle,
+    terminalFontSize,
+  ]);
 
   const appendToTerminal = useCallback((text: string) => {
     const term = termRef.current;
@@ -254,6 +292,16 @@ const ShellCellView = ({ cell, notebookId, onChange }: ShellCellViewProps) => {
   }, []);
 
   useEffect(() => {
+    if (!readyToConnect) {
+      return;
+    }
+    if (
+      socketRef.current &&
+      (socketRef.current.readyState === WebSocket.CONNECTING ||
+        socketRef.current.readyState === WebSocket.OPEN)
+    ) {
+      return;
+    }
     const url = buildWsUrl(notebookId, cell.id);
     if (!url) {
       setStatus("error");
@@ -458,7 +506,13 @@ const ShellCellView = ({ cell, notebookId, onChange }: ShellCellViewProps) => {
         }
       }
     };
-  }, [appendToTerminal, applyBufferUpdate, cell.id, notebookId]);
+  }, [
+    appendToTerminal,
+    applyBufferUpdate,
+    cell.id,
+    notebookId,
+    readyToConnect,
+  ]);
 
   const statusBadge = useMemo(() => {
     if (status === "ready") {
