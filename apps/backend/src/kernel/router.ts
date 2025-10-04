@@ -16,15 +16,12 @@ import type {
   NotebookStore,
   SessionManager,
   NotebookSession,
+  SafeUser,
+  AuthSession,
 } from "../types.js";
 import { WorkerClient } from "@nodebooks/runtime-host";
 import { getWorkerPool } from "./runtime-pool.js";
 import { loadServerConfig } from "@nodebooks/config";
-import {
-  PASSWORD_COOKIE_NAME,
-  isTokenValid,
-  parseCookieHeader,
-} from "../auth/password.js";
 
 const runtimes = new Map<string, WorkerClient>();
 
@@ -38,9 +35,15 @@ const HEARTBEAT_INTERVAL_MS = (() => {
 })();
 
 // WebSocket connections at `${prefix}/ws/sessions/:id` using `ws` directly.
+interface KernelUpgradeAuthResult {
+  user: SafeUser;
+  session: AuthSession;
+}
+
 interface KernelUpgradeOptions {
-  passwordToken?: string | null;
-  getPasswordToken?: () => string | null;
+  authenticate?: (
+    req: IncomingMessage
+  ) => Promise<KernelUpgradeAuthResult | null>;
 }
 
 export const createKernelUpgradeHandler = (
@@ -52,52 +55,66 @@ export const createKernelUpgradeHandler = (
   const wss = new WebSocketServer({ noServer: true });
   const base = prefix.endsWith("/") ? prefix.slice(0, -1) : prefix;
   const pattern = new RegExp(`^${base}/ws/sessions/([^/?#]+)`);
-  const resolvePasswordToken =
-    typeof options.getPasswordToken === "function"
-      ? options.getPasswordToken
-      : () => options.passwordToken ?? null;
 
   return (req: IncomingMessage, socket: Socket, head: Buffer) => {
     const url = req.url || "";
     const m = url.match(pattern);
     if (!m) return false;
-    const activeToken = resolvePasswordToken();
-    if (activeToken) {
-      const cookies = parseCookieHeader(req.headers.cookie);
-      if (!isTokenValid(cookies[PASSWORD_COOKIE_NAME], activeToken)) {
+
+    const finalize = async () => {
+      let authResult: KernelUpgradeAuthResult | null = null;
+      if (typeof options.authenticate === "function") {
         try {
-          socket.write(
-            "HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n"
-          );
-        } catch (writeError) {
-          void writeError;
+          authResult = await options.authenticate(req);
+        } catch (authError) {
+          authResult = null;
         }
+        if (!authResult) {
+          try {
+            socket.write(
+              "HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n"
+            );
+          } catch (writeError) {
+            void writeError;
+          }
+          try {
+            socket.destroy();
+          } catch (destroyError) {
+            void destroyError;
+          }
+          return;
+        }
+      }
+
+      const id = decodeURIComponent(m[1]!);
+      try {
+        wss.handleUpgrade(req, socket, head, (ws) => {
+          void handleConnection(
+            ws as unknown as WebSocket,
+            { id },
+            sessions,
+            store,
+            authResult
+          );
+        });
+      } catch (err) {
         try {
           socket.destroy();
-        } catch (destroyError) {
-          void destroyError;
+        } catch (e) {
+          void e;
         }
-        return true;
+        void err;
       }
-    }
-    const id = decodeURIComponent(m[1]!);
-    try {
-      wss.handleUpgrade(req, socket, head, (ws) => {
-        void handleConnection(
-          ws as unknown as WebSocket,
-          { id },
-          sessions,
-          store
-        );
-      });
-    } catch (err) {
+    };
+
+    void finalize().catch((err) => {
       try {
         socket.destroy();
-      } catch (e) {
-        void e;
+      } catch (destroyError) {
+        void destroyError;
       }
       void err;
-    }
+    });
     return true;
   };
 };
@@ -106,8 +123,10 @@ const handleConnection = async (
   connection: WebSocket,
   params: unknown,
   sessions: SessionManager,
-  store: NotebookStore
+  store: NotebookStore,
+  auth: KernelUpgradeAuthResult | null
 ) => {
+  void auth;
   const { id } = z.object({ id: z.string() }).parse(params);
   const allSessions = await sessions.listSessions();
   const session = allSessions.find((item) => item.id === id);

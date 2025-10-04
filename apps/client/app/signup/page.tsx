@@ -1,24 +1,29 @@
 import Image from "next/image";
 import type { Route } from "next";
 
-import LoginForm from "./login-form";
+import SignupForm from "./signup-form";
 
-interface LoginPageProps {
+interface SignupPageProps {
   searchParams?: Promise<{
+    token?: string | string[];
     from?: string | string[];
   }>;
 }
 
 const DEFAULT_REDIRECT: Route = "/";
 
+const resolveToken = (raw: string | string[] | undefined): string => {
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  return typeof value === "string" ? value : "";
+};
+
 const resolveRedirect = (raw: string | string[] | undefined): Route => {
   const value = Array.isArray(raw) ? raw[0] : raw;
-  const input = typeof value === "string" ? value : undefined;
-  if (!input) {
+  if (!value) {
     return DEFAULT_REDIRECT;
   }
   try {
-    const decoded = decodeURIComponent(input);
+    const decoded = decodeURIComponent(value);
     if (!decoded.startsWith("/")) {
       return DEFAULT_REDIRECT;
     }
@@ -31,13 +36,14 @@ const resolveRedirect = (raw: string | string[] | undefined): Route => {
   }
 };
 
-const LoginPage = async ({ searchParams }: LoginPageProps) => {
+const SignupPage = async ({ searchParams }: SignupPageProps) => {
   const params = (await searchParams) ?? {};
-  const nextPath = resolveRedirect(params.from);
+  const initialToken = resolveToken(params.token);
+  const redirectTo = resolveRedirect(params.from);
 
   return (
     <main className="flex min-h-svh items-center justify-center bg-background px-4 py-12">
-      <div className="w-full max-w-sm space-y-8">
+      <div className="w-full max-w-md space-y-8">
         <header className="flex flex-col items-center gap-2 text-center">
           <div className="flex items-center gap-2">
             <Image
@@ -47,18 +53,28 @@ const LoginPage = async ({ searchParams }: LoginPageProps) => {
               height={40}
               priority
             />
-            <span className="text-2xl font-semibold">NodeBooks</span>
+            <span className="text-2xl font-semibold">Join NodeBooks</span>
           </div>
           <p className="text-sm text-muted-foreground">
-            Sign in with your workspace email and password.
+            Accept your invitation and set a password to access the workspace.
           </p>
         </header>
         <section className="rounded-lg border border-border bg-card p-6 shadow-sm">
-          <LoginForm redirectTo={nextPath} />
+          <SignupForm initialToken={initialToken} />
         </section>
+        <p className="text-center text-xs text-muted-foreground">
+          Already have an account?{" "}
+          <a
+            className="font-medium text-primary"
+            href={`/login?from=${encodeURIComponent(redirectTo)}`}
+          >
+            Sign in
+          </a>
+          .
+        </p>
       </div>
     </main>
   );
 };
 
-export default LoginPage;
+export default SignupPage;

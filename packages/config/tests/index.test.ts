@@ -22,7 +22,6 @@ describe("@nodebooks/config – loadServerConfig", () => {
     expect(cfg.isProd).toBe(false);
     expect(cfg.embedNext).toBe(true);
     expect(cfg.keepClientCwd).toBe(true);
-    expect(cfg.password).toBeUndefined();
     expect(cfg.theme).toBe("light");
     expect(cfg.kernelTimeoutMs).toBe(10_000);
     expect(cfg.kernelWsHeartbeatMs).toBeUndefined();
@@ -76,16 +75,13 @@ describe("@nodebooks/config – loadServerConfig", () => {
     runtime.__NODEBOOKS_SETTINGS__ = {
       theme: "dark",
       kernelTimeoutMs: 42_000,
-      password: "stored-secret",
     };
     const cfg = loadServerConfig({
       NODEBOOKS_THEME: "light",
       NODEBOOKS_KERNEL_TIMEOUT_MS: "5000",
-      NODEBOOKS_PASSWORD: "env-secret",
     } as NodeJS.ProcessEnv);
     expect(cfg.theme).toBe("dark");
     expect(cfg.kernelTimeoutMs).toBe(42_000);
-    expect(cfg.password).toBe("stored-secret");
   });
 
   it("honors explicit override argument", () => {

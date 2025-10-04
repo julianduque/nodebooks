@@ -54,6 +54,13 @@ pnpm install
   - Terminal 2 (UI): `pnpm ui:dev` (Next.js on http://localhost:3000)
   - The UI dev script is preconfigured with `NEXT_PUBLIC_API_BASE_URL=http://localhost:4000/api`.
 
+## Accounts & Invitations
+
+- When the server starts with no users, visit `/signup` to create the initial admin account.
+- Admins can open the share dialog (the “Invite” button in any notebook) to send role-based invitations.
+- Invitations generate signup tokens; recipients redeem them at `/signup?token=...` to choose a password before logging in.
+- Existing deployments that previously relied on `NODEBOOKS_PASSWORD` should remove that environment variable and create an admin via `/signup` before inviting additional collaborators.
+
 ## Production
 
 Build all workspaces, then start the server in production mode:
@@ -70,7 +77,6 @@ pnpm start
 
 - `PORT` – Port to bind (default `4000`).
 - `HOST` – Host to bind (default `0.0.0.0`).
-- `NODEBOOKS_PASSWORD` – Password to protect the server (default `null`).
 - `NODEBOOKS_SQLITE_PATH` – Path to the SQLite file for notebooks storage.
 - `NODEBOOKS_KERNEL_TIMEOUT_MS` – Kernel execution timeout in ms (default `10000`).
 - `NODEBOOKS_KERNEL_WS_HEARTBEAT_MS` – Server→client WebSocket ping interval in ms to keep connections alive behind proxies with idle timeouts (default `25000`).
@@ -89,7 +95,6 @@ pnpm start
 - Run (SQLite, ephemeral): `docker run --rm -p 4000:4000 nodebooks:latest`
 - Run (SQLite, persistent): `docker run --rm -p 4000:4000 -v nodebooks_data:/app/apps/backend/data nodebooks:latest`
 - Run (PostgreSQL): `docker run --rm -p 4000:4000 -e NODEBOOKS_PERSISTENCE=postgres -e DATABASE_URL=postgres://user:pass@host:5432/db nodebooks:latest`
-- Optional password: add `-e NODEBOOKS_PASSWORD=your-secret` to require login
 - Health check: `curl http://localhost:4000/health` returns `{ "status": "ok" }`
 
 ## Deploy to Heroku
@@ -103,7 +108,6 @@ pnpm start
   - Add PostgreSQL addon: `heroku addons:create heroku-postgresql:essential-0`
   - Set env:
     - `heroku config:set NODEBOOKS_PERSISTENCE=postgres`
-    - `heroku config:set NODEBOOKS_PASSWORD=your-secret`
   - Push: `git push heroku HEAD:main` (or your default branch)
   - Open: `heroku open`
 
