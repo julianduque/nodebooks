@@ -2,17 +2,12 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import Fastify from "fastify";
 import fastifyCookie from "@fastify/cookie";
 
-import {
-  PASSWORD_COOKIE_NAME,
-  derivePasswordToken,
-} from "../src/auth/password.js";
 import { registerSettingsRoutes } from "../src/routes/settings.js";
 import { InMemorySettingsStore } from "../src/store/memory.js";
 import { SettingsService } from "../src/settings/service.js";
 
 const originalTheme = process.env.NODEBOOKS_THEME;
 const originalTimeout = process.env.NODEBOOKS_KERNEL_TIMEOUT_MS;
-const originalPassword = process.env.NODEBOOKS_PASSWORD;
 const originalAiEnabled = process.env.NODEBOOKS_AI_ENABLED;
 
 describe("settings routes", () => {
@@ -25,12 +20,6 @@ describe("settings routes", () => {
     await app.register(fastifyCookie);
     await registerSettingsRoutes(app, {
       settings: settingsService,
-      cookieOptions: {
-        path: "/",
-        httpOnly: true,
-        sameSite: "lax",
-        secure: false,
-      },
     });
     await app.ready();
     return { app, settingsService };
@@ -39,7 +28,6 @@ describe("settings routes", () => {
   beforeEach(() => {
     delete process.env.NODEBOOKS_THEME;
     delete process.env.NODEBOOKS_KERNEL_TIMEOUT_MS;
-    delete process.env.NODEBOOKS_PASSWORD;
     delete process.env.NODEBOOKS_AI_ENABLED;
   });
 
@@ -53,11 +41,6 @@ describe("settings routes", () => {
       delete process.env.NODEBOOKS_KERNEL_TIMEOUT_MS;
     } else {
       process.env.NODEBOOKS_KERNEL_TIMEOUT_MS = originalTimeout;
-    }
-    if (originalPassword === undefined) {
-      delete process.env.NODEBOOKS_PASSWORD;
-    } else {
-      process.env.NODEBOOKS_PASSWORD = originalPassword;
     }
     if (originalAiEnabled === undefined) {
       delete process.env.NODEBOOKS_AI_ENABLED;
@@ -78,7 +61,6 @@ describe("settings routes", () => {
       data: {
         theme: "light",
         kernelTimeoutMs: 10_000,
-        passwordEnabled: false,
         aiEnabled: true,
         ai: {
           provider: "openai",
@@ -91,7 +73,6 @@ describe("settings routes", () => {
         },
       },
     });
-    expect(settingsService.getPasswordToken()).toBeNull();
     await app.close();
   });
 
@@ -107,7 +88,6 @@ describe("settings routes", () => {
       data: {
         theme: "dark",
         kernelTimeoutMs: 15_000,
-        passwordEnabled: false,
         aiEnabled: true,
         ai: {
           provider: "openai",
@@ -125,7 +105,6 @@ describe("settings routes", () => {
     expect(settingsService.getSnapshot()).toEqual({
       theme: "dark",
       kernelTimeoutMs: 15_000,
-      passwordEnabled: false,
       aiEnabled: true,
       ai: {
         provider: "openai",
@@ -137,82 +116,6 @@ describe("settings routes", () => {
         },
       },
     });
-    await app.close();
-  });
-
-  it("sets a password and returns a cookie", async () => {
-    const { app, settingsService } = await createApp();
-    const res = await app.inject({
-      method: "PUT",
-      url: "/settings",
-      payload: { password: "secret" },
-    });
-    expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({
-      data: {
-        theme: "light",
-        kernelTimeoutMs: 10_000,
-        passwordEnabled: true,
-        aiEnabled: true,
-        ai: {
-          provider: "openai",
-          openai: { model: "gpt-4o-mini", apiKeyConfigured: false },
-          heroku: {
-            modelId: null,
-            inferenceKeyConfigured: false,
-            inferenceUrl: null,
-          },
-        },
-      },
-    });
-    expect(settingsService.getPasswordToken()).toBe(
-      derivePasswordToken("secret")
-    );
-    const cookie = res.cookies.find(
-      (item) => item.name === PASSWORD_COOKIE_NAME
-    );
-    expect(cookie?.value).toBe(derivePasswordToken("secret"));
-    await app.close();
-  });
-
-  it("clears the password", async () => {
-    const { app, settingsService } = await createApp();
-    const createRes = await app.inject({
-      method: "PUT",
-      url: "/settings",
-      payload: { password: "secret" },
-    });
-    expect(createRes.statusCode).toBe(200);
-    const res = await app.inject({
-      method: "PUT",
-      url: "/settings",
-      payload: { password: null },
-    });
-    expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({
-      data: {
-        theme: "light",
-        kernelTimeoutMs: 10_000,
-        passwordEnabled: false,
-        aiEnabled: true,
-        ai: {
-          provider: "openai",
-          openai: { model: "gpt-4o-mini", apiKeyConfigured: false },
-          heroku: {
-            modelId: null,
-            inferenceKeyConfigured: false,
-            inferenceUrl: null,
-          },
-        },
-      },
-    });
-    expect(settingsService.getPasswordToken()).toBeNull();
-    const cookieHeader = res.headers["set-cookie"];
-    const serialized = Array.isArray(cookieHeader)
-      ? cookieHeader.join(";")
-      : (cookieHeader ?? "");
-    expect(serialized).toContain(`${PASSWORD_COOKIE_NAME}=`);
-    expect(serialized).toMatch(/Expires=/);
     await app.close();
   });
 
@@ -228,7 +131,6 @@ describe("settings routes", () => {
     expect(settingsService.getSnapshot()).toEqual({
       theme: "light",
       kernelTimeoutMs: 10_000,
-      passwordEnabled: false,
       aiEnabled: true,
       ai: {
         provider: "openai",

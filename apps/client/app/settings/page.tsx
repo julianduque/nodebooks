@@ -28,7 +28,6 @@ interface AiSettingsPayload {
 interface SettingsPayload {
   theme: ThemeMode;
   kernelTimeoutMs: number;
-  passwordEnabled: boolean;
   aiEnabled: boolean;
   ai: AiSettingsPayload;
 }
@@ -36,7 +35,6 @@ interface SettingsPayload {
 type SavingSection =
   | "theme"
   | "kernel"
-  | "password"
   | "ai"
   | "aiEnabled"
   | null;
@@ -104,16 +102,12 @@ const parseSettings = (value: unknown): SettingsPayload | null => {
   if (Number.isNaN(record.kernelTimeoutMs)) {
     return null;
   }
-  if (typeof record.passwordEnabled !== "boolean") {
-    return null;
-  }
   const ai = parseAiSettings(record.ai);
   const aiEnabled =
     typeof record.aiEnabled === "boolean" ? record.aiEnabled : true;
   return {
     theme: record.theme,
     kernelTimeoutMs: record.kernelTimeoutMs,
-    passwordEnabled: record.passwordEnabled,
     aiEnabled,
     ai,
   };
@@ -194,68 +188,6 @@ const KernelSection = ({
         <Button type="button" onClick={onSubmit} disabled={saving}>
           {saving ? "Saving…" : "Update"}
         </Button>
-      </div>
-    </div>
-  );
-};
-
-const PasswordSection = ({
-  enabled,
-  password,
-  onPasswordChange,
-  onSave,
-  onDisable,
-  saving,
-}: {
-  enabled: boolean;
-  password: string;
-  onPasswordChange: (value: string) => void;
-  onSave: () => void;
-  onDisable: () => void;
-  saving: boolean;
-}) => {
-  return (
-    <div className="space-y-3">
-      <div className="space-y-1">
-        <h3 className="text-sm font-semibold text-foreground">
-          NodeBooks password
-        </h3>
-        <p className="text-sm text-muted-foreground">
-          {enabled
-            ? "Password protection is enabled for this workspace."
-            : "Set a password to require authentication before accessing notebooks."}
-        </p>
-      </div>
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-        <input
-          type="password"
-          value={password}
-          onChange={(event) => onPasswordChange(event.target.value)}
-          className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm font-medium text-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-ring sm:w-64"
-          placeholder="Enter a new password"
-          aria-label="NodeBooks password"
-        />
-        <div className="flex gap-2">
-          <Button
-            type="button"
-            onClick={onSave}
-            disabled={saving || password.length === 0}
-          >
-            {saving ? "Saving…" : enabled ? "Update" : "Enable"}
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={onDisable}
-            disabled={saving || !enabled}
-            className={cn(
-              "border-destructive text-destructive hover:bg-destructive/10",
-              "dark:border-destructive/70 dark:text-destructive"
-            )}
-          >
-            Disable
-          </Button>
-        </div>
       </div>
     </div>
   );
@@ -475,8 +407,6 @@ const SettingsPage = () => {
   const { theme, setTheme } = useTheme();
   const [themeValue, setThemeValue] = useState<ThemeMode>(theme);
   const [kernelTimeout, setKernelTimeout] = useState("10000");
-  const [passwordDraft, setPasswordDraft] = useState("");
-  const [passwordEnabled, setPasswordEnabled] = useState(false);
   const [aiEnabled, setAiEnabled] = useState(true);
   const [aiProvider, setAiProvider] = useState<AiProvider>("openai");
   const [openaiModel, setOpenaiModel] = useState("");
@@ -509,7 +439,6 @@ const SettingsPage = () => {
       setTheme(parsed.theme);
       setThemeValue(parsed.theme);
       setKernelTimeout(String(parsed.kernelTimeoutMs));
-      setPasswordEnabled(parsed.passwordEnabled);
       setAiEnabled(parsed.aiEnabled);
       setAiProvider(parsed.ai.provider);
       setOpenaiModel(parsed.ai.openai.model ?? "");
@@ -551,7 +480,6 @@ const SettingsPage = () => {
       setTheme(data.theme);
       setThemeValue(data.theme);
       setKernelTimeout(String(data.kernelTimeoutMs));
-      setPasswordEnabled(data.passwordEnabled);
       setAiEnabled(data.aiEnabled);
       setAiProvider(data.ai.provider);
       setOpenaiModel(data.ai.openai.model ?? "");
@@ -654,87 +582,6 @@ const SettingsPage = () => {
       setSavingSection(null);
     }
   }, [applyResponse, kernelTimeout, savingSection]);
-
-  const handlePasswordSave = useCallback(async () => {
-    if (savingSection === "password") {
-      return;
-    }
-    if (passwordDraft.trim().length === 0) {
-      setFeedback({
-        type: "error",
-        message: "Enter a password before saving.",
-      });
-      return;
-    }
-    setSavingSection("password");
-    setFeedback(null);
-    try {
-      const response = await fetch(`${API_BASE_URL}/settings`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password: passwordDraft }),
-      });
-      if (!response.ok) {
-        throw new Error(`Request failed with status ${response.status}`);
-      }
-      const payload = await response.json();
-      const parsed = parseSettings(payload?.data);
-      if (!parsed) {
-        throw new Error("Received malformed settings payload");
-      }
-      applyResponse(parsed);
-      setPasswordDraft("");
-      setFeedback({
-        type: "success",
-        message: "Password updated successfully.",
-      });
-    } catch (err) {
-      console.error(err);
-      setFeedback({
-        type: "error",
-        message: "Unable to update the password.",
-      });
-    } finally {
-      setSavingSection(null);
-    }
-  }, [applyResponse, passwordDraft, savingSection]);
-
-  const handlePasswordDisable = useCallback(async () => {
-    if (savingSection === "password" || !passwordEnabled) {
-      return;
-    }
-    setSavingSection("password");
-    setFeedback(null);
-    try {
-      const response = await fetch(`${API_BASE_URL}/settings`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password: null }),
-      });
-      if (!response.ok) {
-        throw new Error(`Request failed with status ${response.status}`);
-      }
-      const payload = await response.json();
-      const parsed = parseSettings(payload?.data);
-      if (!parsed) {
-        throw new Error("Received malformed settings payload");
-      }
-      applyResponse(parsed);
-      setPasswordDraft("");
-      setFeedback({
-        type: "success",
-        message: "Password protection disabled.",
-      });
-    } catch (err) {
-      console.error(err);
-      setFeedback({
-        type: "error",
-        message: "Unable to disable the password.",
-      });
-    } finally {
-      setSavingSection(null);
-    }
-  }, [applyResponse, passwordEnabled, savingSection]);
 
   const handleAiSave = useCallback(async () => {
     if (savingSection === "ai") {
@@ -975,14 +822,6 @@ const SettingsPage = () => {
           ) : (
             <Separator />
           )}
-          <PasswordSection
-            enabled={passwordEnabled}
-            password={passwordDraft}
-            onPasswordChange={setPasswordDraft}
-            onSave={handlePasswordSave}
-            onDisable={handlePasswordDisable}
-            saving={savingSection === "password"}
-          />
         </CardContent>
       </Card>
     );
@@ -990,13 +829,9 @@ const SettingsPage = () => {
     error,
     feedback,
     handleKernelSubmit,
-    handlePasswordDisable,
-    handlePasswordSave,
     handleThemeChange,
     kernelTimeout,
     loading,
-    passwordDraft,
-    passwordEnabled,
     refresh,
     savingSection,
     themeValue,

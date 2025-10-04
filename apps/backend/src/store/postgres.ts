@@ -10,6 +10,15 @@ import type {
   NotebookAttachmentContent,
   NotebookStore,
   SettingsStore,
+  User,
+  UserStore,
+  CreateUserInput,
+  UpdateUserInput,
+  AuthSession,
+  AuthSessionStore,
+  Invitation,
+  InvitationStore,
+  CreateInvitationInput,
 } from "../types.js";
 import { loadServerConfig } from "@nodebooks/config";
 
@@ -17,6 +26,8 @@ export interface PostgresNotebookStoreOptions {
   connectionString?: string;
   pool?: Pool;
 }
+
+const userNanoid = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", 18);
 
 type NotebookRow = {
   data: unknown;
@@ -327,6 +338,55 @@ export class PostgresNotebookStore implements NotebookStore {
       CREATE INDEX IF NOT EXISTS idx_settings_updated_at
         ON settings (updated_at DESC, key ASC)
     `);
+
+    await this.pool.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id TEXT PRIMARY KEY,
+        email TEXT NOT NULL UNIQUE,
+        name TEXT,
+        role TEXT NOT NULL,
+        password_hash TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL
+      )
+    `);
+
+    await this.pool.query(`
+      CREATE TABLE IF NOT EXISTS user_sessions (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        token_hash TEXT NOT NULL UNIQUE,
+        created_at TIMESTAMPTZ NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL,
+        expires_at TIMESTAMPTZ NOT NULL,
+        revoked_at TIMESTAMPTZ
+      )
+    `);
+
+    await this.pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_user_sessions_user
+        ON user_sessions (user_id, updated_at DESC)
+    `);
+
+    await this.pool.query(`
+      CREATE TABLE IF NOT EXISTS user_invitations (
+        id TEXT PRIMARY KEY,
+        email TEXT NOT NULL,
+        role TEXT NOT NULL,
+        token_hash TEXT NOT NULL UNIQUE,
+        invited_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL,
+        expires_at TIMESTAMPTZ NOT NULL,
+        accepted_at TIMESTAMPTZ,
+        revoked_at TIMESTAMPTZ
+      )
+    `);
+
+    await this.pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_user_invitations_email
+        ON user_invitations (email, created_at DESC, id ASC)
+    `);
   }
 
   private deserialize(raw: unknown): Notebook {
@@ -383,5 +443,372 @@ export class PostgresSettingsStore implements SettingsStore {
   async delete(key: string): Promise<void> {
     const pool = await this.getPool();
     await pool.query("DELETE FROM settings WHERE key = $1", [key]);
+  }
+}
+
+const toIsoString = (value: unknown): string => {
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+  if (typeof value === "string") {
+    return new Date(value).toISOString();
+  }
+  return new Date(value as number).toISOString();
+};
+
+const toNullableIsoString = (value: unknown): string | null => {
+  if (value == null) {
+    return null;
+  }
+  return toIsoString(value);
+};
+
+const mapPgUser = (row: {
+  id: string;
+  email: string;
+  name: string | null;
+  role: string;
+  password_hash: string;
+  created_at: unknown;
+  updated_at: unknown;
+}): User => ({
+  id: row.id,
+  email: row.email,
+  name: row.name,
+  role: row.role as User["role"],
+  passwordHash: row.password_hash,
+  createdAt: toIsoString(row.created_at),
+  updatedAt: toIsoString(row.updated_at),
+});
+
+export class PostgresUserStore implements UserStore {
+  constructor(private readonly notebooks: PostgresNotebookStore) {}
+
+  private async getPool(): Promise<Pool> {
+    await this.notebooks.ensureReady();
+    return this.notebooks.getPool();
+  }
+
+  async create(input: CreateUserInput): Promise<User> {
+    const pool = await this.getPool();
+    const now = new Date();
+    const id = userNanoid();
+    const email = input.email.trim().toLowerCase();
+    const result = await pool.query(
+      `INSERT INTO users (id, email, name, role, password_hash, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING id, email, name, role, password_hash, created_at, updated_at`,
+      [
+        id,
+        email,
+        input.name?.trim() ?? null,
+        input.role ?? "editor",
+        input.passwordHash,
+        now,
+        now,
+      ]
+    );
+    return mapPgUser(result.rows[0]!);
+  }
+
+  async get(id: string): Promise<User | undefined> {
+    const pool = await this.getPool();
+    const result = await pool.query(
+      `SELECT id, email, name, role, password_hash, created_at, updated_at FROM users WHERE id = $1 LIMIT 1`,
+      [id]
+    );
+    const row = result.rows[0];
+    return row ? mapPgUser(row) : undefined;
+  }
+
+  async findByEmail(email: string): Promise<User | undefined> {
+    const pool = await this.getPool();
+    const result = await pool.query(
+      `SELECT id, email, name, role, password_hash, created_at, updated_at FROM users WHERE email = $1 LIMIT 1`,
+      [email.trim().toLowerCase()]
+    );
+    const row = result.rows[0];
+    return row ? mapPgUser(row) : undefined;
+  }
+
+  async update(id: string, updates: UpdateUserInput): Promise<User> {
+    const pool = await this.getPool();
+    const fields: string[] = [];
+    const values: unknown[] = [];
+    let index = 1;
+
+    if (updates.name !== undefined) {
+      fields.push(`name = $${index}`);
+      values.push(updates.name?.trim() ?? null);
+      index += 1;
+    }
+    if (typeof updates.passwordHash === "string") {
+      fields.push(`password_hash = $${index}`);
+      values.push(updates.passwordHash);
+      index += 1;
+    }
+    if (updates.role) {
+      fields.push(`role = $${index}`);
+      values.push(updates.role);
+      index += 1;
+    }
+
+    if (fields.length === 0) {
+      const existing = await this.get(id);
+      if (!existing) {
+        throw new Error("User not found");
+      }
+      return existing;
+    }
+
+    const now = new Date();
+    fields.push(`updated_at = $${index}`);
+    values.push(now);
+    index += 1;
+    values.push(id);
+
+    const updateSql = `UPDATE users SET ${fields.join(", ")} WHERE id = $${index} RETURNING id, email, name, role, password_hash, created_at, updated_at`;
+    const result = await pool.query(updateSql, values);
+    const row = result.rows[0];
+    if (!row) {
+      throw new Error("User not found");
+    }
+    return mapPgUser(row);
+  }
+
+  async list(): Promise<User[]> {
+    const pool = await this.getPool();
+    const result = await pool.query(
+      `SELECT id, email, name, role, password_hash, created_at, updated_at FROM users ORDER BY created_at ASC`
+    );
+    return result.rows.map(mapPgUser);
+  }
+
+  async count(): Promise<number> {
+    const pool = await this.getPool();
+    const result = await pool.query<{ count: string }>(
+      `SELECT COUNT(1)::text as count FROM users`
+    );
+    const raw = result.rows[0]?.count ?? "0";
+    return Number(raw);
+  }
+}
+
+const mapPgSession = (row: {
+  id: string;
+  user_id: string;
+  token_hash: string;
+  created_at: unknown;
+  updated_at: unknown;
+  expires_at: unknown;
+  revoked_at: unknown;
+}): AuthSession => ({
+  id: row.id,
+  userId: row.user_id,
+  tokenHash: row.token_hash,
+  createdAt: toIsoString(row.created_at),
+  updatedAt: toIsoString(row.updated_at),
+  expiresAt: toIsoString(row.expires_at),
+  revokedAt: toNullableIsoString(row.revoked_at),
+});
+
+const mapPgInvitation = (row: {
+  id: string;
+  email: string;
+  role: string;
+  token_hash: string;
+  invited_by: string | null;
+  created_at: unknown;
+  updated_at: unknown;
+  expires_at: unknown;
+  accepted_at: unknown;
+  revoked_at: unknown;
+}): Invitation => ({
+  id: row.id,
+  email: row.email,
+  role: row.role as Invitation["role"],
+  tokenHash: row.token_hash,
+  invitedBy: row.invited_by,
+  createdAt: toIsoString(row.created_at),
+  updatedAt: toIsoString(row.updated_at),
+  expiresAt: toIsoString(row.expires_at),
+  acceptedAt: toNullableIsoString(row.accepted_at),
+  revokedAt: toNullableIsoString(row.revoked_at),
+});
+
+export class PostgresAuthSessionStore implements AuthSessionStore {
+  constructor(private readonly notebooks: PostgresNotebookStore) {}
+
+  private async getPool(): Promise<Pool> {
+    await this.notebooks.ensureReady();
+    return this.notebooks.getPool();
+  }
+
+  async create(input: {
+    userId: string;
+    tokenHash: string;
+    expiresAt: string;
+  }): Promise<AuthSession> {
+    const pool = await this.getPool();
+    const now = new Date();
+    const id = userNanoid();
+    const result = await pool.query(
+      `INSERT INTO user_sessions (id, user_id, token_hash, created_at, updated_at, expires_at, revoked_at)
+       VALUES ($1, $2, $3, $4, $5, $6, NULL)
+       RETURNING id, user_id, token_hash, created_at, updated_at, expires_at, revoked_at`,
+      [id, input.userId, input.tokenHash, now, now, new Date(input.expiresAt)]
+    );
+    return mapPgSession(result.rows[0]!);
+  }
+
+  async findByTokenHash(tokenHash: string): Promise<AuthSession | undefined> {
+    const pool = await this.getPool();
+    const result = await pool.query(
+      `SELECT id, user_id, token_hash, created_at, updated_at, expires_at, revoked_at FROM user_sessions WHERE token_hash = $1 LIMIT 1`,
+      [tokenHash]
+    );
+    const row = result.rows[0];
+    return row ? mapPgSession(row) : undefined;
+  }
+
+  async touch(id: string): Promise<void> {
+    const pool = await this.getPool();
+    await pool.query(`UPDATE user_sessions SET updated_at = $1 WHERE id = $2`, [
+      new Date(),
+      id,
+    ]);
+  }
+
+  async revoke(id: string): Promise<void> {
+    const pool = await this.getPool();
+    await pool.query(`UPDATE user_sessions SET revoked_at = $1 WHERE id = $2`, [
+      new Date(),
+      id,
+    ]);
+  }
+
+  async revokeForUser(userId: string): Promise<void> {
+    const pool = await this.getPool();
+    await pool.query(
+      `UPDATE user_sessions SET revoked_at = $1 WHERE user_id = $2`,
+      [new Date(), userId]
+    );
+  }
+}
+
+export class PostgresInvitationStore implements InvitationStore {
+  constructor(private readonly notebooks: PostgresNotebookStore) {}
+
+  private async getPool(): Promise<Pool> {
+    await this.notebooks.ensureReady();
+    return this.notebooks.getPool();
+  }
+
+  async create(input: CreateInvitationInput): Promise<Invitation> {
+    const pool = await this.getPool();
+    const now = new Date();
+    const id = userNanoid();
+    const email = input.email.trim().toLowerCase();
+    const result = await pool.query(
+      `INSERT INTO user_invitations (
+         id, email, role, token_hash, invited_by, created_at, updated_at, expires_at, accepted_at, revoked_at
+       ) VALUES ($1, $2, $3, $4, $5, $6, $6, $7, NULL, NULL)
+       RETURNING id, email, role, token_hash, invited_by, created_at, updated_at, expires_at, accepted_at, revoked_at`,
+      [
+        id,
+        email,
+        input.role,
+        input.tokenHash,
+        input.invitedBy ?? null,
+        now,
+        new Date(input.expiresAt),
+      ]
+    );
+    return mapPgInvitation(result.rows[0]!);
+  }
+
+  async get(id: string): Promise<Invitation | undefined> {
+    const pool = await this.getPool();
+    const result = await pool.query(
+      `SELECT id, email, role, token_hash, invited_by, created_at, updated_at, expires_at, accepted_at, revoked_at
+       FROM user_invitations
+       WHERE id = $1
+       LIMIT 1`,
+      [id]
+    );
+    const row = result.rows[0];
+    return row ? mapPgInvitation(row) : undefined;
+  }
+
+  async findByTokenHash(tokenHash: string): Promise<Invitation | undefined> {
+    const pool = await this.getPool();
+    const result = await pool.query(
+      `SELECT id, email, role, token_hash, invited_by, created_at, updated_at, expires_at, accepted_at, revoked_at
+       FROM user_invitations
+       WHERE token_hash = $1
+       LIMIT 1`,
+      [tokenHash]
+    );
+    const row = result.rows[0];
+    return row ? mapPgInvitation(row) : undefined;
+  }
+
+  async findActiveByEmail(email: string): Promise<Invitation | undefined> {
+    const pool = await this.getPool();
+    const result = await pool.query(
+      `SELECT id, email, role, token_hash, invited_by, created_at, updated_at, expires_at, accepted_at, revoked_at
+       FROM user_invitations
+       WHERE email = $1
+       ORDER BY created_at DESC, id DESC
+       LIMIT 1`,
+      [email.trim().toLowerCase()]
+    );
+    const row = result.rows[0];
+    if (!row) {
+      return undefined;
+    }
+    const invitation = mapPgInvitation(row);
+    if (invitation.acceptedAt || invitation.revokedAt) {
+      return undefined;
+    }
+    return invitation;
+  }
+
+  async list(): Promise<Invitation[]> {
+    const pool = await this.getPool();
+    const result = await pool.query(
+      `SELECT id, email, role, token_hash, invited_by, created_at, updated_at, expires_at, accepted_at, revoked_at
+       FROM user_invitations
+       ORDER BY created_at DESC, id DESC`
+    );
+    return result.rows.map(mapPgInvitation);
+  }
+
+  async markAccepted(id: string): Promise<Invitation | undefined> {
+    const pool = await this.getPool();
+    const now = new Date();
+    const result = await pool.query(
+      `UPDATE user_invitations
+       SET accepted_at = $1, updated_at = $1
+       WHERE id = $2
+       RETURNING id, email, role, token_hash, invited_by, created_at, updated_at, expires_at, accepted_at, revoked_at`,
+      [now, id]
+    );
+    const row = result.rows[0];
+    return row ? mapPgInvitation(row) : undefined;
+  }
+
+  async revoke(id: string): Promise<Invitation | undefined> {
+    const pool = await this.getPool();
+    const now = new Date();
+    const result = await pool.query(
+      `UPDATE user_invitations
+       SET revoked_at = $1, updated_at = $1
+       WHERE id = $2
+       RETURNING id, email, role, token_hash, invited_by, created_at, updated_at, expires_at, accepted_at, revoked_at`,
+      [now, id]
+    );
+    const row = result.rows[0];
+    return row ? mapPgInvitation(row) : undefined;
   }
 }

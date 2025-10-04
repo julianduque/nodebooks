@@ -29,7 +29,6 @@ export interface ServerConfig {
   isProd: boolean;
   embedNext: boolean;
   keepClientCwd: boolean;
-  password?: string;
   theme: "light" | "dark";
   kernelTimeoutMs: number;
   kernelWsHeartbeatMs?: number;
@@ -45,7 +44,6 @@ export interface ServerConfig {
 export interface GlobalSettings {
   theme?: ThemeMode;
   kernelTimeoutMs?: number;
-  password?: string | null;
   aiEnabled?: boolean;
   ai?: Partial<AiConfig>;
   [key: string]: unknown;

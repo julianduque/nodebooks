@@ -1,8 +1,6 @@
 import type { FastifyInstance } from "fastify";
-import type * as FastifyCookieNamespace from "@fastify/cookie";
 import { z } from "zod";
 
-import { PASSWORD_COOKIE_NAME } from "../auth/password.js";
 import type { SettingsService, SettingsUpdate } from "../settings/service.js";
 
 const ThemeSchema = z.enum(["light", "dark"]);
@@ -90,7 +88,6 @@ const SettingsUpdateSchema = z
         message: "Kernel timeout must be 10 minutes (600000ms) or less",
       })
       .optional(),
-    password: z.union([z.string(), z.null()]).optional(),
     aiEnabled: z.boolean().optional(),
     ai: AiSettingsSchema.optional(),
   })
@@ -98,7 +95,6 @@ const SettingsUpdateSchema = z
 
 export interface RegisterSettingsRoutesOptions {
   settings: SettingsService;
-  cookieOptions: FastifyCookieNamespace.CookieSerializeOptions;
 }
 
 export const registerSettingsRoutes = async (
@@ -116,16 +112,13 @@ export const registerSettingsRoutes = async (
       return { error: "Invalid settings payload" };
     }
 
-    const { theme, kernelTimeoutMs, password, ai, aiEnabled } = result.data;
+    const { theme, kernelTimeoutMs, ai, aiEnabled } = result.data;
     const updates: SettingsUpdate = {};
     if (theme !== undefined) {
       updates.theme = theme;
     }
     if (kernelTimeoutMs !== undefined) {
       updates.kernelTimeoutMs = kernelTimeoutMs;
-    }
-    if (password !== undefined) {
-      updates.password = password;
     }
     if (aiEnabled !== undefined) {
       updates.aiEnabled = aiEnabled;
@@ -137,17 +130,6 @@ export const registerSettingsRoutes = async (
     let snapshot = options.settings.getSnapshot();
     if (Object.keys(updates).length > 0) {
       snapshot = await options.settings.apply(updates);
-    }
-
-    if (password !== undefined) {
-      const nextToken = options.settings.getPasswordToken();
-      if (nextToken) {
-        reply.setCookie(PASSWORD_COOKIE_NAME, nextToken, options.cookieOptions);
-        request.log.info("Password protection enabled");
-      } else {
-        reply.clearCookie(PASSWORD_COOKIE_NAME, options.cookieOptions);
-        request.log.info("Password protection disabled");
-      }
     }
 
     return { data: snapshot };
