@@ -4,6 +4,14 @@ const nextConfig = {
   eslint: {
     dirs: ["app", "components"],
   },
+  images: {
+    remotePatterns: [
+      {
+        protocol: "https",
+        hostname: "www.gravatar.com",
+      },
+    ],
+  },
   transpilePackages: ["@nodebooks/notebook-ui", "@nodebooks/notebook-schema"],
   webpack: (config) => {
     config.resolve = config.resolve ?? {};

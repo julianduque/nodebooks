@@ -120,11 +120,11 @@ export const createServer = async ({
     if (url.startsWith("/auth/login") || url.startsWith("/auth/logout")) {
       return true;
     }
+    if (url.startsWith("/auth/signup/status")) {
+      return true;
+    }
     if (url.startsWith("/auth/signup")) {
-      // Allow bootstrapping when no users exist yet
-      if (!(await authService.hasUsers())) {
-        return true;
-      }
+      return true;
     }
     if (url.startsWith("/auth/invitations/inspect")) {
       return true;
@@ -198,13 +198,13 @@ export const createServer = async ({
     token: z.string().min(1).optional(),
     email: z.string().email(),
     password: z.string().min(8),
-    name: z.string().min(1).max(120).optional(),
+    name: z.string().trim().min(1).max(120),
   });
 
   const invitationSignupSchema = z.object({
     token: z.string().min(1),
     password: z.string().min(8),
-    name: z.string().min(1).max(120).optional(),
+    name: z.string().trim().min(1).max(120),
   });
 
   const inviteSchema = z.object({
@@ -216,9 +216,13 @@ export const createServer = async ({
     token: z.string().min(1),
   });
 
+  app.get("/auth/signup/status", async (_request, reply) => {
+    const hasUsers = await authService.hasUsers();
+    void reply.send({ data: { hasUsers, canBootstrap: !hasUsers } });
+  });
+
   app.post("/auth/signup", async (request, reply) => {
     const hasUsers = await authService.hasUsers();
-    const requester = request.user;
     if (!hasUsers) {
       const body = signupSchema.safeParse(request.body);
       if (!body.success) {
@@ -249,11 +253,6 @@ export const createServer = async ({
         request.log.error({ err: error }, "Failed to sign up user");
         void reply.code(500).send({ error: "Failed to sign up user" });
       }
-      return;
-    }
-
-    if (!requester || requester.role !== "admin") {
-      void reply.code(403).send({ error: "Only admins can create accounts" });
       return;
     }
 
@@ -305,7 +304,7 @@ export const createServer = async ({
       );
       reply.setCookie(SESSION_COOKIE_NAME, session.token, cookieOptions);
       void reply.send({ data: session.user });
-    } catch (error) {
+    } catch {
       void reply.code(401).send({ error: "Invalid credentials" });
     }
   });

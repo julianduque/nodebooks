@@ -340,7 +340,7 @@ export const createShellUpgradeHandler = (
       if (typeof options.authenticate === "function") {
         try {
           authResult = await options.authenticate(req);
-        } catch (authError) {
+        } catch {
           authResult = null;
         }
         if (!authResult) {

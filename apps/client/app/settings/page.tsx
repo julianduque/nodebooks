@@ -3,12 +3,15 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import AppShell from "@/components/app-shell";
+import ProfileMenu from "@/components/profile/profile-menu";
 import { cn } from "@/components/lib/utils";
 import { useTheme, type ThemeMode } from "@/components/theme-context";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import LoadingOverlay from "@/components/ui/loading-overlay";
+import { useCurrentUser } from "@/components/notebook/hooks/useCurrentUser";
+import { gravatarUrlForEmail } from "@/lib/avatar";
 
 import { clientConfig } from "@nodebooks/config/client";
 const API_BASE_URL = clientConfig().apiBaseUrl;
@@ -32,12 +35,7 @@ interface SettingsPayload {
   ai: AiSettingsPayload;
 }
 
-type SavingSection =
-  | "theme"
-  | "kernel"
-  | "ai"
-  | "aiEnabled"
-  | null;
+type SavingSection = "theme" | "kernel" | "ai" | "aiEnabled" | null;
 type FeedbackState = { type: "success" | "error"; message: string } | null;
 
 const isTheme = (value: unknown): value is ThemeMode => {
@@ -404,6 +402,20 @@ const AiSection = ({
 };
 
 const SettingsPage = () => {
+  const { currentUser, loading: currentUserLoading } = useCurrentUser();
+  const profileUser = useMemo(() => {
+    if (!currentUser) {
+      return null;
+    }
+    const email = currentUser.email ?? "";
+    const avatar = email ? gravatarUrlForEmail(email, 96) : null;
+    return {
+      name: currentUser.name ?? email,
+      email,
+      avatarUrl: avatar ?? undefined,
+    };
+  }, [currentUser]);
+
   const { theme, setTheme } = useTheme();
   const [themeValue, setThemeValue] = useState<ThemeMode>(theme);
   const [kernelTimeout, setKernelTimeout] = useState("10000");
@@ -849,11 +861,22 @@ const SettingsPage = () => {
   ]);
 
   return (
-    <AppShell title="Settings">
+    <AppShell
+      title="Settings"
+      user={profileUser}
+      userLoading={currentUserLoading}
+    >
       <h1 className="text-3xl font-semibold text-foreground">Settings</h1>
       <p className="mt-2 text-muted-foreground">
         Configure workspace preferences, appearance, and access.
       </p>
+      <div className="mt-6 max-w-md">
+        <ProfileMenu
+          user={profileUser}
+          loading={currentUserLoading}
+          showMenu={false}
+        />
+      </div>
       {cardContent}
     </AppShell>
   );

@@ -659,7 +659,7 @@ export class SqliteUserStore implements UserStore {
   async update(id: string, updates: UpdateUserInput): Promise<User> {
     const db = await this.getDb();
     const setFragments: string[] = [];
-    const values: unknown[] = [];
+    const values: (string | null)[] = [];
 
     if (updates.name !== undefined) {
       setFragments.push("name = ?");

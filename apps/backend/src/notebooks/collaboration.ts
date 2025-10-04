@@ -1,4 +1,5 @@
-import WebSocket, { WebSocketServer } from "ws";
+import { WebSocketServer } from "ws";
+import type WebSocket from "ws";
 import type { IncomingMessage } from "node:http";
 import type { Socket } from "node:net";
 import { customAlphabet } from "nanoid";
@@ -224,6 +225,7 @@ export class NotebookCollaborationService {
       try {
         parsed = ClientMessageSchema.parse(JSON.parse(raw.toString("utf8")));
       } catch (err) {
+        void err;
         this.send(client, { type: "error", message: "Malformed message" });
         return;
       }
@@ -281,6 +283,7 @@ export class NotebookCollaborationService {
         actorId: client.user.id,
       });
     } catch (err) {
+      void err;
       this.send(client, {
         type: "error",
         message: "Failed to apply update",
