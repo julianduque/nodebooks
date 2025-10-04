@@ -9,13 +9,11 @@ import {
   type ThemeMode,
 } from "@nodebooks/notebook-schema";
 
-import { derivePasswordToken } from "../auth/password.js";
 import type { SettingsStore } from "../types.js";
 
 const ENV_KEYS = {
   theme: "NODEBOOKS_THEME",
   kernelTimeoutMs: "NODEBOOKS_KERNEL_TIMEOUT_MS",
-  password: "NODEBOOKS_PASSWORD",
   aiProvider: "NODEBOOKS_AI_PROVIDER",
   openaiModel: "NODEBOOKS_OPENAI_MODEL",
   openaiApiKey: "NODEBOOKS_OPENAI_API_KEY",
@@ -39,14 +37,6 @@ const normalizeKernelTimeout = (value: unknown): number | undefined => {
   }
   const clamped = Math.min(Math.max(Math.trunc(value), 1_000), 600_000);
   return clamped;
-};
-
-const normalizePassword = (value: unknown): string | undefined => {
-  if (typeof value !== "string") {
-    return undefined;
-  }
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
 };
 
 const normalizeAiString = (value: unknown): string | undefined => {
@@ -112,7 +102,6 @@ const normalizeAiSettings = (value: unknown): AiSettings | undefined => {
 export interface SettingsSnapshot {
   theme: ThemeMode;
   kernelTimeoutMs: number;
-  passwordEnabled: boolean;
   aiEnabled: boolean;
   ai: {
     provider: AiProvider;
@@ -128,7 +117,6 @@ export interface SettingsSnapshot {
 export interface SettingsUpdate {
   theme?: ThemeMode;
   kernelTimeoutMs?: number;
-  password?: string | null;
   aiEnabled?: boolean;
   ai?: AiSettings | null;
 }
@@ -136,14 +124,12 @@ export interface SettingsUpdate {
 export class SettingsService {
   private readonly ready: Promise<void>;
   private settings: Partial<GlobalSettings> = {};
-  private passwordToken: string | null = null;
   private readonly initialEnv: Record<
     keyof typeof ENV_KEYS,
     string | undefined
   > = {
     theme: process.env[ENV_KEYS.theme],
     kernelTimeoutMs: process.env[ENV_KEYS.kernelTimeoutMs],
-    password: process.env[ENV_KEYS.password],
     aiProvider: process.env[ENV_KEYS.aiProvider],
     openaiModel: process.env[ENV_KEYS.openaiModel],
     openaiApiKey: process.env[ENV_KEYS.openaiApiKey],
@@ -161,10 +147,6 @@ export class SettingsService {
     await this.ready;
   }
 
-  getPasswordToken(): string | null {
-    return this.passwordToken;
-  }
-
   getSettings(): Partial<GlobalSettings> {
     return { ...this.settings };
   }
@@ -174,7 +156,6 @@ export class SettingsService {
     return {
       theme: cfg.theme,
       kernelTimeoutMs: cfg.kernelTimeoutMs,
-      passwordEnabled: this.passwordToken !== null,
       aiEnabled: cfg.ai.enabled,
       ai: {
         provider: cfg.ai.provider,
@@ -199,9 +180,6 @@ export class SettingsService {
     }
     if (update.kernelTimeoutMs !== undefined) {
       await this.applyKernelTimeout(update.kernelTimeoutMs);
-    }
-    if (update.password !== undefined) {
-      await this.applyPassword(update.password);
     }
     if (update.aiEnabled !== undefined) {
       await this.applyAiEnabled(update.aiEnabled);
@@ -240,13 +218,6 @@ export class SettingsService {
       normalized.kernelTimeoutMs = kernel;
     } else {
       delete normalized.kernelTimeoutMs;
-    }
-
-    const password = normalizePassword(normalized.password);
-    if (password) {
-      normalized.password = password;
-    } else {
-      delete normalized.password;
     }
 
     const aiEnabled = normalizeAiEnabled(normalized.aiEnabled);
@@ -288,19 +259,6 @@ export class SettingsService {
     await this.store.set("kernelTimeoutMs", kernel);
   }
 
-  private async applyPassword(value: string | null) {
-    const password = value === null ? undefined : normalizePassword(value);
-    if (password) {
-      this.settings.password = password;
-      this.passwordToken = derivePasswordToken(password);
-      await this.store.set("password", password);
-      return;
-    }
-    delete this.settings.password;
-    this.passwordToken = null;
-    await this.store.delete("password");
-  }
-
   private async applyAiEnabled(value: boolean) {
     const enabled = normalizeAiEnabled(value);
     if (enabled === undefined) {
@@ -340,19 +298,6 @@ export class SettingsService {
     } else {
       this.restoreInitialEnv("kernelTimeoutMs");
       delete snapshot.kernelTimeoutMs;
-    }
-
-    const password = normalizePassword(snapshot.password);
-    if (password) {
-      process.env[ENV_KEYS.password] = password;
-      this.passwordToken = derivePasswordToken(password);
-    } else {
-      this.restoreInitialEnv("password");
-      const envPassword = normalizePassword(this.initialEnv.password);
-      this.passwordToken = envPassword
-        ? derivePasswordToken(envPassword)
-        : null;
-      delete snapshot.password;
     }
 
     const aiEnabled = normalizeAiEnabled(snapshot.aiEnabled);
@@ -407,7 +352,6 @@ export class SettingsService {
       __NODEBOOKS_SETTINGS__?: Partial<GlobalSettings>;
     };
     const runtimeSnapshot: Partial<GlobalSettings> = { ...snapshot };
-    delete runtimeSnapshot.password;
     runtime.__NODEBOOKS_SETTINGS__ = runtimeSnapshot;
   }
 

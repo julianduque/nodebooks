@@ -131,9 +131,6 @@ vi.mock("../src/settings/service.js", () => ({
     getSettings() {
       return {};
     }
-    getPasswordToken() {
-      return null;
-    }
   },
 }));
 vi.mock("../src/settings/index.js", () => ({

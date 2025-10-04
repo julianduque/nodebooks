@@ -7,16 +7,26 @@ import {
   useReducer,
   useRef,
   useState,
+  type FormEvent,
 } from "react";
 import clsx from "clsx";
 import AppShell from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { useTheme } from "@/components/theme-context";
 import {
   Check,
+  Copy,
   Loader2,
   Pencil,
   PlayCircle,
@@ -24,6 +34,7 @@ import {
   RotateCcw,
   Save,
   Share2,
+  ShieldCheck,
   Trash2,
   Eraser,
   XCircle,
@@ -31,6 +42,9 @@ import {
   ListTree,
   Paperclip,
   Download,
+  UserPlus,
+  Clock,
+  Ban,
 } from "lucide-react";
 import ConfirmDialog from "@/components/ui/confirm";
 import { useRouter } from "next/navigation";
@@ -75,6 +89,30 @@ const API_BASE_URL =
   rawApiBaseUrl.length > 1 && rawApiBaseUrl.endsWith("/")
     ? rawApiBaseUrl.replace(/\/+$/, "")
     : rawApiBaseUrl;
+
+type WorkspaceRole = "admin" | "editor" | "viewer";
+
+interface SafeWorkspaceUser {
+  id: string;
+  email: string;
+  name: string | null;
+  role: WorkspaceRole;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface InvitationSummary {
+  id: string;
+  email: string;
+  role: WorkspaceRole;
+  invitedBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+  expiresAt: string;
+  acceptedAt: string | null;
+  revokedAt: string | null;
+  invitedByUser?: SafeWorkspaceUser | null;
+}
 
 interface StatusDotProps {
   colorClass: string;
@@ -123,9 +161,6 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     "outline" | "attachments" | "setup"
   >("outline");
   // Navigation handled by App Router; NotebookView focuses on editor only
-  const [shareStatus, setShareStatus] = useState<"idle" | "copied" | "error">(
-    "idle"
-  );
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameDraft, setRenameDraft] = useState("");
   const [depBusy, setDepBusy] = useState(false);
@@ -146,6 +181,106 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
   const [pendingShellIds, setPendingShellIds] = useState<Set<string>>(
     new Set<string>()
   );
+  const [currentUser, setCurrentUser] = useState<SafeWorkspaceUser | null>(
+    null
+  );
+  const [currentUserLoading, setCurrentUserLoading] = useState(true);
+  const [sharingOpen, setSharingOpen] = useState(false);
+  const [invitationEmail, setInvitationEmail] = useState("");
+  const [invitationRole, setInvitationRole] = useState<WorkspaceRole>("editor");
+  const [invitationError, setInvitationError] = useState<string | null>(null);
+  const [shareFetchError, setShareFetchError] = useState<string | null>(null);
+  const [shareSubmitting, setShareSubmitting] = useState(false);
+  const [invitesLoading, setInvitesLoading] = useState(false);
+  const [members, setMembers] = useState<SafeWorkspaceUser[]>([]);
+  const [invitations, setInvitations] = useState<InvitationSummary[]>([]);
+  const [newInviteLink, setNewInviteLink] = useState<string | null>(null);
+  const [copySuccess, setCopySuccess] = useState(false);
+  const [revokingInvitationId, setRevokingInvitationId] = useState<
+    string | null
+  >(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const fetchCurrentUser = async () => {
+      try {
+        const response = await fetch("/auth/me", {
+          headers: { Accept: "application/json" },
+        });
+        if (cancelled) {
+          return;
+        }
+        if (response.ok) {
+          const payload = (await response.json().catch(() => ({}))) as {
+            data?: SafeWorkspaceUser;
+          };
+          setCurrentUser(payload?.data ?? null);
+        } else {
+          setCurrentUser(null);
+        }
+      } catch {
+        if (!cancelled) {
+          setCurrentUser(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setCurrentUserLoading(false);
+        }
+      }
+    };
+
+    void fetchCurrentUser();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const isAdmin = currentUser?.role === "admin";
+
+  const refreshSharingData = useCallback(async () => {
+    if (!isAdmin) {
+      return;
+    }
+    setInvitesLoading(true);
+    setShareFetchError(null);
+    try {
+      const [usersResponse, invitationsResponse] = await Promise.all([
+        fetch("/auth/users", { headers: { Accept: "application/json" } }),
+        fetch("/auth/invitations", { headers: { Accept: "application/json" } }),
+      ]);
+
+      if (!usersResponse.ok) {
+        const payload = (await usersResponse.json().catch(() => ({}))) as {
+          error?: string;
+        };
+        throw new Error(payload?.error ?? "Failed to load members");
+      }
+      if (!invitationsResponse.ok) {
+        const payload = (await invitationsResponse
+          .json()
+          .catch(() => ({}))) as { error?: string };
+        throw new Error(payload?.error ?? "Failed to load invitations");
+      }
+
+      const usersPayload = (await usersResponse.json()) as {
+        data?: SafeWorkspaceUser[];
+      };
+      const invitationsPayload = (await invitationsResponse.json()) as {
+        data?: InvitationSummary[];
+      };
+
+      setMembers(Array.isArray(usersPayload?.data) ? usersPayload.data : []);
+      setInvitations(
+        Array.isArray(invitationsPayload?.data) ? invitationsPayload.data : []
+      );
+    } catch (error) {
+      setShareFetchError(
+        error instanceof Error ? error.message : "Unable to load sharing data"
+      );
+    } finally {
+      setInvitesLoading(false);
+    }
+  }, [isAdmin]);
 
   const handleAttachmentUploaded = useCallback(
     (attachment: AttachmentMetadata) => {
@@ -275,21 +410,10 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
   const notebookId = notebook?.id;
   const sessionId = session?.id;
   const runQueueRef = useRef<string[]>([]);
+  const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     runQueueRef.current = runQueue;
   }, [runQueue]);
-
-  useEffect(() => {
-    if (shareStatus === "idle") {
-      return;
-    }
-    const timeout = setTimeout(() => {
-      setShareStatus("idle");
-    }, 2000);
-    return () => {
-      clearTimeout(timeout);
-    };
-  }, [shareStatus]);
 
   // Keep a ref to the latest notebook without triggering renders
   useEffect(() => {
@@ -313,6 +437,20 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
   useEffect(() => {
     setPendingShellIds(new Set());
   }, [notebook?.id]);
+
+  useEffect(() => {
+    if (sharingOpen && isAdmin) {
+      void refreshSharingData();
+    }
+  }, [sharingOpen, isAdmin, refreshSharingData]);
+
+  useEffect(() => {
+    return () => {
+      if (copyTimeoutRef.current) {
+        clearTimeout(copyTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const refreshAiAvailability = useCallback(async () => {
     try {
@@ -1493,20 +1631,157 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     void saveNotebookNow();
   }, [clearPendingSave, saveNotebookNow]);
 
-  const handleShare = useCallback(() => {
-    if (!notebook || typeof window === "undefined") {
+  const handleOpenSharing = useCallback(() => {
+    if (!isAdmin) {
+      return;
+    }
+    setSharingOpen(true);
+    setInvitationError(null);
+    setShareFetchError(null);
+    setNewInviteLink(null);
+    setCopySuccess(false);
+    void refreshSharingData();
+  }, [isAdmin, refreshSharingData]);
+
+  const handleInviteSubmit = useCallback(
+    async (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      if (!isAdmin || shareSubmitting) {
+        return;
+      }
+      const email = invitationEmail.trim();
+      if (!email) {
+        setInvitationError("Provide an email address");
+        return;
+      }
+      setInvitationError(null);
+      setShareFetchError(null);
+      setShareSubmitting(true);
+      try {
+        const response = await fetch("/auth/invitations", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, role: invitationRole }),
+        });
+        const payload = (await response.json().catch(() => ({}))) as {
+          error?: string;
+          token?: string;
+        };
+        if (!response.ok) {
+          setInvitationError(payload?.error ?? "Failed to send invitation");
+          return;
+        }
+        setInvitationEmail("");
+        if (
+          typeof payload?.token === "string" &&
+          typeof window !== "undefined"
+        ) {
+          const link = `${window.location.origin}/signup?token=${encodeURIComponent(
+            payload.token
+          )}`;
+          setNewInviteLink(link);
+          setCopySuccess(false);
+        }
+        await refreshSharingData();
+      } catch {
+        setInvitationError("Failed to send invitation");
+      } finally {
+        setShareSubmitting(false);
+      }
+    },
+    [
+      invitationEmail,
+      invitationRole,
+      isAdmin,
+      refreshSharingData,
+      shareSubmitting,
+    ]
+  );
+
+  const handleRevokeInvitation = useCallback(
+    async (invitationId: string) => {
+      if (!isAdmin) {
+        return;
+      }
+      setShareFetchError(null);
+      setRevokingInvitationId(invitationId);
+      try {
+        const response = await fetch(
+          `/auth/invitations/${encodeURIComponent(invitationId)}/revoke`,
+          {
+            method: "POST",
+            headers: { Accept: "application/json" },
+          }
+        );
+        if (!response.ok) {
+          const payload = (await response.json().catch(() => ({}))) as {
+            error?: string;
+          };
+          setShareFetchError(payload?.error ?? "Failed to revoke invitation");
+          return;
+        }
+        await refreshSharingData();
+      } catch {
+        setShareFetchError("Failed to revoke invitation");
+      } finally {
+        setRevokingInvitationId(null);
+      }
+    },
+    [isAdmin, refreshSharingData]
+  );
+
+  const handleSharingOpenChange = useCallback((open: boolean) => {
+    setSharingOpen(open);
+    if (!open) {
+      setInvitationEmail("");
+      setInvitationRole("editor");
+      setInvitationError(null);
+      setShareFetchError(null);
+      setNewInviteLink(null);
+      setCopySuccess(false);
+    }
+  }, []);
+
+  const handleCopyInviteLink = useCallback(async () => {
+    if (!newInviteLink) {
       return;
     }
     try {
-      const shareUrl = `${window.location.origin}/notebooks/${notebook.id}`;
-      if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
-        void navigator.clipboard.writeText(shareUrl);
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(newInviteLink);
+        if (copyTimeoutRef.current) {
+          clearTimeout(copyTimeoutRef.current);
+        }
+        setCopySuccess(true);
+        copyTimeoutRef.current = setTimeout(() => {
+          setCopySuccess(false);
+          copyTimeoutRef.current = null;
+        }, 2000);
       }
-      setShareStatus("copied");
     } catch {
-      setShareStatus("error");
+      setCopySuccess(false);
     }
-  }, [notebook]);
+  }, [newInviteLink]);
+
+  const sortedMembers = useMemo(() => {
+    return [...members].sort((a, b) => {
+      if (a.role !== b.role) {
+        const roleOrder: Record<WorkspaceRole, number> = {
+          admin: 0,
+          editor: 1,
+          viewer: 2,
+        };
+        return roleOrder[a.role] - roleOrder[b.role];
+      }
+      return a.email.localeCompare(b.email);
+    });
+  }, [members]);
+
+  const sortedInvitations = useMemo(() => {
+    return [...invitations].sort((a, b) =>
+      b.createdAt.localeCompare(a.createdAt)
+    );
+  }, [invitations]);
 
   const handleRemoveDependency = useCallback(
     async (name: string) => {
@@ -1785,6 +2060,9 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     theme,
     aiEnabled,
     pendingShellIds,
+    isAdmin,
+    currentUserLoading,
+    handleOpenSharing,
   ]);
 
   const topbarMain = useMemo(() => {
@@ -1935,20 +2213,25 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
             <RotateCcw className="h-4 w-4" />
           </Button>
           <Button
-            variant={shareStatus === "error" ? "destructive" : "ghost"}
+            variant="ghost"
             size="icon"
-            onClick={handleShare}
+            onClick={handleOpenSharing}
             aria-label={
-              shareStatus === "copied"
-                ? "Notebook link copied"
-                : "Share notebook"
+              isAdmin
+                ? "Invite collaborators"
+                : "Only admins can invite collaborators"
             }
-            title="Share notebook link"
+            title={
+              isAdmin
+                ? "Invite collaborators"
+                : "Only admins can invite collaborators"
+            }
+            disabled={!isAdmin || currentUserLoading}
           >
-            {shareStatus === "copied" ? (
-              <Check className="h-4 w-4 text-emerald-500" />
-            ) : (
+            {isAdmin ? (
               <Share2 className="h-4 w-4" />
+            ) : (
+              <ShieldCheck className="h-4 w-4" />
             )}
           </Button>
           <Button
@@ -1986,10 +2269,11 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     handleRunAll,
     handleExportNotebook,
     handleSaveNow,
-    shareStatus,
-    handleShare,
+    handleOpenSharing,
     sessionId,
     exporting,
+    isAdmin,
+    currentUserLoading,
   ]);
 
   const secondaryHeader = useMemo(() => {
@@ -2076,6 +2360,253 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
       headerRight={topbarRight}
     >
       {editorView}
+      <Dialog
+        open={sharingOpen && isAdmin}
+        onOpenChange={handleSharingOpenChange}
+      >
+        <DialogContent className="max-w-2xl space-y-6">
+          <DialogHeader>
+            <DialogTitle>Invite collaborators</DialogTitle>
+            <DialogDescription>
+              Send role-based invitations. Invitees must create their own
+              password before accessing the workspace.
+            </DialogDescription>
+          </DialogHeader>
+          {shareFetchError ? (
+            <AlertCallout
+              variant="error"
+              title="Unable to load sharing data"
+              className="text-sm"
+            >
+              {shareFetchError}
+            </AlertCallout>
+          ) : null}
+          <form onSubmit={handleInviteSubmit} className="space-y-4">
+            <div className="space-y-3">
+              <div className="space-y-2">
+                <label
+                  htmlFor="invitation-email"
+                  className="text-sm font-medium text-foreground"
+                >
+                  Email address
+                </label>
+                <input
+                  id="invitation-email"
+                  type="email"
+                  required
+                  value={invitationEmail}
+                  onChange={(event) => setInvitationEmail(event.target.value)}
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring"
+                  placeholder="person@example.com"
+                  disabled={shareSubmitting}
+                />
+              </div>
+              <div className="space-y-2">
+                <label
+                  htmlFor="invitation-role"
+                  className="text-sm font-medium"
+                >
+                  Role
+                </label>
+                <select
+                  id="invitation-role"
+                  value={invitationRole}
+                  onChange={(event) =>
+                    setInvitationRole(event.target.value as WorkspaceRole)
+                  }
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring"
+                  disabled={shareSubmitting}
+                >
+                  <option value="editor">Editor</option>
+                  <option value="viewer">Viewer</option>
+                  <option value="admin">Admin</option>
+                </select>
+                <p className="text-xs text-muted-foreground">
+                  Admins can manage settings and invite others. Editors can
+                  modify notebooks, while viewers have read-only access.
+                </p>
+              </div>
+            </div>
+            {invitationError ? (
+              <p className="text-sm text-destructive" role="alert">
+                {invitationError}
+              </p>
+            ) : null}
+            <DialogFooter className="gap-2">
+              <Button type="submit" disabled={shareSubmitting}>
+                {shareSubmitting ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Sending…
+                  </>
+                ) : (
+                  <>
+                    <UserPlus className="mr-2 h-4 w-4" /> Send invite
+                  </>
+                )}
+              </Button>
+            </DialogFooter>
+          </form>
+          {newInviteLink ? (
+            <div className="space-y-2 rounded-md border border-border bg-muted/40 p-3">
+              <p className="text-sm font-medium text-foreground">
+                Share this signup link:
+              </p>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <input
+                  value={newInviteLink}
+                  readOnly
+                  className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm"
+                />
+                <Button
+                  type="button"
+                  variant={copySuccess ? "secondary" : "outline"}
+                  onClick={handleCopyInviteLink}
+                  className="shrink-0"
+                >
+                  {copySuccess ? (
+                    <>
+                      <Check className="mr-2 h-4 w-4" /> Copied
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="mr-2 h-4 w-4" /> Copy link
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
+          ) : null}
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <h4 className="text-sm font-semibold text-foreground">
+                  Invitations
+                </h4>
+                <Badge variant="outline">{sortedInvitations.length}</Badge>
+              </div>
+              {invitesLoading ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" /> Loading
+                  invitations…
+                </div>
+              ) : sortedInvitations.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No invitations have been sent yet.
+                </p>
+              ) : (
+                <ul className="space-y-2">
+                  {sortedInvitations.map((invitation) => {
+                    const expiresAt = Date.parse(invitation.expiresAt);
+                    const expired =
+                      !invitation.acceptedAt &&
+                      !invitation.revokedAt &&
+                      Number.isFinite(expiresAt) &&
+                      expiresAt <= Date.now();
+                    const status = invitation.acceptedAt
+                      ? "Accepted"
+                      : invitation.revokedAt
+                        ? "Revoked"
+                        : expired
+                          ? "Expired"
+                          : "Pending";
+                    const statusColor = invitation.acceptedAt
+                      ? "text-emerald-600"
+                      : invitation.revokedAt || expired
+                        ? "text-muted-foreground"
+                        : "text-sky-600";
+                    return (
+                      <li
+                        key={invitation.id}
+                        className="flex flex-col gap-3 rounded-md border border-border bg-background p-3 sm:flex-row sm:items-center sm:justify-between"
+                      >
+                        <div className="space-y-1 text-sm">
+                          <div className="flex flex-wrap items-center gap-2 font-medium">
+                            <span>{invitation.email}</span>
+                            <Badge variant="outline" className="capitalize">
+                              {invitation.role}
+                            </Badge>
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            Invited{" "}
+                            {new Date(invitation.createdAt).toLocaleString()}
+                            {invitation.invitedByUser
+                              ? ` · by ${
+                                  invitation.invitedByUser.name ??
+                                  invitation.invitedByUser.email
+                                }`
+                              : ""}
+                          </p>
+                          <p className={`text-xs ${statusColor}`}>
+                            Status: {status}
+                          </p>
+                          {!invitation.acceptedAt && !invitation.revokedAt ? (
+                            <p className="text-xs text-muted-foreground">
+                              Expires{" "}
+                              {new Date(invitation.expiresAt).toLocaleString()}
+                            </p>
+                          ) : null}
+                        </div>
+                        {!invitation.acceptedAt && !invitation.revokedAt ? (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() =>
+                              void handleRevokeInvitation(invitation.id)
+                            }
+                            disabled={revokingInvitationId === invitation.id}
+                          >
+                            {revokingInvitationId === invitation.id ? (
+                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            ) : (
+                              <Ban className="mr-2 h-4 w-4" />
+                            )}
+                            Revoke
+                          </Button>
+                        ) : null}
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <h4 className="text-sm font-semibold text-foreground">
+                  Workspace members
+                </h4>
+                <Badge variant="outline">{sortedMembers.length}</Badge>
+              </div>
+              {sortedMembers.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No members found.
+                </p>
+              ) : (
+                <ul className="space-y-2">
+                  {sortedMembers.map((member) => (
+                    <li
+                      key={member.id}
+                      className="flex flex-col gap-1 rounded-md border border-border bg-background p-3 sm:flex-row sm:items-center sm:justify-between"
+                    >
+                      <div>
+                        <p className="text-sm font-medium text-foreground">
+                          {member.name ?? member.email}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {member.email} · {member.role}
+                        </p>
+                      </div>
+                      {member.id === currentUser?.id ? (
+                        <Badge variant="secondary">You</Badge>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
       <ConfirmDialog
         open={confirmClearOutputsOpen}
         title="Clear all outputs?"

@@ -11,15 +11,35 @@ import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import {
   InMemoryNotebookStore,
-  InMemorySessionManager,
+  InMemorySessionManager as InMemoryKernelSessionManager,
   InMemorySettingsStore,
+  InMemoryUserStore,
+  InMemoryAuthSessionStore,
+  InMemoryInvitationStore,
 } from "./store/memory.js";
-import { SqliteNotebookStore, SqliteSettingsStore } from "./store/sqlite.js";
+import {
+  SqliteNotebookStore,
+  SqliteSettingsStore,
+  SqliteUserStore,
+  SqliteAuthSessionStore,
+  SqliteInvitationStore,
+} from "./store/sqlite.js";
 import {
   PostgresNotebookStore,
   PostgresSettingsStore,
+  PostgresUserStore,
+  PostgresAuthSessionStore,
+  PostgresInvitationStore,
 } from "./store/postgres.js";
-import type { NotebookStore, SettingsStore } from "./types.js";
+import type {
+  NotebookStore,
+  SettingsStore,
+  UserStore,
+  AuthSessionStore,
+  SafeUser,
+  AuthSession,
+  InvitationStore,
+} from "./types.js";
 import { registerNotebookRoutes } from "./routes/notebooks.js";
 import { registerDependencyRoutes } from "./routes/dependencies.js";
 import { registerSessionRoutes } from "./routes/sessions.js";
@@ -29,16 +49,25 @@ import { registerAiRoutes } from "./routes/ai.js";
 import { registerAttachmentRoutes } from "./routes/attachments.js";
 import { createKernelUpgradeHandler } from "./kernel/router.js";
 import { createShellUpgradeHandler } from "./shell/router.js";
+import { NotebookCollaborationService } from "./notebooks/collaboration.js";
+import { AuthService } from "./auth/service.js";
 import {
-  PASSWORD_COOKIE_NAME,
-  derivePasswordToken,
-  isTokenValid,
-} from "./auth/password.js";
+  SESSION_COOKIE_NAME,
+  SESSION_COOKIE_MAX_AGE_MS,
+  parseCookieHeader,
+} from "./auth/session.js";
 import { registerSettingsRoutes } from "./routes/settings.js";
 import { loadServerConfig } from "@nodebooks/config";
 import type { ServerConfig } from "@nodebooks/config";
 import { SettingsService } from "./settings/service.js";
 import { setSettingsService } from "./settings/index.js";
+
+declare module "fastify" {
+  interface FastifyRequest {
+    user?: SafeUser;
+    authSession?: AuthSession;
+  }
+}
 
 export interface CreateServerOptions {
   logger?: boolean;
@@ -48,7 +77,8 @@ export const createServer = async ({
   logger = true,
 }: CreateServerOptions = {}) => {
   const baseConfig = loadServerConfig();
-  const { store, settings, driver } = createNotebookStore({}, baseConfig);
+  const { store, settings, driver, users, authSessions, invitations } =
+    createNotebookStore({}, baseConfig);
   const settingsService = new SettingsService(settings);
   await settingsService.whenReady();
   setSettingsService(settingsService);
@@ -65,28 +95,44 @@ export const createServer = async ({
   });
   // Do not register @fastify/websocket to avoid conflicting with Next HMR
 
-  const cookieOptions = {
+  const authService = new AuthService(users, authSessions, invitations);
+
+  const cookieOptions: FastifyCookieNamespace.CookieSerializeOptions = {
+    path: "/",
+    httpOnly: true,
+    sameSite: "lax" as const,
+    secure: !isDev,
+    maxAge: Math.floor(SESSION_COOKIE_MAX_AGE_MS / 1000),
+  };
+
+  const clearCookieOptions: FastifyCookieNamespace.CookieSerializeOptions = {
     path: "/",
     httpOnly: true,
     sameSite: "lax" as const,
     secure: !isDev,
   };
 
-  const shouldBypassAuth = (
-    request: FastifyRequest,
-    passwordToken: string | null
-  ) => {
-    if (!passwordToken) {
-      return true;
-    }
+  const isPublicRequest = async (request: FastifyRequest) => {
     if (request.method === "OPTIONS") {
       return true;
     }
     const url = request.raw.url ?? "/";
-    if (url.startsWith("/auth/login")) {
+    if (url.startsWith("/auth/login") || url.startsWith("/auth/logout")) {
+      return true;
+    }
+    if (url.startsWith("/auth/signup")) {
+      // Allow bootstrapping when no users exist yet
+      if (!(await authService.hasUsers())) {
+        return true;
+      }
+    }
+    if (url.startsWith("/auth/invitations/inspect")) {
       return true;
     }
     if (url.startsWith("/login")) {
+      return true;
+    }
+    if (url.startsWith("/signup")) {
       return true;
     }
     if (url.startsWith("/health")) {
@@ -94,7 +140,7 @@ export const createServer = async ({
     }
     if (url.startsWith("/_next/")) {
       if (url.startsWith("/_next/data")) {
-        return url.includes("/login");
+        return url.includes("/login") || url.includes("/signup");
       }
       return true;
     }
@@ -133,48 +179,241 @@ export const createServer = async ({
     return reply;
   };
 
-  if (settingsService.getPasswordToken()) {
-    app.log.info("Password protection enabled");
-  }
-
   app.addHook("onRequest", async (request, reply) => {
-    const passwordToken = settingsService.getPasswordToken();
-    if (shouldBypassAuth(request, passwordToken)) {
+    if (await isPublicRequest(request)) {
       return;
     }
 
-    const token = request.cookies[PASSWORD_COOKIE_NAME];
-    if (isTokenValid(token, passwordToken ?? "")) {
+    const sessionToken = request.cookies[SESSION_COOKIE_NAME];
+    const validated = await authService.validateSession(sessionToken);
+    if (!validated) {
+      return sendUnauthorized(request, reply);
+    }
+
+    request.user = validated.user;
+    request.authSession = validated.session;
+  });
+
+  const signupSchema = z.object({
+    token: z.string().min(1).optional(),
+    email: z.string().email(),
+    password: z.string().min(8),
+    name: z.string().min(1).max(120).optional(),
+  });
+
+  const invitationSignupSchema = z.object({
+    token: z.string().min(1),
+    password: z.string().min(8),
+    name: z.string().min(1).max(120).optional(),
+  });
+
+  const inviteSchema = z.object({
+    email: z.string().email(),
+    role: z.enum(["admin", "editor", "viewer"]).default("editor"),
+  });
+
+  const invitationInspectSchema = z.object({
+    token: z.string().min(1),
+  });
+
+  app.post("/auth/signup", async (request, reply) => {
+    const hasUsers = await authService.hasUsers();
+    const requester = request.user;
+    if (!hasUsers) {
+      const body = signupSchema.safeParse(request.body);
+      if (!body.success) {
+        void reply.code(400).send({ error: "Invalid signup payload" });
+        return;
+      }
+      try {
+        const result = await authService.createUser({
+          email: body.data.email,
+          password: body.data.password,
+          name: body.data.name,
+          role: "admin",
+          autoLogin: true,
+        });
+
+        if ("token" in result && result.token) {
+          reply.setCookie(SESSION_COOKIE_NAME, result.token, cookieOptions);
+        }
+
+        void reply.code(201).send({ data: result.user });
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Unknown error";
+        if (message.includes("already exists")) {
+          void reply.code(409).send({ error: "User already exists" });
+          return;
+        }
+        request.log.error({ err: error }, "Failed to sign up user");
+        void reply.code(500).send({ error: "Failed to sign up user" });
+      }
       return;
     }
 
-    return sendUnauthorized(request, reply);
+    if (!requester || requester.role !== "admin") {
+      void reply.code(403).send({ error: "Only admins can create accounts" });
+      return;
+    }
+
+    const invited = invitationSignupSchema.safeParse(request.body);
+    if (!invited.success) {
+      void reply.code(400).send({ error: "Invalid signup payload" });
+      return;
+    }
+
+    try {
+      const result = await authService.completeInvitation({
+        token: invited.data.token,
+        password: invited.data.password,
+        name: invited.data.name,
+      });
+
+      if ("token" in result && result.token) {
+        reply.setCookie(SESSION_COOKIE_NAME, result.token, cookieOptions);
+      }
+
+      void reply.code(201).send({ data: result.user });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      if (message.includes("no longer valid")) {
+        void reply.code(410).send({ error: "Invitation expired" });
+        return;
+      }
+      request.log.error({ err: error }, "Failed to complete invitation");
+      void reply.code(500).send({ error: "Failed to complete invitation" });
+    }
+  });
+
+  const loginSchema = z.object({
+    email: z.string().email(),
+    password: z.string().min(1),
   });
 
   app.post("/auth/login", async (request, reply) => {
-    const passwordToken = settingsService.getPasswordToken();
-    if (!passwordToken) {
-      void reply
-        .code(400)
-        .send({ error: "Password protection is not enabled" });
-      return;
-    }
-
-    const body = z
-      .object({ password: z.string().min(1) })
-      .safeParse(request.body);
+    const body = loginSchema.safeParse(request.body);
     if (!body.success) {
-      void reply.code(400).send({ error: "Password is required" });
+      void reply.code(400).send({ error: "Invalid login payload" });
       return;
     }
 
-    if (!isTokenValid(derivePasswordToken(body.data.password), passwordToken)) {
-      void reply.code(401).send({ error: "Incorrect password" });
-      return;
+    try {
+      const session = await authService.authenticate(
+        body.data.email,
+        body.data.password
+      );
+      reply.setCookie(SESSION_COOKIE_NAME, session.token, cookieOptions);
+      void reply.send({ data: session.user });
+    } catch (error) {
+      void reply.code(401).send({ error: "Invalid credentials" });
     }
+  });
 
-    reply.setCookie(PASSWORD_COOKIE_NAME, passwordToken, cookieOptions);
+  app.post("/auth/logout", async (request, reply) => {
+    const currentSession = request.authSession;
+    reply.clearCookie(SESSION_COOKIE_NAME, clearCookieOptions);
+    if (currentSession) {
+      await authService.logout(currentSession.id);
+    }
     void reply.code(204).send();
+  });
+
+  app.get("/auth/me", async (request, reply) => {
+    if (!request.user) {
+      void reply.code(401).send({ error: "Unauthorized" });
+      return;
+    }
+    void reply.send({ data: request.user });
+  });
+
+  const ensureAdmin = (
+    request: FastifyRequest,
+    reply: FastifyReply
+  ): request is FastifyRequest & { user: SafeUser } => {
+    if (!request.user || request.user.role !== "admin") {
+      void reply.code(403).send({ error: "Admin access required" });
+      return false;
+    }
+    return true;
+  };
+
+  app.post("/auth/invitations", async (request, reply) => {
+    if (!ensureAdmin(request, reply)) {
+      return;
+    }
+    const body = inviteSchema.safeParse(request.body);
+    if (!body.success) {
+      void reply.code(400).send({ error: "Invalid invitation payload" });
+      return;
+    }
+    try {
+      const result = await authService.inviteUser({
+        email: body.data.email,
+        role: body.data.role,
+        invitedBy: request.user.id,
+      });
+      void reply
+        .code(201)
+        .send({ data: result.invitation, token: result.token });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      if (message.includes("already exists")) {
+        void reply.code(409).send({ error: "User already exists" });
+        return;
+      }
+      request.log.error({ err: error }, "Failed to create invitation");
+      void reply.code(500).send({ error: "Failed to create invitation" });
+    }
+  });
+
+  app.get("/auth/invitations", async (request, reply) => {
+    if (!ensureAdmin(request, reply)) {
+      return;
+    }
+    const invitationsList = await authService.listInvitations();
+    void reply.send({ data: invitationsList });
+  });
+
+  app.post("/auth/invitations/:id/revoke", async (request, reply) => {
+    if (!ensureAdmin(request, reply)) {
+      return;
+    }
+    const params = z
+      .object({ id: z.string().min(1) })
+      .safeParse(request.params);
+    if (!params.success) {
+      void reply.code(400).send({ error: "Invalid invitation id" });
+      return;
+    }
+    const revoked = await authService.revokeInvitation(params.data.id);
+    if (!revoked) {
+      void reply.code(404).send({ error: "Invitation not found" });
+      return;
+    }
+    void reply.send({ data: revoked });
+  });
+
+  app.post("/auth/invitations/inspect", async (request, reply) => {
+    const body = invitationInspectSchema.safeParse(request.body);
+    if (!body.success) {
+      void reply.code(400).send({ error: "Invalid invitation token" });
+      return;
+    }
+    const invitation = await authService.inspectInvitation(body.data.token);
+    if (!invitation) {
+      void reply.code(404).send({ error: "Invitation not found" });
+      return;
+    }
+    void reply.send({ data: invitation });
+  });
+
+  app.get("/auth/users", async (request, reply) => {
+    if (!ensureAdmin(request, reply)) {
+      return;
+    }
+    const usersList = await authService.listUsers();
+    void reply.send({ data: usersList });
   });
 
   // Mount Next.js (apps/client) using Next's handler so UI is served by Fastify
@@ -249,7 +488,8 @@ export const createServer = async ({
     }
   }
 
-  const sessions = new InMemorySessionManager(store);
+  const kernelSessions = new InMemoryKernelSessionManager(store);
+  const collaboration = new NotebookCollaborationService(store);
 
   const maybeClosable = store as { close?: () => Promise<void> | void };
   if (typeof maybeClosable.close === "function") {
@@ -267,14 +507,12 @@ export const createServer = async ({
     async (api) => {
       await registerSettingsRoutes(api, {
         settings: settingsService,
-        cookieOptions:
-          cookieOptions as FastifyCookieNamespace.CookieSerializeOptions,
       });
       await registerAiRoutes(api, { settings: settingsService });
       registerAttachmentRoutes(api, store);
       registerNotebookRoutes(api, store);
       registerDependencyRoutes(api, store);
-      registerSessionRoutes(api, sessions);
+      registerSessionRoutes(api, kernelSessions);
       registerTemplateRoutes(api);
       registerTypesRoutes(api);
     },
@@ -295,12 +533,27 @@ export const createServer = async ({
   }
 
   // Central upgrade handler: Next HMR and Kernel WS
-  const kernelUpgrade = createKernelUpgradeHandler("/api", sessions, store, {
-    getPasswordToken: () => settingsService.getPasswordToken(),
-  });
+  const authenticateUpgrade = async (req: IncomingMessage) => {
+    const cookies = parseCookieHeader(req.headers.cookie);
+    const token = cookies[SESSION_COOKIE_NAME];
+    return authService.validateSession(token);
+  };
+
+  const kernelUpgrade = createKernelUpgradeHandler(
+    "/api",
+    kernelSessions,
+    store,
+    {
+      authenticate: authenticateUpgrade,
+    }
+  );
   const shellUpgrade = createShellUpgradeHandler("/api", store, {
-    getPasswordToken: () => settingsService.getPasswordToken(),
+    authenticate: authenticateUpgrade,
   });
+  const collabUpgrade = collaboration.getUpgradeHandler(
+    "/api",
+    authenticateUpgrade
+  );
   app.server.on(
     "upgrade",
     (req: IncomingMessage, socket: Socket, head: Buffer) => {
@@ -314,6 +567,9 @@ export const createServer = async ({
           return;
         }
         if (shellUpgrade(req, socket, head)) {
+          return;
+        }
+        if (collabUpgrade(req, socket, head)) {
           return;
         }
       } catch (_err) {
@@ -341,6 +597,9 @@ interface CreateNotebookStoreOptions {
 interface NotebookStoreResult {
   store: NotebookStore;
   settings: SettingsStore;
+  users: UserStore;
+  authSessions: AuthSessionStore;
+  invitations: InvitationStore;
   driver: PersistenceDriver;
 }
 
@@ -374,6 +633,9 @@ export const createNotebookStore = (
       return {
         store: new InMemoryNotebookStore(),
         settings: new InMemorySettingsStore(),
+        users: new InMemoryUserStore(),
+        authSessions: new InMemoryAuthSessionStore(),
+        invitations: new InMemoryInvitationStore(),
         driver,
       };
     case "sqlite": {
@@ -383,6 +645,9 @@ export const createNotebookStore = (
       return {
         store: sqliteStore,
         settings: new SqliteSettingsStore(sqliteStore),
+        users: new SqliteUserStore(sqliteStore),
+        authSessions: new SqliteAuthSessionStore(sqliteStore),
+        invitations: new SqliteInvitationStore(sqliteStore),
         driver,
       };
     }
@@ -393,6 +658,9 @@ export const createNotebookStore = (
       return {
         store: postgresStore,
         settings: new PostgresSettingsStore(postgresStore),
+        users: new PostgresUserStore(postgresStore),
+        authSessions: new PostgresAuthSessionStore(postgresStore),
+        invitations: new PostgresInvitationStore(postgresStore),
         driver,
       };
     }

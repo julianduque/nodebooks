@@ -9,12 +9,7 @@ import {
   type Notebook,
   type ShellCell,
 } from "@nodebooks/notebook-schema";
-import type { NotebookStore } from "../types.js";
-import {
-  PASSWORD_COOKIE_NAME,
-  isTokenValid,
-  parseCookieHeader,
-} from "../auth/password.js";
+import type { AuthSession, NotebookStore, SafeUser } from "../types.js";
 
 const TerminalClientMessageSchema = z.discriminatedUnion("type", [
   z.object({
@@ -143,11 +138,18 @@ const determineShellCommand = (): [string, string[]] => {
   return [shell, []];
 };
 
+interface ShellUpgradeAuthResult {
+  user: SafeUser;
+  session: AuthSession;
+}
+
 const createShellSession = async (
   connection: WebSocket,
   params: ShellConnectionParams,
-  store: NotebookStore
+  store: NotebookStore,
+  _auth: ShellUpgradeAuthResult | null
 ) => {
+  void _auth;
   const notebook = await store.get(params.notebookId);
   if (!notebook) {
     sendMessage(connection, {
@@ -310,8 +312,9 @@ const createShellSession = async (
 };
 
 interface ShellUpgradeOptions {
-  passwordToken?: string | null;
-  getPasswordToken?: () => string | null;
+  authenticate?: (
+    req: IncomingMessage
+  ) => Promise<ShellUpgradeAuthResult | null>;
 }
 
 export const createShellUpgradeHandler = (
@@ -324,10 +327,6 @@ export const createShellUpgradeHandler = (
   const pattern = new RegExp(
     `^${base}/ws/notebooks/([^/?#]+)/shells/([^/?#]+)`
   );
-  const resolvePasswordToken =
-    typeof options.getPasswordToken === "function"
-      ? options.getPasswordToken
-      : () => options.passwordToken ?? null;
 
   return (req: IncomingMessage, socket: Socket, head: Buffer): boolean => {
     const url = req.url || "";
@@ -336,44 +335,60 @@ export const createShellUpgradeHandler = (
       return false;
     }
 
-    const activeToken = resolvePasswordToken();
-    if (activeToken) {
-      const cookies = parseCookieHeader(req.headers.cookie);
-      if (!isTokenValid(cookies[PASSWORD_COOKIE_NAME], activeToken)) {
+    const finalize = async () => {
+      let authResult: ShellUpgradeAuthResult | null = null;
+      if (typeof options.authenticate === "function") {
         try {
-          socket.write(
-            "HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n"
-          );
-        } catch (err) {
-          void err;
+          authResult = await options.authenticate(req);
+        } catch (authError) {
+          authResult = null;
         }
+        if (!authResult) {
+          try {
+            socket.write(
+              "HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n"
+            );
+          } catch (err) {
+            void err;
+          }
+          try {
+            socket.destroy();
+          } catch (err) {
+            void err;
+          }
+          return;
+        }
+      }
+
+      const notebookId = decodeURIComponent(match[1]!);
+      const cellId = decodeURIComponent(match[2]!);
+      try {
+        wss.handleUpgrade(req, socket, head, (ws) => {
+          void createShellSession(
+            ws as unknown as WebSocket,
+            { notebookId, cellId },
+            store,
+            authResult
+          );
+        });
+      } catch (err) {
         try {
           socket.destroy();
-        } catch (err) {
-          void err;
+        } catch (destroyError) {
+          void destroyError;
         }
-        return true;
+        void err;
       }
-    }
+    };
 
-    const notebookId = decodeURIComponent(match[1]!);
-    const cellId = decodeURIComponent(match[2]!);
-    try {
-      wss.handleUpgrade(req, socket, head, (ws) => {
-        void createShellSession(
-          ws as unknown as WebSocket,
-          { notebookId, cellId },
-          store
-        );
-      });
-    } catch (err) {
+    void finalize().catch((err) => {
       try {
         socket.destroy();
       } catch (destroyError) {
         void destroyError;
       }
       void err;
-    }
+    });
 
     return true;
   };

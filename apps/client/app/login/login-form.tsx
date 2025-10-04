@@ -1,7 +1,7 @@
 "use client";
 
 import type { FormEvent } from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Route } from "next";
 
@@ -10,10 +10,32 @@ interface LoginFormProps {
 }
 
 const LoginForm = ({ redirectTo }: LoginFormProps) => {
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const router = useRouter();
+
+  useEffect(() => {
+    let cancelled = false;
+    const checkSession = async () => {
+      try {
+        const response = await fetch("/auth/me", {
+          headers: { Accept: "application/json" },
+        });
+        if (!cancelled && response.ok) {
+          router.replace(redirectTo);
+          router.refresh();
+        }
+      } catch {
+        // ignore session detection failures
+      }
+    };
+    void checkSession();
+    return () => {
+      cancelled = true;
+    };
+  }, [redirectTo, router]);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -26,17 +48,19 @@ const LoginForm = ({ redirectTo }: LoginFormProps) => {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ password }),
+        body: JSON.stringify({ email, password }),
       });
 
+      const payload = (await response.json().catch(() => null)) as {
+        error?: string;
+      } | null;
+
       if (!response.ok) {
-        const payload = (await response.json().catch(() => null)) as {
-          error?: string;
-        } | null;
-        setError(payload?.error ?? "Incorrect password");
+        setError(payload?.error ?? "Incorrect email or password");
         return;
       }
 
+      setEmail("");
       setPassword("");
       router.replace(redirectTo);
       router.refresh();
@@ -49,6 +73,25 @@ const LoginForm = ({ redirectTo }: LoginFormProps) => {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
+      <div className="space-y-2">
+        <label htmlFor="email" className="text-sm font-medium">
+          Email
+        </label>
+        <input
+          id="email"
+          name="email"
+          type="email"
+          autoComplete="email"
+          value={email}
+          onChange={(event) => {
+            setEmail(event.target.value);
+          }}
+          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring"
+          placeholder="you@example.com"
+          required
+          disabled={isSubmitting}
+        />
+      </div>
       <div className="space-y-2">
         <label htmlFor="password" className="text-sm font-medium">
           Password
@@ -80,6 +123,9 @@ const LoginForm = ({ redirectTo }: LoginFormProps) => {
       >
         {isSubmitting ? "Signing in..." : "Sign in"}
       </button>
+      <p className="text-xs text-muted-foreground text-center">
+        Need access? Ask a workspace admin to send you an invitation.
+      </p>
     </form>
   );
 };

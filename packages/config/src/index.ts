@@ -107,14 +107,6 @@ export function loadServerConfig(
     10_000;
   const kernelWsHeartbeatMs = num(resolvedEnv.NODEBOOKS_KERNEL_WS_HEARTBEAT_MS);
 
-  const passwordOverride = runtimeOverrides.password;
-  const password =
-    typeof passwordOverride === "string" && passwordOverride.trim().length > 0
-      ? passwordOverride
-      : passwordOverride === null
-        ? undefined
-        : resolvedEnv.NODEBOOKS_PASSWORD;
-
   const templatesDir = resolvedEnv.NODEBOOKS_TEMPLATE_DIR;
 
   const runtimeAi = runtimeOverrides.ai ?? {};
@@ -178,7 +170,6 @@ export function loadServerConfig(
     isProd,
     embedNext: bool(resolvedEnv.EMBED_NEXT, true),
     keepClientCwd: bool(resolvedEnv.NEXT_KEEP_CLIENT_CWD, true),
-    password,
     theme,
     kernelTimeoutMs,
     kernelWsHeartbeatMs,

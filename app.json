@@ -9,10 +9,6 @@
       "value": "postgres",
       "required": true
     },
-    "NODEBOOKS_PASSWORD": {
-      "description": "Optional password to protect the app",
-      "required": false
-    },
     "NODEBOOKS_THEME": {
       "description": "UI theme: light | dark",
       "value": "light"

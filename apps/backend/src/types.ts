@@ -1,5 +1,96 @@
 import type { Notebook } from "@nodebooks/notebook-schema";
 
+export type UserRole = "admin" | "editor" | "viewer";
+
+export interface User {
+  id: string;
+  email: string;
+  name: string | null;
+  role: UserRole;
+  passwordHash: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type SafeUser = Omit<User, "passwordHash">;
+
+export interface CreateUserInput {
+  email: string;
+  name?: string | null;
+  passwordHash: string;
+  role?: UserRole;
+}
+
+export interface UpdateUserInput {
+  name?: string | null;
+  passwordHash?: string;
+  role?: UserRole;
+}
+
+export interface UserStore {
+  create(input: CreateUserInput): Promise<User>;
+  get(id: string): Promise<User | undefined>;
+  findByEmail(email: string): Promise<User | undefined>;
+  update(id: string, updates: UpdateUserInput): Promise<User>;
+  list(): Promise<User[]>;
+  count(): Promise<number>;
+}
+
+export interface AuthSession {
+  id: string;
+  userId: string;
+  tokenHash: string;
+  createdAt: string;
+  updatedAt: string;
+  expiresAt: string;
+  revokedAt: string | null;
+}
+
+export interface AuthSessionStore {
+  create(input: {
+    userId: string;
+    tokenHash: string;
+    expiresAt: string;
+  }): Promise<AuthSession>;
+  findByTokenHash(tokenHash: string): Promise<AuthSession | undefined>;
+  touch(id: string): Promise<void>;
+  revoke(id: string): Promise<void>;
+  revokeForUser(userId: string): Promise<void>;
+}
+
+export interface Invitation {
+  id: string;
+  email: string;
+  role: UserRole;
+  tokenHash: string;
+  invitedBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+  expiresAt: string;
+  acceptedAt: string | null;
+  revokedAt: string | null;
+}
+
+export type SafeInvitation = Omit<Invitation, "tokenHash">;
+
+export interface CreateInvitationInput {
+  email: string;
+  role: UserRole;
+  tokenHash: string;
+  invitedBy?: string | null;
+  expiresAt: string;
+}
+
+export interface InvitationStore {
+  create(input: CreateInvitationInput): Promise<Invitation>;
+  get(id: string): Promise<Invitation | undefined>;
+  findByTokenHash(tokenHash: string): Promise<Invitation | undefined>;
+  findActiveByEmail(email: string): Promise<Invitation | undefined>;
+  list(): Promise<Invitation[]>;
+  markAccepted(id: string): Promise<Invitation | undefined>;
+  revoke(id: string): Promise<Invitation | undefined>;
+}
+
 export interface NotebookAttachment {
   id: string;
   notebookId: string;
