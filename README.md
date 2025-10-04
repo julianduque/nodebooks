@@ -59,7 +59,6 @@ pnpm install
 - When the server starts with no users, visit `/signup` to create the initial admin account.
 - Admins can open the share dialog (the “Invite” button in any notebook) to send role-based invitations.
 - Invitations generate signup tokens; recipients redeem them at `/signup?token=...` to choose a password before logging in.
-- Existing deployments that previously relied on `NODEBOOKS_PASSWORD` should remove that environment variable and create an admin via `/signup` before inviting additional collaborators.
 
 ## Production
 

@@ -3,10 +3,13 @@
 import type { FormEvent } from "react";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import { Loader2 } from "lucide-react";
+import { gravatarUrlForEmail } from "@/lib/avatar";
 
 interface SignupFormProps {
   initialToken?: string;
+  bootstrap?: boolean;
 }
 
 type WorkspaceRole = "admin" | "editor" | "viewer";
@@ -18,8 +21,22 @@ interface InvitationPreview {
   expiresAt: string;
 }
 
-const SignupForm = ({ initialToken = "" }: SignupFormProps) => {
+const emailLooksValid = (value: string) => {
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+  const atIndex = trimmed.indexOf("@");
+  if (atIndex <= 0 || atIndex === trimmed.length - 1) {
+    return false;
+  }
+  return true;
+};
+
+const SignupForm = ({
+  initialToken = "",
+  bootstrap = false,
+}: SignupFormProps) => {
   const [token, setToken] = useState(initialToken);
+  const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -31,6 +48,13 @@ const SignupForm = ({ initialToken = "" }: SignupFormProps) => {
   const router = useRouter();
 
   useEffect(() => {
+    if (bootstrap) {
+      setInvitation(null);
+      setInspectError(null);
+      setInspectLoading(false);
+      return;
+    }
+
     const trimmed = token.trim();
     if (!trimmed) {
       setInvitation(null);
@@ -108,12 +132,29 @@ const SignupForm = ({ initialToken = "" }: SignupFormProps) => {
       cancelled = true;
       controller.abort();
     };
-  }, [token]);
+  }, [bootstrap, token]);
+
+  const normalizedEmail = bootstrap
+    ? email.trim().toLowerCase()
+    : (invitation?.email?.trim().toLowerCase() ?? "");
+  const gravatarUrl = normalizedEmail
+    ? gravatarUrlForEmail(normalizedEmail, 96)
+    : null;
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!invitation) {
+    if (bootstrap) {
+      if (!emailLooksValid(email)) {
+        setSubmitError("Enter a valid email address.");
+        return;
+      }
+    } else if (!invitation) {
       setSubmitError("Enter a valid invitation token before continuing.");
+      return;
+    }
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      setSubmitError("Enter your name to continue.");
       return;
     }
     if (password.length < 8) {
@@ -132,9 +173,9 @@ const SignupForm = ({ initialToken = "" }: SignupFormProps) => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          token: token.trim(),
+          ...(bootstrap ? { email: email.trim() } : { token: token.trim() }),
           password,
-          name: name.trim() || undefined,
+          name: trimmedName,
         }),
       });
       const payload = (await response.json().catch(() => ({}))) as {
@@ -148,6 +189,7 @@ const SignupForm = ({ initialToken = "" }: SignupFormProps) => {
       setPassword("");
       setConfirmPassword("");
       setName("");
+      setEmail("");
       router.replace("/");
       router.refresh();
     } catch {
@@ -158,53 +200,75 @@ const SignupForm = ({ initialToken = "" }: SignupFormProps) => {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      <div className="space-y-2">
-        <label htmlFor="token" className="text-sm font-medium">
-          Invitation token
-        </label>
-        <input
-          id="token"
-          name="token"
-          value={token}
-          onChange={(event) => setToken(event.target.value)}
-          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring"
-          placeholder="Paste the invitation token"
-          required
-          disabled={submitting}
-        />
-        {inspectLoading ? (
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Loader2 className="h-3 w-3 animate-spin" /> Verifying invitation…
-          </div>
-        ) : null}
-        {inspectError ? (
-          <p className="text-sm text-destructive" role="alert">
-            {inspectError}
-          </p>
-        ) : null}
-      </div>
-      {invitation ? (
-        <div className="space-y-1 rounded-md border border-border bg-muted/30 p-3 text-sm">
-          <p className="font-medium text-foreground">
-            Inviting <span className="font-semibold">{invitation.email}</span>{" "}
-            as
-            <span className="font-semibold"> {invitation.role}</span>
-          </p>
-          {invitation.invitedBy ? (
-            <p className="text-xs text-muted-foreground">
-              Invited by {invitation.invitedBy}
-            </p>
-          ) : null}
-          {invitation.expiresAt ? (
-            <p className="text-xs text-muted-foreground">
-              Expires {new Date(invitation.expiresAt).toLocaleString()}
-            </p>
-          ) : null}
+      {bootstrap ? (
+        <div className="space-y-2">
+          <label htmlFor="email" className="text-sm font-medium">
+            Email
+          </label>
+          <input
+            id="email"
+            name="email"
+            type="email"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring"
+            placeholder="admin@example.com"
+            required
+            disabled={submitting}
+          />
         </div>
-      ) : null}
+      ) : (
+        <>
+          <div className="space-y-2">
+            <label htmlFor="token" className="text-sm font-medium">
+              Invitation token
+            </label>
+            <input
+              id="token"
+              name="token"
+              value={token}
+              onChange={(event) => setToken(event.target.value)}
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring"
+              placeholder="Paste the invitation token"
+              required
+              disabled={submitting}
+            />
+            {inspectLoading ? (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Loader2 className="h-3 w-3 animate-spin" /> Verifying
+                invitation…
+              </div>
+            ) : null}
+            {inspectError ? (
+              <p className="text-sm text-destructive" role="alert">
+                {inspectError}
+              </p>
+            ) : null}
+          </div>
+          {invitation ? (
+            <div className="space-y-1 rounded-md border border-border bg-muted/30 p-3 text-sm">
+              <p className="font-medium text-foreground">
+                Inviting{" "}
+                <span className="font-semibold">{invitation.email}</span> as
+                <span className="font-semibold"> {invitation.role}</span>
+              </p>
+              {invitation.invitedBy ? (
+                <p className="text-xs text-muted-foreground">
+                  Invited by {invitation.invitedBy}
+                </p>
+              ) : null}
+              {invitation.expiresAt ? (
+                <p className="text-xs text-muted-foreground">
+                  Expires {new Date(invitation.expiresAt).toLocaleString()}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+        </>
+      )}
       <div className="space-y-2">
         <label htmlFor="name" className="text-sm font-medium">
-          Name (optional)
+          Name
         </label>
         <input
           id="name"
@@ -213,9 +277,24 @@ const SignupForm = ({ initialToken = "" }: SignupFormProps) => {
           onChange={(event) => setName(event.target.value)}
           className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring"
           placeholder="How should teammates refer to you?"
+          required
           disabled={submitting}
         />
       </div>
+      {gravatarUrl ? (
+        <div className="flex items-center gap-3 rounded-md border border-border bg-muted/30 p-3 text-sm">
+          <Image
+            src={gravatarUrl}
+            alt="Gravatar preview"
+            width={48}
+            height={48}
+            className="h-12 w-12 rounded-full border border-border"
+          />
+          <div className="space-y-1">
+            <p className="font-medium text-foreground">{normalizedEmail}</p>
+          </div>
+        </div>
+      ) : null}
       <div className="space-y-2">
         <label htmlFor="password" className="text-sm font-medium">
           Password
@@ -263,7 +342,7 @@ const SignupForm = ({ initialToken = "" }: SignupFormProps) => {
       <button
         type="submit"
         className="w-full rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground shadow disabled:cursor-not-allowed disabled:opacity-70"
-        disabled={submitting || !invitation || inspectLoading}
+        disabled={submitting || inspectLoading || (!bootstrap && !invitation)}
       >
         {submitting ? "Creating account..." : "Create account"}
       </button>

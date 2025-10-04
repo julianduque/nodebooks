@@ -58,7 +58,7 @@ export class AuthService {
   async createUser(input: {
     email: string;
     password: string;
-    name?: string | null;
+    name: string;
     role?: UserRole;
     autoLogin?: boolean;
   }): Promise<
@@ -70,7 +70,7 @@ export class AuthService {
     const user = await this.users.create({
       email,
       passwordHash,
-      name: input.name,
+      name: input.name.trim(),
       role: input.role,
     });
     const safeUser = toSafeUser(user);
@@ -87,7 +87,8 @@ export class AuthService {
   }
 
   private toSafeInvitation(invitation: Invitation): SafeInvitation {
-    const { tokenHash: _tokenHash, ...rest } = invitation;
+    const { tokenHash, ...rest } = invitation;
+    void tokenHash;
     return { ...rest };
   }
 
@@ -189,7 +190,7 @@ export class AuthService {
   async completeInvitation(input: {
     token: string;
     password: string;
-    name?: string | null;
+    name: string;
     autoLogin?: boolean;
   }): Promise<
     | AuthenticatedSession
@@ -203,7 +204,7 @@ export class AuthService {
     const passwordHash = await hashPassword(input.password);
     const user = await this.users.create({
       email: invitation.email,
-      name: input.name,
+      name: input.name.trim(),
       role: invitation.role,
       passwordHash,
     });

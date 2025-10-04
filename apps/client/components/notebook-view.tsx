@@ -7,47 +7,10 @@ import {
   useReducer,
   useRef,
   useState,
-  type FormEvent,
 } from "react";
-import clsx from "clsx";
 import AppShell from "@/components/app-shell";
-import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent } from "@/components/ui/card";
-import { useTheme } from "@/components/theme-context";
-import {
-  Check,
-  Copy,
-  Loader2,
-  Pencil,
-  PlayCircle,
-  RefreshCw,
-  RotateCcw,
-  Save,
-  Share2,
-  ShieldCheck,
-  Trash2,
-  Eraser,
-  XCircle,
-  Settings as SettingsIcon,
-  ListTree,
-  Paperclip,
-  Download,
-  UserPlus,
-  Clock,
-  Ban,
-} from "lucide-react";
 import ConfirmDialog from "@/components/ui/confirm";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   createCodeCell,
   createMarkdownCell,
@@ -69,79 +32,22 @@ import {
   parseMultipleDependencies,
   buildOutlineItems,
 } from "@/components/notebook/utils";
-import CellCard from "@/components/notebook/cell-card";
-import AddCellMenu from "@/components/notebook/add-cell-menu";
 import OutlinePanel from "@/components/notebook/outline-panel";
 import SetupPanel from "@/components/notebook/setup-panel";
 import AttachmentsPanel from "@/components/notebook/attachments-panel";
-import type { AttachmentMetadata } from "@/components/notebook/attachment-utils";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import OutputView from "@/components/notebook/output-view";
 import { syncNotebookContext } from "@/components/notebook/monaco-context-sync";
-import { cellUri } from "@/components/notebook/monaco-models";
 import { setDiagnosticPolicy } from "@/components/notebook/monaco-setup";
-import { useSearchParams } from "next/navigation";
-
-import { clientConfig } from "@nodebooks/config/client";
-import { AlertCallout } from "@nodebooks/notebook-ui";
-const rawApiBaseUrl = clientConfig().apiBaseUrl ?? "/api";
-const API_BASE_URL =
-  rawApiBaseUrl.length > 1 && rawApiBaseUrl.endsWith("/")
-    ? rawApiBaseUrl.replace(/\/+$/, "")
-    : rawApiBaseUrl;
-
-type WorkspaceRole = "admin" | "editor" | "viewer";
-
-interface SafeWorkspaceUser {
-  id: string;
-  email: string;
-  name: string | null;
-  role: WorkspaceRole;
-  createdAt: string;
-  updatedAt: string;
-}
-
-interface InvitationSummary {
-  id: string;
-  email: string;
-  role: WorkspaceRole;
-  invitedBy: string | null;
-  createdAt: string;
-  updatedAt: string;
-  expiresAt: string;
-  acceptedAt: string | null;
-  revokedAt: string | null;
-  invitedByUser?: SafeWorkspaceUser | null;
-}
-
-interface StatusDotProps {
-  colorClass: string;
-  label: string;
-  text?: string;
-  showText?: boolean;
-}
-
-const buildAttachmentsListUrl = (notebookId: string) =>
-  `${API_BASE_URL}/notebooks/${encodeURIComponent(notebookId)}/attachments`;
-
-const StatusDot = ({
-  colorClass,
-  label,
-  text,
-  showText = false,
-}: StatusDotProps) => (
-  <span className="flex items-center gap-1" title={label}>
-    <span
-      className={clsx("h-2.5 w-2.5 rounded-full transition-colors", colorClass)}
-      aria-hidden="true"
-    />
-    {showText ? (
-      <span>{text ?? label}</span>
-    ) : (
-      <span className="sr-only">{label}</span>
-    )}
-  </span>
-);
+import { useTheme } from "@/components/theme-context";
+import NotebookEditorView from "@/components/notebook/notebook-editor-view";
+import NotebookHeaderMain from "@/components/notebook/notebook-header-main";
+import NotebookHeaderRight from "@/components/notebook/notebook-header-right";
+import NotebookSecondaryHeader from "@/components/notebook/notebook-secondary-header";
+import NotebookSharingDialog from "@/components/notebook/notebook-sharing-dialog";
+import { API_BASE_URL } from "@/components/notebook/api";
+import { useCurrentUser } from "@/components/notebook/hooks/useCurrentUser";
+import { useNotebookAttachments } from "@/components/notebook/hooks/useNotebookAttachments";
+import { useNotebookSharing } from "@/components/notebook/hooks/useNotebookSharing";
+import { gravatarUrlForEmail } from "@/lib/avatar";
 
 const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
   const { theme } = useTheme();
@@ -166,7 +72,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
   const [depBusy, setDepBusy] = useState(false);
   const [depError, setDepError] = useState<string | null>(null);
   const [depOutputs, setDepOutputs] = useState<NotebookOutput[]>([]);
-  const [aiEnabled, setAiEnabled] = useState(true);
+  const [aiEnabled, setAiEnabled] = useState(false);
   const [socketGeneration, bumpSocketGeneration] = useReducer(
     (current: number) => current + 1,
     0
@@ -175,123 +81,46 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
   const [confirmRestartOpen, setConfirmRestartOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [attachments, setAttachments] = useState<AttachmentMetadata[]>([]);
-  const [attachmentsLoading, setAttachmentsLoading] = useState(false);
-  const [attachmentsError, setAttachmentsError] = useState<string | null>(null);
   const [pendingShellIds, setPendingShellIds] = useState<Set<string>>(
     new Set<string>()
   );
-  const [currentUser, setCurrentUser] = useState<SafeWorkspaceUser | null>(
-    null
-  );
-  const [currentUserLoading, setCurrentUserLoading] = useState(true);
-  const [sharingOpen, setSharingOpen] = useState(false);
-  const [invitationEmail, setInvitationEmail] = useState("");
-  const [invitationRole, setInvitationRole] = useState<WorkspaceRole>("editor");
-  const [invitationError, setInvitationError] = useState<string | null>(null);
-  const [shareFetchError, setShareFetchError] = useState<string | null>(null);
-  const [shareSubmitting, setShareSubmitting] = useState(false);
-  const [invitesLoading, setInvitesLoading] = useState(false);
-  const [members, setMembers] = useState<SafeWorkspaceUser[]>([]);
-  const [invitations, setInvitations] = useState<InvitationSummary[]>([]);
-  const [newInviteLink, setNewInviteLink] = useState<string | null>(null);
-  const [copySuccess, setCopySuccess] = useState(false);
-  const [revokingInvitationId, setRevokingInvitationId] = useState<
-    string | null
-  >(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    const fetchCurrentUser = async () => {
-      try {
-        const response = await fetch("/auth/me", {
-          headers: { Accept: "application/json" },
-        });
-        if (cancelled) {
-          return;
-        }
-        if (response.ok) {
-          const payload = (await response.json().catch(() => ({}))) as {
-            data?: SafeWorkspaceUser;
-          };
-          setCurrentUser(payload?.data ?? null);
-        } else {
-          setCurrentUser(null);
-        }
-      } catch {
-        if (!cancelled) {
-          setCurrentUser(null);
-        }
-      } finally {
-        if (!cancelled) {
-          setCurrentUserLoading(false);
-        }
-      }
-    };
-
-    void fetchCurrentUser();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const isAdmin = currentUser?.role === "admin";
-
-  const refreshSharingData = useCallback(async () => {
-    if (!isAdmin) {
-      return;
-    }
-    setInvitesLoading(true);
-    setShareFetchError(null);
-    try {
-      const [usersResponse, invitationsResponse] = await Promise.all([
-        fetch("/auth/users", { headers: { Accept: "application/json" } }),
-        fetch("/auth/invitations", { headers: { Accept: "application/json" } }),
-      ]);
-
-      if (!usersResponse.ok) {
-        const payload = (await usersResponse.json().catch(() => ({}))) as {
-          error?: string;
-        };
-        throw new Error(payload?.error ?? "Failed to load members");
-      }
-      if (!invitationsResponse.ok) {
-        const payload = (await invitationsResponse
-          .json()
-          .catch(() => ({}))) as { error?: string };
-        throw new Error(payload?.error ?? "Failed to load invitations");
-      }
-
-      const usersPayload = (await usersResponse.json()) as {
-        data?: SafeWorkspaceUser[];
-      };
-      const invitationsPayload = (await invitationsResponse.json()) as {
-        data?: InvitationSummary[];
-      };
-
-      setMembers(Array.isArray(usersPayload?.data) ? usersPayload.data : []);
-      setInvitations(
-        Array.isArray(invitationsPayload?.data) ? invitationsPayload.data : []
-      );
-    } catch (error) {
-      setShareFetchError(
-        error instanceof Error ? error.message : "Unable to load sharing data"
-      );
-    } finally {
-      setInvitesLoading(false);
-    }
-  }, [isAdmin]);
-
-  const handleAttachmentUploaded = useCallback(
-    (attachment: AttachmentMetadata) => {
-      setAttachments((prev) => {
-        const filtered = prev.filter((item) => item.id !== attachment.id);
-        return [attachment, ...filtered];
-      });
-      setAttachmentsError(null);
-    },
-    []
-  );
+  const collabSocketRef = useRef<WebSocket | null>(null);
+  const suppressCollabBroadcastRef = useRef(false);
+  const activeCellIdRef = useRef<string | null>(null);
+  const {
+    currentUser,
+    setCurrentUser,
+    loading: currentUserLoading,
+    isAdmin,
+  } = useCurrentUser();
+  const {
+    attachments,
+    loading: attachmentsLoading,
+    error: attachmentsError,
+    handleAttachmentUploaded,
+    handleDeleteAttachment,
+  } = useNotebookAttachments(notebook?.id);
+  const {
+    sharingOpen,
+    invitationEmail,
+    invitationRole,
+    invitationError,
+    shareFetchError,
+    shareSubmitting,
+    invitesLoading,
+    newInviteLink,
+    copySuccess,
+    revokingInvitationId,
+    sortedMembers,
+    sortedInvitations,
+    handleOpenSharing,
+    handleInviteSubmit,
+    handleSharingOpenChange,
+    handleCopyInviteLink,
+    handleRevokeInvitation,
+    setInvitationEmail,
+    setInvitationRole,
+  } = useNotebookSharing({ isAdmin });
 
   const markShellPendingPersistence = useCallback((cellId: string) => {
     setPendingShellIds((prev) => {
@@ -338,40 +167,6 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     });
   }, []);
 
-  const handleDeleteAttachment = useCallback(async (attachmentId: string) => {
-    const current = notebookRef.current;
-    if (!current) {
-      return;
-    }
-    try {
-      const url = `${API_BASE_URL}/notebooks/${encodeURIComponent(
-        current.id
-      )}/attachments/${encodeURIComponent(attachmentId)}`;
-      const response = await fetch(url, { method: "DELETE" });
-      if (!response.ok && response.status !== 204) {
-        let message = `Failed to delete attachment (status ${response.status})`;
-        try {
-          const payload = await response.clone().json();
-          if (payload?.error) {
-            message = payload.error;
-          }
-        } catch {
-          const text = await response.clone().text();
-          if (text) message = text;
-        }
-        throw new Error(message);
-      }
-      setAttachments((prev) =>
-        prev.filter((attachment) => attachment.id !== attachmentId)
-      );
-      setAttachmentsError(null);
-    } catch (error) {
-      setAttachmentsError(
-        error instanceof Error ? error.message : "Failed to delete attachment"
-      );
-    }
-  }, []);
-
   // Request id to guard against stale async updates (ref-only)
   const depReqRef = useRef(0);
   const depAbortRef = useRef<AbortController | null>(null);
@@ -410,7 +205,6 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
   const notebookId = notebook?.id;
   const sessionId = session?.id;
   const runQueueRef = useRef<string[]>([]);
-  const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     runQueueRef.current = runQueue;
   }, [runQueue]);
@@ -438,20 +232,6 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     setPendingShellIds(new Set());
   }, [notebook?.id]);
 
-  useEffect(() => {
-    if (sharingOpen && isAdmin) {
-      void refreshSharingData();
-    }
-  }, [sharingOpen, isAdmin, refreshSharingData]);
-
-  useEffect(() => {
-    return () => {
-      if (copyTimeoutRef.current) {
-        clearTimeout(copyTimeoutRef.current);
-      }
-    };
-  }, []);
-
   const refreshAiAvailability = useCallback(async () => {
     try {
       const response = await fetch(`${API_BASE_URL}/settings`, {
@@ -464,7 +244,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
       const enabled =
         typeof payload?.data?.aiEnabled === "boolean"
           ? payload.data.aiEnabled
-          : true;
+          : false;
       setAiEnabled(enabled);
     } catch (error) {
       console.error("Failed to load AI availability", error);
@@ -559,51 +339,6 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
   }, [notebook?.id]);
 
   useEffect(() => {
-    if (!notebook?.id) {
-      setAttachments([]);
-      setAttachmentsError(null);
-      return;
-    }
-
-    let ignore = false;
-    setAttachmentsLoading(true);
-    setAttachmentsError(null);
-
-    const url = buildAttachmentsListUrl(notebook.id);
-    fetch(url)
-      .then(async (response) => {
-        if (!response.ok) {
-          throw new Error(
-            `Failed to load attachments (status ${response.status})`
-          );
-        }
-        const payload = await response.json();
-        const list = Array.isArray(payload?.data)
-          ? (payload.data as AttachmentMetadata[])
-          : [];
-        if (!ignore) {
-          setAttachments(list);
-        }
-      })
-      .catch((err) => {
-        if (!ignore) {
-          setAttachmentsError(
-            err instanceof Error ? err.message : "Failed to load attachments"
-          );
-        }
-      })
-      .finally(() => {
-        if (!ignore) {
-          setAttachmentsLoading(false);
-        }
-      });
-
-    return () => {
-      ignore = true;
-    };
-  }, [notebook?.id]);
-
-  useEffect(() => {
     if (isRenaming) {
       renameInputRef.current?.focus();
     }
@@ -642,6 +377,23 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     [clearPendingSave]
   );
 
+  const broadcastNotebookUpdate = useCallback((next: Notebook) => {
+    const socket = collabSocketRef.current;
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      return;
+    }
+    try {
+      socket.send(
+        JSON.stringify({
+          type: "update",
+          notebook: next,
+        })
+      );
+    } catch {
+      // ignore broadcast failures
+    }
+  }, []);
+
   const updateNotebook = useCallback(
     (
       updater: (current: Notebook) => Notebook,
@@ -661,10 +413,13 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
       }
       notebookRef.current = next;
       setNotebook(next);
+      if (!suppressCollabBroadcastRef.current && next !== prev) {
+        broadcastNotebookUpdate(next);
+      }
       // list summaries are handled in route pages
       return next;
     },
-    []
+    [broadcastNotebookUpdate]
   );
 
   const saveNotebookNow = useCallback(
@@ -968,6 +723,128 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
   useEffect(() => {
     handleServerMessageRef.current = handleServerMessage;
   }, [handleServerMessage]);
+
+  useEffect(() => {
+    return () => {
+      const socket = collabSocketRef.current;
+      if (!socket) {
+        return;
+      }
+      collabSocketRef.current = null;
+      try {
+        socket.close();
+      } catch {
+        // ignore
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    const notebookId = notebook?.id;
+    if (!notebookId) {
+      return;
+    }
+
+    let wsUrl: string;
+    if (/^https?:/i.test(API_BASE_URL)) {
+      const protocol = API_BASE_URL.startsWith("https") ? "wss" : "ws";
+      wsUrl = `${API_BASE_URL.replace(/^https?/, protocol)}/ws/notebooks/${encodeURIComponent(
+        notebookId
+      )}/collab`;
+    } else if (typeof window !== "undefined") {
+      const proto = window.location.protocol === "https:" ? "wss" : "ws";
+      wsUrl = `${proto}://${window.location.host}${API_BASE_URL}/ws/notebooks/${encodeURIComponent(
+        notebookId
+      )}/collab`;
+    } else {
+      wsUrl = `${API_BASE_URL}/ws/notebooks/${encodeURIComponent(
+        notebookId
+      )}/collab`;
+    }
+
+    const socket = new WebSocket(wsUrl);
+    collabSocketRef.current = socket;
+
+    socket.onopen = () => {
+      try {
+        socket.send(JSON.stringify({ type: "request-state" }));
+        socket.send(
+          JSON.stringify({
+            type: "presence",
+            presence: activeCellIdRef.current
+              ? { cellId: activeCellIdRef.current }
+              : null,
+          })
+        );
+      } catch {
+        // ignore failures
+      }
+    };
+
+    socket.onmessage = (event) => {
+      let payload: unknown;
+      try {
+        payload = JSON.parse(event.data as string);
+      } catch {
+        return;
+      }
+      if (!payload || typeof payload !== "object") {
+        return;
+      }
+
+      const kind = (payload as { type?: string }).type;
+      if (kind === "state" || kind === "update") {
+        const nextNotebook = (payload as { notebook?: Notebook }).notebook;
+        if (!nextNotebook) {
+          return;
+        }
+        suppressCollabBroadcastRef.current = true;
+        notebookRef.current = nextNotebook;
+        setNotebook(nextNotebook);
+        setDirty(false);
+        suppressCollabBroadcastRef.current = false;
+      }
+    };
+
+    socket.onclose = () => {
+      if (collabSocketRef.current === socket) {
+        collabSocketRef.current = null;
+      }
+    };
+
+    socket.onerror = () => {
+      // ignore best effort
+    };
+
+    return () => {
+      if (collabSocketRef.current === socket) {
+        collabSocketRef.current = null;
+      }
+      try {
+        socket.close();
+      } catch {
+        // ignore
+      }
+    };
+  }, [notebook?.id]);
+
+  useEffect(() => {
+    activeCellIdRef.current = activeCellId ?? null;
+    const socket = collabSocketRef.current;
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      return;
+    }
+    try {
+      socket.send(
+        JSON.stringify({
+          type: "presence",
+          presence: activeCellId ? { cellId: activeCellId } : null,
+        })
+      );
+    } catch {
+      // ignore presence failures
+    }
+  }, [activeCellId]);
 
   const handleInterruptKernel = useCallback(() => {
     if (!notebook) return;
@@ -1631,158 +1508,6 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     void saveNotebookNow();
   }, [clearPendingSave, saveNotebookNow]);
 
-  const handleOpenSharing = useCallback(() => {
-    if (!isAdmin) {
-      return;
-    }
-    setSharingOpen(true);
-    setInvitationError(null);
-    setShareFetchError(null);
-    setNewInviteLink(null);
-    setCopySuccess(false);
-    void refreshSharingData();
-  }, [isAdmin, refreshSharingData]);
-
-  const handleInviteSubmit = useCallback(
-    async (event: FormEvent<HTMLFormElement>) => {
-      event.preventDefault();
-      if (!isAdmin || shareSubmitting) {
-        return;
-      }
-      const email = invitationEmail.trim();
-      if (!email) {
-        setInvitationError("Provide an email address");
-        return;
-      }
-      setInvitationError(null);
-      setShareFetchError(null);
-      setShareSubmitting(true);
-      try {
-        const response = await fetch("/auth/invitations", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email, role: invitationRole }),
-        });
-        const payload = (await response.json().catch(() => ({}))) as {
-          error?: string;
-          token?: string;
-        };
-        if (!response.ok) {
-          setInvitationError(payload?.error ?? "Failed to send invitation");
-          return;
-        }
-        setInvitationEmail("");
-        if (
-          typeof payload?.token === "string" &&
-          typeof window !== "undefined"
-        ) {
-          const link = `${window.location.origin}/signup?token=${encodeURIComponent(
-            payload.token
-          )}`;
-          setNewInviteLink(link);
-          setCopySuccess(false);
-        }
-        await refreshSharingData();
-      } catch {
-        setInvitationError("Failed to send invitation");
-      } finally {
-        setShareSubmitting(false);
-      }
-    },
-    [
-      invitationEmail,
-      invitationRole,
-      isAdmin,
-      refreshSharingData,
-      shareSubmitting,
-    ]
-  );
-
-  const handleRevokeInvitation = useCallback(
-    async (invitationId: string) => {
-      if (!isAdmin) {
-        return;
-      }
-      setShareFetchError(null);
-      setRevokingInvitationId(invitationId);
-      try {
-        const response = await fetch(
-          `/auth/invitations/${encodeURIComponent(invitationId)}/revoke`,
-          {
-            method: "POST",
-            headers: { Accept: "application/json" },
-          }
-        );
-        if (!response.ok) {
-          const payload = (await response.json().catch(() => ({}))) as {
-            error?: string;
-          };
-          setShareFetchError(payload?.error ?? "Failed to revoke invitation");
-          return;
-        }
-        await refreshSharingData();
-      } catch {
-        setShareFetchError("Failed to revoke invitation");
-      } finally {
-        setRevokingInvitationId(null);
-      }
-    },
-    [isAdmin, refreshSharingData]
-  );
-
-  const handleSharingOpenChange = useCallback((open: boolean) => {
-    setSharingOpen(open);
-    if (!open) {
-      setInvitationEmail("");
-      setInvitationRole("editor");
-      setInvitationError(null);
-      setShareFetchError(null);
-      setNewInviteLink(null);
-      setCopySuccess(false);
-    }
-  }, []);
-
-  const handleCopyInviteLink = useCallback(async () => {
-    if (!newInviteLink) {
-      return;
-    }
-    try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(newInviteLink);
-        if (copyTimeoutRef.current) {
-          clearTimeout(copyTimeoutRef.current);
-        }
-        setCopySuccess(true);
-        copyTimeoutRef.current = setTimeout(() => {
-          setCopySuccess(false);
-          copyTimeoutRef.current = null;
-        }, 2000);
-      }
-    } catch {
-      setCopySuccess(false);
-    }
-  }, [newInviteLink]);
-
-  const sortedMembers = useMemo(() => {
-    return [...members].sort((a, b) => {
-      if (a.role !== b.role) {
-        const roleOrder: Record<WorkspaceRole, number> = {
-          admin: 0,
-          editor: 1,
-          viewer: 2,
-        };
-        return roleOrder[a.role] - roleOrder[b.role];
-      }
-      return a.email.localeCompare(b.email);
-    });
-  }, [members]);
-
-  const sortedInvitations = useMemo(() => {
-    return [...invitations].sort((a, b) =>
-      b.createdAt.localeCompare(a.createdAt)
-    );
-  }, [invitations]);
-
   const handleRemoveDependency = useCallback(
     async (name: string) => {
       if (!notebook) return;
@@ -1861,244 +1586,19 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     [notebook]
   );
 
-  const editorView = useMemo(() => {
-    if (loading) {
-      return (
-        <div className="flex flex-1 items-center justify-center p-10">
-          <Card className="w-full max-w-md text-center">
-            <CardContent className="py-10 text-muted-foreground">
-              Loading notebook…
-            </CardContent>
-          </Card>
-        </div>
-      );
-    }
-
-    if (!notebook) {
-      return (
-        <div className="flex flex-1 items-center justify-center p-10">
-          <Card className="w-full max-w-md text-center">
-            <CardContent className="space-y-3 py-10">
-              <p className="text-lg font-semibold text-foreground">
-                Select a notebook to begin.
-              </p>
-              {error ? (
-                <AlertCallout
-                  level="error"
-                  text={error}
-                  className="text-left"
-                  themeMode={theme}
-                />
-              ) : null}
-            </CardContent>
-          </Card>
-        </div>
-      );
-    }
-
-    if (notebook.cells.length === 0) {
-      return (
-        <div className="flex flex-1 items-center justify-center p-10">
-          <Card className="w-full max-w-lg text-center">
-            <CardContent className="space-y-6 py-10">
-              <div className="space-y-2">
-                <p className="text-lg font-semibold text-foreground">
-                  Start building your notebook
-                </p>
-                <p className="text-sm text-muted-foreground">
-                  Add a Markdown note, run JavaScript or TypeScript, or open a
-                  shell session to begin.
-                </p>
-              </div>
-              <AddCellMenu
-                onAdd={(type) => handleAddCell(type)}
-                className="mt-0 flex justify-center gap-2 text-[13px]"
-              />
-            </CardContent>
-          </Card>
-        </div>
-      );
-    }
-
-    return (
-      <div className="flex min-h-full flex-1 flex-col">
-        <div className="flex flex-1 overflow-visible">
-          <div className="flex-1 px-2 py-2">
-            {error ? (
-              <AlertCallout
-                level="error"
-                text={error}
-                className="mb-6"
-                themeMode={theme}
-              />
-            ) : null}
-            {actionError ? (
-              <AlertCallout
-                level="error"
-                text={actionError}
-                className="mb-6"
-                themeMode={theme}
-              />
-            ) : null}
-            {/* Installation output shown at the top of the notebook */}
-            {(depBusy || depOutputs.length > 0 || depError) && (
-              <div className="mb-4 rounded-lg border border-border bg-card p-2 text-card-foreground shadow-sm">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-                    Install output
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="text-muted-foreground hover:text-foreground"
-                      onClick={handleClearDepOutputs}
-                      disabled={
-                        !depBusy && depOutputs.length === 0 && !depError
-                      }
-                      aria-label="Clear outputs"
-                    >
-                      <Eraser className="h-4 w-4" />
-                    </Button>
-                    {depBusy && (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="text-rose-600 hover:text-rose-700"
-                        onClick={handleAbortInstall}
-                        aria-label="Abort install"
-                      >
-                        <XCircle className="h-4 w-4" />
-                      </Button>
-                    )}
-                  </div>
-                </div>
-                <div className="mt-2 space-y-2 rounded-md border border-border bg-muted/20 p-2 text-[13px] text-foreground">
-                  {depBusy && depOutputs.length === 0 ? (
-                    <div className="flex items-center gap-2 text-muted-foreground">
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" /> Preparing
-                      environment…
-                    </div>
-                  ) : null}
-                  {depOutputs.map((output, index) => (
-                    <OutputView key={index} output={output} />
-                  ))}
-                </div>
-                {depError ? (
-                  <p className="mt-2 text-[11px] text-rose-500">{depError}</p>
-                ) : null}
-              </div>
-            )}
-            {/* dependency form moved to Setup sidebar */}
-
-            {/* Tighter vertical rhythm between cells */}
-            <div className="space-y-2">
-              {notebook.cells.map((cell, index) => (
-                <CellCard
-                  key={cell.id}
-                  cell={cell}
-                  notebookId={notebook.id}
-                  onAttachmentUploaded={handleAttachmentUploaded}
-                  isRunning={runningCellId === cell.id}
-                  queued={runQueue.includes(cell.id)}
-                  canRun={socketReady}
-                  canMoveUp={index > 0}
-                  canMoveDown={index < notebook.cells.length - 1}
-                  editorKey={`${cell.id}:${index}`}
-                  editorPath={
-                    cell.type === "code"
-                      ? cellUri(notebook.id, index, {
-                          id: cell.id,
-                          language: cell.language === "ts" ? "ts" : "js",
-                        })
-                      : undefined
-                  }
-                  active={activeCellId === cell.id}
-                  onActivate={() => setActiveCellId(cell.id)}
-                  onChange={(updater, options) =>
-                    handleCellChange(cell.id, updater, options)
-                  }
-                  onDelete={() => handleDeleteCell(cell.id)}
-                  onRun={() => handleRunCell(cell.id)}
-                  onInterrupt={handleInterruptKernel}
-                  onMove={(direction) => handleMoveCell(cell.id, direction)}
-                  onAddBelow={(type) => handleAddCell(type, index + 1)}
-                  aiEnabled={aiEnabled}
-                  dependencies={notebook.env.packages}
-                  pendingShellPersist={pendingShellIds.has(cell.id)}
-                />
-              ))}
-            </div>
-            {/* bottom add menu omitted when cells exist; inline add controls live on each cell */}
-          </div>
-        </div>
-      </div>
-    );
-  }, [
-    loading,
-    notebook,
-    socketReady,
-    error,
-    actionError,
-    runningCellId,
-    runQueue,
-    handleCellChange,
-    handleDeleteCell,
-    handleRunCell,
-    handleMoveCell,
-    handleAddCell,
-    activeCellId,
-    depBusy,
-    depError,
-    depOutputs,
-    handleClearDepOutputs,
-    handleAbortInstall,
-    handleInterruptKernel,
-    handleAttachmentUploaded,
-    theme,
-    aiEnabled,
-    pendingShellIds,
-    isAdmin,
-    currentUserLoading,
-    handleOpenSharing,
-  ]);
-
   const topbarMain = useMemo(() => {
     if (!notebook) return null;
     return (
-      <div className="flex w-full flex-wrap items-center gap-2 sm:flex-nowrap">
-        {isRenaming ? (
-          <input
-            ref={renameInputRef}
-            value={renameDraft}
-            onChange={(event) => setRenameDraft(event.target.value)}
-            onBlur={handleRenameCommit}
-            onKeyDown={handleRenameKeyDown}
-            className="min-w-0 flex-1 rounded-md border border-input bg-background px-2 py-1 text-sm font-semibold text-foreground focus:outline-none sm:w-auto sm:min-w-[220px] sm:max-w-sm"
-            aria-label="Notebook name"
-          />
-        ) : (
-          <button
-            type="button"
-            className="min-w-0 flex-1 truncate text-left text-base font-semibold text-foreground"
-            onClick={handleRenameStart}
-            title={notebook.name}
-          >
-            {notebook.name}
-          </button>
-        )}
-        <Button
-          variant="ghost"
-          size="icon"
-          className="shrink-0"
-          onClick={isRenaming ? handleRenameCommit : handleRenameStart}
-          aria-label="Rename notebook"
-        >
-          <Pencil className="h-4 w-4" />
-        </Button>
-      </div>
+      <NotebookHeaderMain
+        notebookName={notebook.name}
+        isRenaming={isRenaming}
+        renameDraft={renameDraft}
+        renameInputRef={renameInputRef}
+        onRenameDraftChange={setRenameDraft}
+        onRenameCommit={handleRenameCommit}
+        onRenameKeyDown={handleRenameKeyDown}
+        onRenameStart={handleRenameStart}
+      />
     );
   }, [
     notebook,
@@ -2111,192 +1611,44 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
 
   const topbarRight = useMemo(() => {
     if (!notebook) return null;
-    const runtimeName =
-      notebook.env.runtime === "node" ? "Node.js" : notebook.env.runtime;
-    const versionLabel = notebook.env.version
-      ? notebook.env.version.startsWith("v")
-        ? notebook.env.version
-        : `v${notebook.env.version}`
-      : "unknown";
-    const kernelStatusLabel = socketReady
-      ? "Kernel connected"
-      : sessionId
-        ? "Kernel disconnected"
-        : "Kernel connecting";
-    const kernelStatusText = socketReady
-      ? "Kernel connected"
-      : sessionId
-        ? "Kernel disconnected"
-        : "Kernel connecting";
-    const kernelStatusColor = socketReady ? "bg-emerald-500" : "bg-amber-500";
-    const saveStatusLabel = dirty
-      ? "You have unsaved changes"
-      : "All changes saved";
-    const saveStatusText = dirty ? "Unsaved" : "Saved";
-    const saveStatusColor = dirty ? "bg-amber-500" : "bg-emerald-500";
     return (
-      <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
-        <div className="flex items-center gap-2">
-          <Badge
-            variant="secondary"
-            className="shrink-0 text-xs font-semibold sm:text-[11px]"
-          >
-            {runtimeName} {versionLabel}
-          </Badge>
-          <div className="items-center gap-2 text-[11px] text-muted-foreground sm:flex">
-            <StatusDot
-              colorClass={kernelStatusColor}
-              label={kernelStatusLabel}
-              text={kernelStatusText}
-              showText
-            />
-            <StatusDot
-              colorClass={saveStatusColor}
-              label={saveStatusLabel}
-              text={saveStatusText}
-              showText
-            />
-          </div>
-        </div>
-        <div className="flex flex-1 flex-wrap items-center justify-end gap-1.5 sm:flex-none sm:gap-2">
-          <Button
-            variant={dirty ? "secondary" : "ghost"}
-            size="icon"
-            onClick={handleSaveNow}
-            disabled={!dirty}
-            aria-label="Save notebook"
-            title={dirty ? "Save notebook" : "Saved"}
-          >
-            {dirty ? (
-              <Save className="h-4 w-4" />
-            ) : (
-              <Check className="h-4 w-4 text-emerald-500" />
-            )}
-          </Button>
-          <Button
-            variant="default"
-            size="icon"
-            onClick={handleRunAll}
-            disabled={!socketReady}
-            aria-label="Run all cells"
-            title="Run all cells"
-          >
-            <PlayCircle className="h-4 w-4" />
-          </Button>
-
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setConfirmClearOutputsOpen(true)}
-            aria-label="Clear all outputs"
-            title="Clear all outputs"
-          >
-            <Eraser className="h-4 w-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={handleReconnectKernel}
-            aria-label="Reconnect kernel"
-            title="Reconnect kernel"
-            disabled={!sessionId}
-          >
-            <RefreshCw className="h-4 w-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setConfirmRestartOpen(true)}
-            aria-label="Restart kernel"
-            title="Restart kernel"
-          >
-            <RotateCcw className="h-4 w-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={handleOpenSharing}
-            aria-label={
-              isAdmin
-                ? "Invite collaborators"
-                : "Only admins can invite collaborators"
-            }
-            title={
-              isAdmin
-                ? "Invite collaborators"
-                : "Only admins can invite collaborators"
-            }
-            disabled={!isAdmin || currentUserLoading}
-          >
-            {isAdmin ? (
-              <Share2 className="h-4 w-4" />
-            ) : (
-              <ShieldCheck className="h-4 w-4" />
-            )}
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={handleExportNotebook}
-            aria-label="Export notebook"
-            title="Export notebook"
-            disabled={exporting}
-          >
-            {exporting ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Download className="h-4 w-4" />
-            )}
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="text-rose-600 hover:text-rose-700"
-            onClick={() => setConfirmDeleteOpen(true)}
-            aria-label="Delete notebook"
-            title="Delete notebook"
-          >
-            <Trash2 className="h-4 w-4" />
-          </Button>
-        </div>
-      </div>
+      <NotebookHeaderRight
+        env={notebook.env}
+        socketReady={socketReady}
+        hasSession={Boolean(sessionId)}
+        dirty={dirty}
+        isAdmin={isAdmin}
+        currentUserLoading={currentUserLoading}
+        exporting={exporting}
+        onSave={handleSaveNow}
+        onRunAll={handleRunAll}
+        onClearOutputs={() => setConfirmClearOutputsOpen(true)}
+        onReconnect={handleReconnectKernel}
+        onRestart={() => setConfirmRestartOpen(true)}
+        onOpenSharing={handleOpenSharing}
+        onExport={handleExportNotebook}
+        onDelete={() => setConfirmDeleteOpen(true)}
+      />
     );
   }, [
     notebook,
     socketReady,
-    dirty,
-    handleReconnectKernel,
-    handleRunAll,
-    handleExportNotebook,
-    handleSaveNow,
-    handleOpenSharing,
     sessionId,
-    exporting,
+    dirty,
     isAdmin,
     currentUserLoading,
+    exporting,
+    handleSaveNow,
+    handleRunAll,
+    handleReconnectKernel,
+    handleOpenSharing,
+    handleExportNotebook,
   ]);
 
   const secondaryHeader = useMemo(() => {
     if (!notebook) return null;
     return (
-      <Tabs
-        value={sidebarView}
-        onValueChange={(v) =>
-          setSidebarView(v as "outline" | "attachments" | "setup")
-        }
-      >
-        <TabsList className="h-8">
-          <TabsTrigger value="outline" className="gap-1 px-2 py-1 text-xs">
-            <ListTree className="h-4 w-4" /> Outline
-          </TabsTrigger>
-          <TabsTrigger value="attachments" className="gap-1 px-2 py-1 text-xs">
-            <Paperclip className="h-4 w-4" /> Attachments
-          </TabsTrigger>
-          <TabsTrigger value="setup" className="gap-1 px-2 py-1 text-xs">
-            <SettingsIcon className="h-4 w-4" /> Setup
-          </TabsTrigger>
-        </TabsList>
-      </Tabs>
+      <NotebookSecondaryHeader value={sidebarView} onChange={setSidebarView} />
     );
   }, [notebook, sidebarView]);
 
@@ -2349,6 +1701,28 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     handleRemoveVariable,
   ]);
 
+  const displayName = currentUser?.name?.trim()
+    ? currentUser.name
+    : (currentUser?.email ?? "Account");
+  const avatarUrl = currentUser?.email
+    ? gravatarUrlForEmail(currentUser.email, 96)
+    : null;
+
+  const handleOpenProfile = useCallback(() => {
+    router.push("/settings");
+  }, [router]);
+
+  const handleLogout = useCallback(async () => {
+    try {
+      await fetch("/auth/logout", { method: "POST" });
+    } catch {
+      // best-effort logout
+    }
+    setCurrentUser(null);
+    router.replace("/login");
+    router.refresh();
+  }, [router, setCurrentUser]);
+
   return (
     <AppShell
       title={notebook?.name ?? "Notebook"}
@@ -2358,255 +1732,68 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
       secondaryHeader={secondaryHeader}
       headerMain={topbarMain}
       headerRight={topbarRight}
+      user={
+        currentUser
+          ? { name: displayName, email: currentUser.email, avatarUrl }
+          : null
+      }
+      userLoading={currentUserLoading}
+      onOpenProfile={handleOpenProfile}
+      onLogout={() => void handleLogout()}
     >
-      {editorView}
-      <Dialog
-        open={sharingOpen && isAdmin}
+      <NotebookEditorView
+        loading={loading}
+        notebook={notebook}
+        error={error}
+        actionError={actionError}
+        socketReady={socketReady}
+        runningCellId={runningCellId}
+        runQueue={runQueue}
+        activeCellId={activeCellId}
+        themeMode={theme}
+        aiEnabled={aiEnabled}
+        pendingShellIds={pendingShellIds}
+        depBusy={depBusy}
+        depError={depError}
+        depOutputs={depOutputs}
+        onCellChange={handleCellChange}
+        onDeleteCell={handleDeleteCell}
+        onRunCell={handleRunCell}
+        onMoveCell={handleMoveCell}
+        onAddCell={handleAddCell}
+        onActivateCell={setActiveCellId}
+        onInterruptKernel={handleInterruptKernel}
+        onAttachmentUploaded={handleAttachmentUploaded}
+        onClearDepOutputs={handleClearDepOutputs}
+        onAbortInstall={handleAbortInstall}
+      />
+      <NotebookSharingDialog
+        open={sharingOpen}
+        isAdmin={isAdmin}
+        themeMode={theme}
+        invitationEmail={invitationEmail}
+        invitationRole={invitationRole}
+        invitationError={invitationError}
+        shareFetchError={shareFetchError}
+        shareSubmitting={shareSubmitting}
+        invitesLoading={invitesLoading}
+        sortedInvitations={sortedInvitations}
+        sortedMembers={sortedMembers}
+        currentUserId={currentUser?.id}
+        newInviteLink={newInviteLink}
+        copySuccess={copySuccess}
+        revokingInvitationId={revokingInvitationId}
         onOpenChange={handleSharingOpenChange}
-      >
-        <DialogContent className="max-w-2xl space-y-6">
-          <DialogHeader>
-            <DialogTitle>Invite collaborators</DialogTitle>
-            <DialogDescription>
-              Send role-based invitations. Invitees must create their own
-              password before accessing the workspace.
-            </DialogDescription>
-          </DialogHeader>
-          {shareFetchError ? (
-            <AlertCallout
-              variant="error"
-              title="Unable to load sharing data"
-              className="text-sm"
-            >
-              {shareFetchError}
-            </AlertCallout>
-          ) : null}
-          <form onSubmit={handleInviteSubmit} className="space-y-4">
-            <div className="space-y-3">
-              <div className="space-y-2">
-                <label
-                  htmlFor="invitation-email"
-                  className="text-sm font-medium text-foreground"
-                >
-                  Email address
-                </label>
-                <input
-                  id="invitation-email"
-                  type="email"
-                  required
-                  value={invitationEmail}
-                  onChange={(event) => setInvitationEmail(event.target.value)}
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring"
-                  placeholder="person@example.com"
-                  disabled={shareSubmitting}
-                />
-              </div>
-              <div className="space-y-2">
-                <label
-                  htmlFor="invitation-role"
-                  className="text-sm font-medium"
-                >
-                  Role
-                </label>
-                <select
-                  id="invitation-role"
-                  value={invitationRole}
-                  onChange={(event) =>
-                    setInvitationRole(event.target.value as WorkspaceRole)
-                  }
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring"
-                  disabled={shareSubmitting}
-                >
-                  <option value="editor">Editor</option>
-                  <option value="viewer">Viewer</option>
-                  <option value="admin">Admin</option>
-                </select>
-                <p className="text-xs text-muted-foreground">
-                  Admins can manage settings and invite others. Editors can
-                  modify notebooks, while viewers have read-only access.
-                </p>
-              </div>
-            </div>
-            {invitationError ? (
-              <p className="text-sm text-destructive" role="alert">
-                {invitationError}
-              </p>
-            ) : null}
-            <DialogFooter className="gap-2">
-              <Button type="submit" disabled={shareSubmitting}>
-                {shareSubmitting ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Sending…
-                  </>
-                ) : (
-                  <>
-                    <UserPlus className="mr-2 h-4 w-4" /> Send invite
-                  </>
-                )}
-              </Button>
-            </DialogFooter>
-          </form>
-          {newInviteLink ? (
-            <div className="space-y-2 rounded-md border border-border bg-muted/40 p-3">
-              <p className="text-sm font-medium text-foreground">
-                Share this signup link:
-              </p>
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                <input
-                  value={newInviteLink}
-                  readOnly
-                  className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm"
-                />
-                <Button
-                  type="button"
-                  variant={copySuccess ? "secondary" : "outline"}
-                  onClick={handleCopyInviteLink}
-                  className="shrink-0"
-                >
-                  {copySuccess ? (
-                    <>
-                      <Check className="mr-2 h-4 w-4" /> Copied
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="mr-2 h-4 w-4" /> Copy link
-                    </>
-                  )}
-                </Button>
-              </div>
-            </div>
-          ) : null}
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <h4 className="text-sm font-semibold text-foreground">
-                  Invitations
-                </h4>
-                <Badge variant="outline">{sortedInvitations.length}</Badge>
-              </div>
-              {invitesLoading ? (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" /> Loading
-                  invitations…
-                </div>
-              ) : sortedInvitations.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  No invitations have been sent yet.
-                </p>
-              ) : (
-                <ul className="space-y-2">
-                  {sortedInvitations.map((invitation) => {
-                    const expiresAt = Date.parse(invitation.expiresAt);
-                    const expired =
-                      !invitation.acceptedAt &&
-                      !invitation.revokedAt &&
-                      Number.isFinite(expiresAt) &&
-                      expiresAt <= Date.now();
-                    const status = invitation.acceptedAt
-                      ? "Accepted"
-                      : invitation.revokedAt
-                        ? "Revoked"
-                        : expired
-                          ? "Expired"
-                          : "Pending";
-                    const statusColor = invitation.acceptedAt
-                      ? "text-emerald-600"
-                      : invitation.revokedAt || expired
-                        ? "text-muted-foreground"
-                        : "text-sky-600";
-                    return (
-                      <li
-                        key={invitation.id}
-                        className="flex flex-col gap-3 rounded-md border border-border bg-background p-3 sm:flex-row sm:items-center sm:justify-between"
-                      >
-                        <div className="space-y-1 text-sm">
-                          <div className="flex flex-wrap items-center gap-2 font-medium">
-                            <span>{invitation.email}</span>
-                            <Badge variant="outline" className="capitalize">
-                              {invitation.role}
-                            </Badge>
-                          </div>
-                          <p className="text-xs text-muted-foreground">
-                            Invited{" "}
-                            {new Date(invitation.createdAt).toLocaleString()}
-                            {invitation.invitedByUser
-                              ? ` · by ${
-                                  invitation.invitedByUser.name ??
-                                  invitation.invitedByUser.email
-                                }`
-                              : ""}
-                          </p>
-                          <p className={`text-xs ${statusColor}`}>
-                            Status: {status}
-                          </p>
-                          {!invitation.acceptedAt && !invitation.revokedAt ? (
-                            <p className="text-xs text-muted-foreground">
-                              Expires{" "}
-                              {new Date(invitation.expiresAt).toLocaleString()}
-                            </p>
-                          ) : null}
-                        </div>
-                        {!invitation.acceptedAt && !invitation.revokedAt ? (
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={() =>
-                              void handleRevokeInvitation(invitation.id)
-                            }
-                            disabled={revokingInvitationId === invitation.id}
-                          >
-                            {revokingInvitationId === invitation.id ? (
-                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                            ) : (
-                              <Ban className="mr-2 h-4 w-4" />
-                            )}
-                            Revoke
-                          </Button>
-                        ) : null}
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </div>
-            <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <h4 className="text-sm font-semibold text-foreground">
-                  Workspace members
-                </h4>
-                <Badge variant="outline">{sortedMembers.length}</Badge>
-              </div>
-              {sortedMembers.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  No members found.
-                </p>
-              ) : (
-                <ul className="space-y-2">
-                  {sortedMembers.map((member) => (
-                    <li
-                      key={member.id}
-                      className="flex flex-col gap-1 rounded-md border border-border bg-background p-3 sm:flex-row sm:items-center sm:justify-between"
-                    >
-                      <div>
-                        <p className="text-sm font-medium text-foreground">
-                          {member.name ?? member.email}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {member.email} · {member.role}
-                        </p>
-                      </div>
-                      {member.id === currentUser?.id ? (
-                        <Badge variant="secondary">You</Badge>
-                      ) : null}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+        onInvitationEmailChange={setInvitationEmail}
+        onInvitationRoleChange={setInvitationRole}
+        onInviteSubmit={handleInviteSubmit}
+        onCopyInviteLink={() => {
+          void handleCopyInviteLink();
+        }}
+        onRevokeInvitation={(id) => {
+          void handleRevokeInvitation(id);
+        }}
+      />
       <ConfirmDialog
         open={confirmClearOutputsOpen}
         title="Clear all outputs?"

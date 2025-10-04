@@ -1,14 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { cn } from "@/components/lib/utils";
 import Link from "next/link";
 import Image from "next/image";
 import type { Route } from "next";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import ProfileMenu from "@/components/profile/profile-menu";
 import {
   LayoutDashboard,
   NotebookPen,
@@ -17,6 +18,7 @@ import {
   Plus,
   PanelLeft,
 } from "lucide-react";
+import { gravatarUrlForEmail } from "@/lib/avatar";
 
 type NavId = "home" | "notebooks" | "templates" | "settings";
 
@@ -54,6 +56,12 @@ const navItems: NavItem[] = [
   },
 ];
 
+type AccountInfo = {
+  name?: string | null;
+  email?: string | null;
+  avatarUrl?: string | null;
+} | null;
+
 interface AppShellProps {
   active?: NavId | string;
   onNavigate?: (id: NavId) => void;
@@ -70,6 +78,14 @@ interface AppShellProps {
   headerMain?: ReactNode;
   // Optional custom right-aligned actions in top toolbar
   headerRight?: ReactNode;
+  user?: {
+    name: string;
+    email: string;
+    avatarUrl?: string | null;
+  } | null;
+  userLoading?: boolean;
+  onOpenProfile?: () => void;
+  onLogout?: () => void;
 }
 
 const AppShell = ({
@@ -83,10 +99,117 @@ const AppShell = ({
   defaultCollapsed = false,
   headerMain,
   headerRight,
+  user,
+  userLoading,
+  onOpenProfile,
+  onLogout,
 }: AppShellProps) => {
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
   const [secondaryCollapsed, setSecondaryCollapsed] = useState(false);
   const pathname = usePathname?.() ?? "";
+  const router = useRouter?.();
+
+  const [account, setAccount] = useState<AccountInfo>(user ?? null);
+  const [accountLoading, setAccountLoading] = useState(
+    user !== undefined ? Boolean(userLoading) : true
+  );
+
+  useEffect(() => {
+    if (user !== undefined) {
+      setAccount(user);
+      setAccountLoading(Boolean(userLoading));
+      return;
+    }
+
+    let cancelled = false;
+    const loadAccount = async () => {
+      setAccountLoading(true);
+      try {
+        const response = await fetch("/auth/me", {
+          headers: { Accept: "application/json" },
+        });
+        if (cancelled) {
+          return;
+        }
+        if (response.ok) {
+          const payload = (await response.json().catch(() => ({}))) as {
+            data?: {
+              name?: string | null;
+              email?: string | null;
+              avatarUrl?: string | null;
+            };
+          };
+          setAccount(payload?.data ? { ...payload.data } : null);
+        } else {
+          setAccount(null);
+        }
+      } catch {
+        if (!cancelled) {
+          setAccount(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setAccountLoading(false);
+        }
+      }
+    };
+
+    void loadAccount();
+    return () => {
+      cancelled = true;
+    };
+  }, [user, userLoading]);
+
+  const handleProfileNavigate = useCallback(() => {
+    if (onOpenProfile) {
+      onOpenProfile();
+      return;
+    }
+    try {
+      router?.push?.("/settings");
+    } catch {
+      if (typeof window !== "undefined") {
+        window.location.href = "/settings";
+      }
+    }
+  }, [onOpenProfile, router]);
+
+  const handleLogout = useCallback(async () => {
+    if (onLogout) {
+      await onLogout();
+    } else {
+      try {
+        await fetch("/auth/logout", { method: "POST" });
+      } catch {
+        // ignore
+      }
+      try {
+        router?.replace?.("/login");
+        router?.refresh?.();
+      } catch {
+        if (typeof window !== "undefined") {
+          window.location.href = "/login";
+        }
+      }
+    }
+    setAccount(null);
+  }, [onLogout, router]);
+
+  const accountWithAvatar = useMemo<AccountInfo>(() => {
+    if (!account) {
+      return null;
+    }
+    if (account.avatarUrl) {
+      return account;
+    }
+    if (account.email) {
+      const avatar = gravatarUrlForEmail(account.email, 96);
+      if (avatar) {
+        return { ...account, avatarUrl: avatar };
+      }
+    }
+    return account;
+  }, [account]);
 
   return (
     <div className="flex h-screen w-full bg-background text-foreground">
@@ -191,23 +314,37 @@ const AppShell = ({
             })}
           </nav>
         </div>
-        <div
-          className={cn("px-2 pb-4", collapsed && "px-1 flex justify-center")}
-        >
-          <Button
+        <div className={cn("px-2 pb-4", collapsed && "px-1")}>
+          <div
             className={cn(
-              collapsed ? "h-9 w-9 p-0" : "h-9 w-full justify-center gap-2"
+              "flex flex-col gap-2",
+              collapsed ? "items-center" : "items-stretch"
             )}
-            size={collapsed ? "icon" : "default"}
-            variant="default"
-            type="button"
-            onClick={onNewNotebook}
-            aria-label="Create new notebook"
-            title="Create new notebook"
           >
-            <Plus className="h-4 w-4" />
-            {!collapsed && <span className="text-sm">New Notebook</span>}
-          </Button>
+            <Button
+              className={cn(
+                collapsed ? "h-9 w-9 p-0" : "h-9 w-full justify-center gap-2"
+              )}
+              size={collapsed ? "icon" : "default"}
+              variant="default"
+              type="button"
+              onClick={onNewNotebook}
+              aria-label="Create new notebook"
+              title="Create new notebook"
+            >
+              <Plus className="h-4 w-4" />
+              {!collapsed && <span className="text-sm">New Notebook</span>}
+            </Button>
+            <ProfileMenu
+              user={accountWithAvatar}
+              loading={accountLoading}
+              collapsed={collapsed}
+              onProfile={handleProfileNavigate}
+              onLogout={() => {
+                void handleLogout();
+              }}
+            />
+          </div>
         </div>
       </aside>
       {secondarySidebar ? (
