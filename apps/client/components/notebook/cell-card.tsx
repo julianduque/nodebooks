@@ -15,8 +15,6 @@ import {
   Sparkles,
   Settings as SettingsIcon,
   Trash2,
-  Plus,
-  Terminal,
   XCircle,
 } from "lucide-react";
 import {
@@ -31,7 +29,9 @@ import type { NotebookCell } from "@nodebooks/notebook-schema";
 import { clientConfig } from "@nodebooks/config/client";
 import CodeCellView from "./code-cell-view";
 import MarkdownCellView from "./markdown-cell-view";
-import ShellCellView from "./shell-cell-view";
+import CommandCellView from "./command-cell-view";
+import TerminalCellView from "./terminal-cell-view";
+import AddCellMenu from "./add-cell-menu";
 import type { AttachmentMetadata } from "@/components/notebook/attachment-utils";
 import {
   DEFAULT_CODE_EDITOR_SETTINGS,
@@ -65,7 +65,7 @@ interface CellCardProps {
   onActivate: () => void;
   aiEnabled: boolean;
   dependencies?: Record<string, string>;
-  pendingShellPersist?: boolean;
+  pendingTerminalPersist?: boolean;
   readOnly: boolean;
 }
 
@@ -79,8 +79,13 @@ type MarkdownCellMetadata = Record<string, unknown> & {
   editor?: MonacoEditorSettings;
 };
 
-type ShellCellMetadata = Record<string, unknown> & {
+type TerminalCellMetadata = Record<string, unknown> & {
   terminal?: TerminalPreferences;
+  pendingCommand?: {
+    id: string;
+    command: string;
+    sourceId?: string;
+  };
 };
 
 const FONT_SIZE_PRESETS = [10, 12, 14, 16, 18, 20, 24, 28, 32] as const;
@@ -99,65 +104,6 @@ const fontSizeSelectionForValue = (value: string): FontSizeSelection => {
   return FONT_SIZE_PRESET_STRINGS.has(value)
     ? (value as FontSizePresetString)
     : "custom";
-};
-
-const AddCellMenu = ({
-  onAdd,
-  className,
-  disabled = false,
-}: {
-  onAdd: (type: NotebookCell["type"]) => void | Promise<void>;
-  className?: string;
-  disabled?: boolean;
-}) => {
-  return (
-    <div
-      className={clsx(
-        "mt-1 flex items-center gap-1 text-xs text-muted-foreground shadow-sm",
-        className
-      )}
-    >
-      <Button
-        variant="outline"
-        size="sm"
-        className="h-7 px-2 text-xs gap-1"
-        onClick={() => {
-          if (disabled) return;
-          onAdd("markdown");
-        }}
-        disabled={disabled}
-      >
-        <Plus className="h-4 w-4" />
-        Markdown
-      </Button>
-      <Button
-        variant="outline"
-        size="sm"
-        className="h-7 px-2 text-xs gap-1"
-        onClick={() => {
-          if (disabled) return;
-          onAdd("code");
-        }}
-        disabled={disabled}
-      >
-        <Plus className="h-4 w-4" />
-        Code
-      </Button>
-      <Button
-        variant="outline"
-        size="sm"
-        className="h-7 px-2 text-xs gap-1"
-        onClick={() => {
-          if (disabled) return;
-          onAdd("shell");
-        }}
-        disabled={disabled}
-      >
-        <Terminal className="h-4 w-4" />
-        Shell
-      </Button>
-    </div>
-  );
 };
 
 const API_BASE_URL = clientConfig().apiBaseUrl;
@@ -183,17 +129,22 @@ const CellCard = ({
   onActivate,
   aiEnabled,
   dependencies,
-  pendingShellPersist = false,
+  pendingTerminalPersist = false,
   readOnly,
 }: CellCardProps) => {
   void _active;
   const isCode = cell.type === "code";
   const isMarkdown = cell.type === "markdown";
-  const isShell = cell.type === "shell";
-  const showAiActions = aiEnabled && !isShell && !readOnly;
+  const isTerminal = cell.type === "terminal";
+  const isCommand = cell.type === "command";
+  const showAiActions = aiEnabled && !isTerminal && !isCommand && !readOnly;
   const isReadOnly = readOnly;
   const codeLanguage = isCode ? cell.language : undefined;
-  const cellContent = cell.type === "shell" ? cell.buffer : cell.source;
+  const cellContent = isTerminal
+    ? (cell.buffer ?? "")
+    : isCommand
+      ? [cell.command ?? "", cell.notes ?? ""].filter(Boolean).join("\n\n")
+      : (cell.source ?? "");
   const [showConfig, setShowConfig] = useState(false);
   const [timeoutDraft, setTimeoutDraft] = useState("");
   const [timeoutError, setTimeoutError] = useState<string | null>(null);
@@ -275,8 +226,8 @@ const CellCard = ({
       setEditorMinimapDraft("default");
     }
 
-    if (isShell) {
-      const meta = cell.metadata as ShellCellMetadata;
+    if (isTerminal) {
+      const meta = cell.metadata as TerminalCellMetadata;
       const terminalMeta = (meta.terminal ?? {}) as TerminalPreferences;
       const terminalFontSizeValue =
         typeof terminalMeta.fontSize === "number"
@@ -305,7 +256,7 @@ const CellCard = ({
     setEditorError(null);
     setTerminalError(null);
     setShowConfig(true);
-  }, [cell, isCode, isMarkdown, isShell]);
+  }, [cell, isCode, isMarkdown, isTerminal]);
 
   const handleConfigClose = useCallback(() => {
     setShowConfig(false);
@@ -403,7 +354,7 @@ const CellCard = ({
     }
 
     let terminalSettings: TerminalPreferences | undefined;
-    if (isShell) {
+    if (isTerminal) {
       const defaults = DEFAULT_TERMINAL_PREFERENCES;
       const settings: TerminalPreferences = {};
       let hasValue = false;
@@ -546,11 +497,11 @@ const CellCard = ({
           }
           return { ...current, metadata: meta };
         }
-        if (current.type === "shell" && isShell) {
+        if (current.type === "terminal" && isTerminal) {
           const meta = {
             ...(current.metadata ?? {}),
-          } as ShellCellMetadata;
-          const previousTerminal = (current.metadata as ShellCellMetadata)
+          } as TerminalCellMetadata;
+          const previousTerminal = (current.metadata as TerminalCellMetadata)
             .terminal;
           const mergedTerminal = mergeTerminalSettings(
             previousTerminal,
@@ -578,7 +529,7 @@ const CellCard = ({
     handleConfigClose,
     isCode,
     isMarkdown,
-    isShell,
+    isTerminal,
     onChange,
     terminalCursorBlinkDraft,
     terminalCursorStyleDraft,
@@ -604,7 +555,7 @@ const CellCard = ({
         if (current.id !== cell.id || current.type !== cell.type) {
           return current;
         }
-        if (current.type === "shell") {
+        if (current.type === "terminal") {
           return { ...current, buffer: nextSource };
         }
         return { ...current, source: nextSource };
@@ -881,6 +832,29 @@ const CellCard = ({
             <SettingsIcon className="h-4 w-4" />
           </Button>
         </>
+      ) : isCommand ? (
+        <>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onRun}
+            disabled={isReadOnly || !canRun}
+            aria-label="Run command"
+            title="Run command"
+          >
+            <Play className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={openConfig}
+            aria-label="Configure cell"
+            title="Cell settings"
+            disabled={isReadOnly}
+          >
+            <SettingsIcon className="h-4 w-4" />
+          </Button>
+        </>
       ) : isMarkdown ? (
         <>
           <Button
@@ -924,7 +898,7 @@ const CellCard = ({
             <SettingsIcon className="h-4 w-4" />
           </Button>
         </>
-      ) : isShell ? (
+      ) : isTerminal ? (
         <Button
           variant="ghost"
           size="icon"
@@ -1074,12 +1048,19 @@ const CellCard = ({
           onAttachmentUploaded={onAttachmentUploaded}
           readOnly={readOnly}
         />
+      ) : cell.type === "command" ? (
+        <CommandCellView
+          cell={cell}
+          onChange={onChange}
+          onRun={onRun}
+          readOnly={readOnly}
+        />
       ) : (
-        <ShellCellView
+        <TerminalCellView
           cell={cell}
           notebookId={notebookId}
           onChange={onChange}
-          pendingPersist={pendingShellPersist}
+          pendingPersist={pendingTerminalPersist}
           readOnly={readOnly}
         />
       )}
@@ -1113,12 +1094,18 @@ const CellCard = ({
                 ? "Code cell settings"
                 : isMarkdown
                   ? "Markdown cell settings"
-                  : "Shell cell settings"}
+                  : isCommand
+                    ? "Command cell settings"
+                    : "Terminal cell settings"}
             </DialogTitle>
             <DialogDescription>
-              {isShell
-                ? "Tune terminal preferences for this shell cell."
-                : "Adjust editor preferences for this cell."}
+              {isTerminal
+                ? "Tune terminal preferences for this terminal cell."
+                : isCode
+                  ? "Adjust execution options and editor preferences for this code cell."
+                  : isCommand
+                    ? "Keep notes about when to run this command and how collaborators should use it."
+                    : "Adjust editor preferences for this cell."}
             </DialogDescription>
           </DialogHeader>
           <form
@@ -1296,7 +1283,7 @@ const CellCard = ({
                 </section>
               )}
 
-              {isShell ? (
+              {isTerminal ? (
                 <section className="space-y-2">
                   <h4 className="text-sm font-semibold text-foreground">
                     Terminal

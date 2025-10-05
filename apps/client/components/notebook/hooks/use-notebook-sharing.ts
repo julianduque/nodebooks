@@ -114,7 +114,7 @@ export const useNotebookSharing = ({
       );
       setInvitations(
         Array.isArray(payload?.data?.invitations)
-          ? payload.data!.invitations
+          ? payload.data!.invitations.filter((item) => !item.acceptedAt)
           : []
       );
     } catch (error) {

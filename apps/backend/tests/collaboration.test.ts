@@ -166,14 +166,16 @@ describe("NotebookCollaborationService authorization", () => {
     const service = new NotebookCollaborationService(store, collaborators);
 
     const socket = new FakeSocket();
-    await (service as unknown as {
-      handleConnection(
-        socket: FakeSocket,
-        notebookId: string,
-        user: SafeUser,
-        role: NotebookRole
-      ): Promise<void>;
-    }).handleConnection(socket, "nb-1", viewerUser, "viewer");
+    await (
+      service as unknown as {
+        handleConnection(
+          socket: FakeSocket,
+          notebookId: string,
+          user: SafeUser,
+          role: NotebookRole
+        ): Promise<void>;
+      }
+    ).handleConnection(socket, "nb-1", viewerUser, "viewer");
 
     const updatePayload = {
       type: "update" as const,
@@ -196,14 +198,16 @@ describe("NotebookCollaborationService authorization", () => {
     const service = new NotebookCollaborationService(store, collaborators);
 
     const socket = new FakeSocket();
-    await (service as unknown as {
-      handleConnection(
-        socket: FakeSocket,
-        notebookId: string,
-        user: SafeUser,
-        role: NotebookRole
-      ): Promise<void>;
-    }).handleConnection(socket, "nb-1", editorUser, "editor");
+    await (
+      service as unknown as {
+        handleConnection(
+          socket: FakeSocket,
+          notebookId: string,
+          user: SafeUser,
+          role: NotebookRole
+        ): Promise<void>;
+      }
+    ).handleConnection(socket, "nb-1", editorUser, "editor");
 
     const updateNotebook = {
       ...baseNotebook,
@@ -212,17 +216,17 @@ describe("NotebookCollaborationService authorization", () => {
 
     socket.emit(
       "message",
-      Buffer.from(
-        JSON.stringify({ type: "update", notebook: updateNotebook })
-      )
+      Buffer.from(JSON.stringify({ type: "update", notebook: updateNotebook }))
     );
 
     await new Promise((resolve) => setImmediate(resolve));
 
-    expect(store.save).toHaveBeenCalledWith(expect.objectContaining({
-      id: "nb-1",
-      name: "Updated",
-    }));
+    expect(store.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "nb-1",
+        name: "Updated",
+      })
+    );
     const parsedMessages = socket.sent.map((payload) => JSON.parse(payload));
     const updateMessage = parsedMessages.find((msg) => msg.type === "update");
     expect(updateMessage?.notebook?.name).toBe("Updated");

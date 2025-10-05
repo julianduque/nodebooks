@@ -23,7 +23,8 @@ const NewNotebookCallout = ({
               Create your first notebook
             </h2>
             <p className="text-sm text-muted-foreground">
-              Start from a blank canvas and add code, markdown, or shell cells.
+              Start from a blank canvas and add code, markdown, or terminal
+              cells.
             </p>
           </div>
           <Button className="gap-2" onClick={onCreate}>

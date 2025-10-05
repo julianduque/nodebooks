@@ -67,7 +67,7 @@ const NotebookHeaderRight = ({
     ? "Kernel connected"
     : hasSession
       ? "Kernel disconnected"
-      : "Kernel connecting";
+      : "Kernel offline";
   const kernelStatusText = kernelStatusLabel;
   const kernelStatusColor = socketReady ? "bg-emerald-500" : "bg-amber-500";
 

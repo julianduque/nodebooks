@@ -5,9 +5,9 @@ import { z } from "zod";
 import { spawn, type IPty } from "@lydell/node-pty";
 import { loadServerConfig } from "@nodebooks/config";
 import {
-  ShellCellSchema,
+  TerminalCellSchema,
   type Notebook,
-  type ShellCell,
+  type TerminalCell,
 } from "@nodebooks/notebook-schema";
 import type { AuthSession, NotebookStore, SafeUser } from "../types.js";
 
@@ -44,9 +44,14 @@ const HEARTBEAT_INTERVAL_MS = (() => {
 
 const MAX_BUFFER_LENGTH = 1_000_000; // 1MB of terminal history
 
-const SHELL_PROMPT = "nodebooks:~$ ";
+const TERMINAL_PROMPT = "nodebooks:~$ ";
 
-interface ShellConnectionParams {
+const terminalSessions = new Map<string, TerminalSession>();
+
+const sessionKeyFor = (notebookId: string, cellId: string): string =>
+  `${notebookId}:${cellId}`;
+
+interface TerminalConnectionParams {
   notebookId: string;
   cellId: string;
 }
@@ -59,7 +64,8 @@ const sendMessage = (connection: WebSocket, message: TerminalServerMessage) => {
   }
 };
 
-interface ShellSession {
+interface TerminalSession {
+  key: string;
   notebookId: string;
   cellId: string;
   pty: IPty;
@@ -70,7 +76,7 @@ interface ShellSession {
   notebook: Notebook;
 }
 
-const appendToBuffer = (session: ShellSession, chunk: string) => {
+const appendToBuffer = (session: TerminalSession, chunk: string) => {
   session.buffer = `${session.buffer}${chunk}`;
   if (session.buffer.length > MAX_BUFFER_LENGTH) {
     session.buffer = session.buffer.slice(
@@ -79,7 +85,7 @@ const appendToBuffer = (session: ShellSession, chunk: string) => {
   }
 };
 
-const persistBuffer = async (session: ShellSession) => {
+const persistBuffer = async (session: TerminalSession) => {
   const { store, notebookId, cellId } = session;
   const notebook = await store.get(notebookId);
   if (!notebook) {
@@ -90,14 +96,14 @@ const persistBuffer = async (session: ShellSession) => {
     return;
   }
   const cell = notebook.cells[index];
-  const parsed = ShellCellSchema.safeParse({
+  const parsed = TerminalCellSchema.safeParse({
     ...cell,
     buffer: session.buffer,
   });
   if (!parsed.success) {
     return;
   }
-  const updatedCell: ShellCell = parsed.data;
+  const updatedCell: TerminalCell = parsed.data;
   const next: Notebook = {
     ...notebook,
     cells: notebook.cells.map((existing, idx) =>
@@ -111,7 +117,7 @@ const persistBuffer = async (session: ShellSession) => {
   }
 };
 
-const schedulePersist = (session: ShellSession) => {
+const schedulePersist = (session: TerminalSession) => {
   if (session.saveTimer) {
     clearTimeout(session.saveTimer);
   }
@@ -121,106 +127,28 @@ const schedulePersist = (session: ShellSession) => {
   }, 250);
 };
 
-const determineShellCommand = (): [string, string[]] => {
-  if (process.platform === "win32") {
-    return ["powershell.exe", ["-NoLogo"]];
+const broadcastToSession = (
+  session: TerminalSession,
+  message: TerminalServerMessage
+) => {
+  for (const client of session.clients) {
+    sendMessage(client, message);
   }
-  const shell = process.env.SHELL || "/bin/bash";
-  if (shell.endsWith("fish")) {
-    return [shell, ["--private"]];
-  }
-  if (shell.endsWith("zsh")) {
-    return [shell, ["--no-rcs"]];
-  }
-  if (shell.endsWith("bash")) {
-    return [shell, ["--noprofile", "--norc"]];
-  }
-  return [shell, []];
 };
 
-interface ShellUpgradeAuthResult {
-  user: SafeUser;
-  session: AuthSession;
-}
-
-const createShellSession = async (
-  connection: WebSocket,
-  params: ShellConnectionParams,
-  store: NotebookStore,
-  _auth: ShellUpgradeAuthResult | null
+const attachConnectionToSession = (
+  session: TerminalSession,
+  connection: WebSocket
 ) => {
-  void _auth;
-  const notebook = await store.get(params.notebookId);
-  if (!notebook) {
-    sendMessage(connection, {
-      type: "error",
-      message: "Notebook not found",
-    });
-    connection.close(1011, "Notebook not found");
-    return;
-  }
-  const cell = notebook.cells.find(
-    (item): item is ShellCell =>
-      item.id === params.cellId && item.type === "shell"
-  );
-  if (!cell) {
-    sendMessage(connection, {
-      type: "error",
-      message: "Shell cell not found",
-    });
-    connection.close(1011, "Shell cell not found");
-    return;
-  }
-
-  const [command, args] = determineShellCommand();
-  const env = {
-    ...process.env,
-    PS1: SHELL_PROMPT,
-    TERM: "xterm-256color",
-  } as NodeJS.ProcessEnv;
-
-  const pty = spawn(command, args, {
-    name: "xterm-color",
-    cols: 80,
-    rows: 24,
-    cwd: process.cwd(),
-    env,
-  });
-
-  const session: ShellSession = {
-    notebookId: params.notebookId,
-    cellId: params.cellId,
-    pty,
-    buffer: typeof cell.buffer === "string" ? cell.buffer : "",
-    clients: new Set([connection]),
-    saveTimer: null,
-    store,
-    notebook,
-  };
-
+  session.clients.add(connection);
   sendMessage(connection, { type: "ready", buffer: session.buffer });
-
-  const broadcast = (message: TerminalServerMessage) => {
-    for (const client of session.clients) {
-      sendMessage(client, message);
-    }
-  };
-
-  pty.onData((chunk) => {
-    appendToBuffer(session, chunk);
-    broadcast({ type: "data", data: chunk });
-    schedulePersist(session);
-  });
-
-  pty.onExit(({ exitCode }) => {
-    broadcast({ type: "exit", code: exitCode });
-  });
 
   const ws = connection as WebSocket & { isAlive?: boolean };
   ws.isAlive = true;
   ws.on("pong", () => {
     ws.isAlive = true;
   });
+
   const heartbeat = setInterval(() => {
     if (ws.readyState !== WebSocket.OPEN) {
       clearInterval(heartbeat);
@@ -291,6 +219,7 @@ const createShellSession = async (
 
   connection.on("close", () => {
     session.clients.delete(connection);
+    clearInterval(heartbeat);
     if (session.clients.size === 0) {
       if (session.saveTimer) {
         clearTimeout(session.saveTimer);
@@ -302,7 +231,7 @@ const createShellSession = async (
       } catch (err) {
         void err;
       }
-      clearInterval(heartbeat);
+      terminalSessions.delete(session.key);
     }
   });
 
@@ -311,21 +240,123 @@ const createShellSession = async (
   });
 };
 
-interface ShellUpgradeOptions {
-  authenticate?: (
-    req: IncomingMessage
-  ) => Promise<ShellUpgradeAuthResult | null>;
+const determineTerminalCommand = (): [string, string[]] => {
+  if (process.platform === "win32") {
+    return ["powershell.exe", ["-NoLogo"]];
+  }
+  const shell = process.env.SHELL || "/bin/bash";
+  if (shell.endsWith("fish")) {
+    return [shell, ["--private"]];
+  }
+  if (shell.endsWith("zsh")) {
+    return [shell, ["--no-rcs"]];
+  }
+  if (shell.endsWith("bash")) {
+    return [shell, ["--noprofile", "--norc"]];
+  }
+  return [shell, []];
+};
+
+interface TerminalUpgradeAuthResult {
+  user: SafeUser;
+  session: AuthSession;
 }
 
-export const createShellUpgradeHandler = (
+const createTerminalSession = async (
+  connection: WebSocket,
+  params: TerminalConnectionParams,
+  store: NotebookStore,
+  _auth: TerminalUpgradeAuthResult | null
+) => {
+  void _auth;
+  const notebook = await store.get(params.notebookId);
+  if (!notebook) {
+    sendMessage(connection, {
+      type: "error",
+      message: "Notebook not found",
+    });
+    connection.close(1011, "Notebook not found");
+    return;
+  }
+  const cell = notebook.cells.find(
+    (item): item is TerminalCell =>
+      item.id === params.cellId && item.type === "terminal"
+  );
+  if (!cell) {
+    sendMessage(connection, {
+      type: "error",
+      message: "Terminal cell not found",
+    });
+    connection.close(1011, "Terminal cell not found");
+    return;
+  }
+
+  const key = sessionKeyFor(params.notebookId, params.cellId);
+  let session = terminalSessions.get(key);
+
+  if (!session) {
+    const [command, args] = determineTerminalCommand();
+    const env = {
+      ...process.env,
+      PS1: TERMINAL_PROMPT,
+      TERM: "xterm-256color",
+    } as NodeJS.ProcessEnv;
+
+    const pty = spawn(command, args, {
+      name: "xterm-color",
+      cols: 80,
+      rows: 24,
+      cwd: process.cwd(),
+      env,
+    });
+
+    session = {
+      key,
+      notebookId: params.notebookId,
+      cellId: params.cellId,
+      pty,
+      buffer: typeof cell.buffer === "string" ? cell.buffer : "",
+      clients: new Set<WebSocket>(),
+      saveTimer: null,
+      store,
+      notebook,
+    };
+
+    terminalSessions.set(key, session);
+
+    const activeSession = session;
+    pty.onData((chunk) => {
+      appendToBuffer(activeSession, chunk);
+      broadcastToSession(activeSession, { type: "data", data: chunk });
+      schedulePersist(activeSession);
+    });
+
+    pty.onExit(({ exitCode }) => {
+      broadcastToSession(activeSession, { type: "exit", code: exitCode });
+    });
+  } else {
+    session.store = store;
+    session.notebook = notebook;
+  }
+
+  attachConnectionToSession(session, connection);
+};
+
+interface TerminalUpgradeOptions {
+  authenticate?: (
+    req: IncomingMessage
+  ) => Promise<TerminalUpgradeAuthResult | null>;
+}
+
+export const createTerminalUpgradeHandler = (
   prefix: string,
   store: NotebookStore,
-  options: ShellUpgradeOptions = {}
+  options: TerminalUpgradeOptions = {}
 ) => {
   const wss = new WebSocketServer({ noServer: true });
   const base = prefix.endsWith("/") ? prefix.slice(0, -1) : prefix;
   const pattern = new RegExp(
-    `^${base}/ws/notebooks/([^/?#]+)/shells/([^/?#]+)`
+    `^${base}/ws/notebooks/([^/?#]+)/(?:terminals|shells)/([^/?#]+)`
   );
 
   return (req: IncomingMessage, socket: Socket, head: Buffer): boolean => {
@@ -336,7 +367,7 @@ export const createShellUpgradeHandler = (
     }
 
     const finalize = async () => {
-      let authResult: ShellUpgradeAuthResult | null = null;
+      let authResult: TerminalUpgradeAuthResult | null = null;
       if (typeof options.authenticate === "function") {
         try {
           authResult = await options.authenticate(req);
@@ -364,7 +395,7 @@ export const createShellUpgradeHandler = (
       const cellId = decodeURIComponent(match[2]!);
       try {
         wss.handleUpgrade(req, socket, head, (ws) => {
-          void createShellSession(
+          void createTerminalSession(
             ws as unknown as WebSocket,
             { notebookId, cellId },
             store,

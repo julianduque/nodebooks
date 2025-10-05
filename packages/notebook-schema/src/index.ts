@@ -515,12 +515,31 @@ export const MarkdownCellSchema = z.object({
   metadata: z.record(z.string(), z.unknown()).default({}),
 });
 
-export const ShellCellSchema = z.object({
+export const TerminalCellSchema = z.object({
+  id: z.string(),
+  type: z.literal("terminal"),
+  metadata: z.record(z.string(), z.unknown()).default({}),
+  buffer: z.string().default(""),
+});
+
+export const CommandCellSchema = z.object({
+  id: z.string(),
+  type: z.literal("command"),
+  metadata: z.record(z.string(), z.unknown()).default({}),
+  command: z.string().default(""),
+  notes: z.string().default(""),
+});
+
+export const LegacyShellCellSchema = z.object({
   id: z.string(),
   type: z.literal("shell"),
   metadata: z.record(z.string(), z.unknown()).default({}),
   buffer: z.string().default(""),
 });
+
+export const SmartCellTypeSchema = z.enum(["terminal", "command"]);
+export type SmartCellType = z.infer<typeof SmartCellTypeSchema>;
+export const SMART_CELL_TYPES = SmartCellTypeSchema.options;
 
 export const CodeCellSchema = z.object({
   id: z.string(),
@@ -546,11 +565,40 @@ export const CodeCellSchema = z.object({
   execution: OutputExecutionSchema.optional(),
 });
 
-export const NotebookCellSchema = z.discriminatedUnion("type", [
-  MarkdownCellSchema,
-  ShellCellSchema,
-  CodeCellSchema,
-]);
+export const NOTEBOOK_CELL_SCHEMAS = {
+  markdown: MarkdownCellSchema,
+  terminal: TerminalCellSchema,
+  command: CommandCellSchema,
+  code: CodeCellSchema,
+} as const;
+
+export type NotebookCellType = keyof typeof NOTEBOOK_CELL_SCHEMAS;
+
+export const NOTEBOOK_CELL_TYPES = Object.keys(NOTEBOOK_CELL_SCHEMAS) as [
+  NotebookCellType,
+  ...NotebookCellType[],
+];
+
+const NOTEBOOK_CELL_SCHEMA_LIST = Object.values(NOTEBOOK_CELL_SCHEMAS) as [
+  typeof MarkdownCellSchema,
+  typeof TerminalCellSchema,
+  typeof CommandCellSchema,
+  typeof CodeCellSchema,
+];
+
+const NOTEBOOK_CELL_SCHEMA_LIST_WITH_LEGACY = [
+  ...NOTEBOOK_CELL_SCHEMA_LIST,
+  LegacyShellCellSchema,
+] as const;
+
+const RawNotebookCellSchema = z.discriminatedUnion(
+  "type",
+  NOTEBOOK_CELL_SCHEMA_LIST_WITH_LEGACY
+);
+
+export const NotebookCellSchema = RawNotebookCellSchema.transform((cell) =>
+  cell.type === "shell" ? upgradeLegacyShellCell(cell) : cell
+);
 
 export const NotebookFileEnvSchema = z.object({
   runtime: z.enum(["node"]).optional(),
@@ -565,7 +613,20 @@ export const NotebookFileMarkdownCellSchema = z.object({
   metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
-export const NotebookFileShellCellSchema = z.object({
+export const NotebookFileTerminalCellSchema = z.object({
+  type: z.literal("terminal"),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+  buffer: z.string().optional(),
+});
+
+export const NotebookFileCommandCellSchema = z.object({
+  type: z.literal("command"),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+  command: z.string().optional(),
+  notes: z.string().optional(),
+});
+
+export const NotebookFileLegacyShellCellSchema = z.object({
   type: z.literal("shell"),
   metadata: z.record(z.string(), z.unknown()).optional(),
   buffer: z.string().optional(),
@@ -584,11 +645,34 @@ export const NotebookFileCodeCellSchema = z.object({
   outputs: z.array(NotebookOutputSchema).optional(),
 });
 
-export const NotebookFileCellSchema = z.discriminatedUnion("type", [
-  NotebookFileMarkdownCellSchema,
-  NotebookFileShellCellSchema,
-  NotebookFileCodeCellSchema,
-]);
+export const NOTEBOOK_FILE_CELL_SCHEMAS = {
+  markdown: NotebookFileMarkdownCellSchema,
+  terminal: NotebookFileTerminalCellSchema,
+  command: NotebookFileCommandCellSchema,
+  legacyShell: NotebookFileLegacyShellCellSchema,
+  code: NotebookFileCodeCellSchema,
+} as const;
+
+export type NotebookFileCellType = keyof typeof NOTEBOOK_FILE_CELL_SCHEMAS;
+
+export const NOTEBOOK_FILE_CELL_TYPES = Object.keys(
+  NOTEBOOK_FILE_CELL_SCHEMAS
+) as [NotebookFileCellType, ...NotebookFileCellType[]];
+
+const NOTEBOOK_FILE_CELL_SCHEMA_LIST = Object.values(
+  NOTEBOOK_FILE_CELL_SCHEMAS
+) as [
+  typeof NotebookFileMarkdownCellSchema,
+  typeof NotebookFileTerminalCellSchema,
+  typeof NotebookFileCommandCellSchema,
+  typeof NotebookFileLegacyShellCellSchema,
+  typeof NotebookFileCodeCellSchema,
+];
+
+export const NotebookFileCellSchema = z.discriminatedUnion(
+  "type",
+  NOTEBOOK_FILE_CELL_SCHEMA_LIST
+);
 
 export const NotebookFileNotebookSchema = z.object({
   name: z.string().optional(),
@@ -631,7 +715,9 @@ export type NotebookCell = z.infer<typeof NotebookCellSchema>;
 export type NotebookEnv = z.infer<typeof NotebookEnvSchema>;
 export type CodeCell = z.infer<typeof CodeCellSchema>;
 export type MarkdownCell = z.infer<typeof MarkdownCellSchema>;
-export type ShellCell = z.infer<typeof ShellCellSchema>;
+export type TerminalCell = z.infer<typeof TerminalCellSchema>;
+export type CommandCell = z.infer<typeof CommandCellSchema>;
+export type LegacyShellCell = z.infer<typeof LegacyShellCellSchema>;
 export type NotebookOutput = z.infer<typeof NotebookOutputSchema>;
 export type StreamOutput = z.infer<typeof StreamOutputSchema>;
 export type DisplayDataOutput = z.infer<typeof DisplayDataSchema>;
@@ -641,7 +727,15 @@ export type NotebookFileEnv = z.infer<typeof NotebookFileEnvSchema>;
 export type NotebookFileMarkdownCell = z.infer<
   typeof NotebookFileMarkdownCellSchema
 >;
-export type NotebookFileShellCell = z.infer<typeof NotebookFileShellCellSchema>;
+export type NotebookFileTerminalCell = z.infer<
+  typeof NotebookFileTerminalCellSchema
+>;
+export type NotebookFileCommandCell = z.infer<
+  typeof NotebookFileCommandCellSchema
+>;
+export type NotebookFileLegacyShellCell = z.infer<
+  typeof NotebookFileLegacyShellCellSchema
+>;
 export type NotebookFileCodeCell = z.infer<typeof NotebookFileCodeCellSchema>;
 export type NotebookFileCell = z.infer<typeof NotebookFileCellSchema>;
 export type NotebookFileNotebook = z.infer<typeof NotebookFileNotebookSchema>;
@@ -708,12 +802,35 @@ export const createMarkdownCell = (
   });
 };
 
-export const createShellCell = (partial?: Partial<ShellCell>): ShellCell => {
-  return ShellCellSchema.parse({
+export const createTerminalCell = (
+  partial?: Partial<TerminalCell>
+): TerminalCell => {
+  return TerminalCellSchema.parse({
     id: partial?.id ?? createId(),
-    type: "shell",
+    type: "terminal",
     metadata: partial?.metadata ?? {},
     buffer: partial?.buffer ?? "",
+  });
+};
+
+export const createCommandCell = (
+  partial?: Partial<CommandCell>
+): CommandCell => {
+  return CommandCellSchema.parse({
+    id: partial?.id ?? createId(),
+    type: "command",
+    metadata: partial?.metadata ?? {},
+    command: partial?.command ?? "",
+    notes: partial?.notes ?? "",
+  });
+};
+
+export const upgradeLegacyShellCell = (
+  legacy: LegacyShellCell
+): TerminalCell => {
+  return TerminalCellSchema.parse({
+    ...legacy,
+    type: "terminal",
   });
 };
 

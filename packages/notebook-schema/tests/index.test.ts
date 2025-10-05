@@ -5,7 +5,8 @@ import {
   createCodeCell,
   createEmptyNotebook,
   createMarkdownCell,
-  createShellCell,
+  createTerminalCell,
+  createCommandCell,
 } from "../src/index.js";
 
 describe("notebook schema", () => {
@@ -18,12 +19,15 @@ describe("notebook schema", () => {
   it("constructs cells with unique identifiers", () => {
     const code = createCodeCell({ source: "console.log('hello');" });
     const markdown = createMarkdownCell({ source: "# Title" });
-    const shell = createShellCell();
+    const terminal = createTerminalCell();
+    const command = createCommandCell({ command: "echo 'hi'" });
     expect(code.id).not.toEqual(markdown.id);
     expect(code.type).toBe("code");
     expect(markdown.type).toBe("markdown");
-    expect(shell.type).toBe("shell");
-    expect(shell.buffer).toBe("");
+    expect(terminal.type).toBe("terminal");
+    expect(terminal.buffer).toBe("");
+    expect(command.type).toBe("command");
+    expect(command.command).toBe("echo 'hi'");
   });
 
   it("validates kernel protocol messages", () => {

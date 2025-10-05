@@ -2,20 +2,24 @@ import {
   createCodeCell,
   createEmptyNotebook,
   createMarkdownCell,
-  createShellCell,
+  createTerminalCell,
+  createCommandCell,
   ensureNotebookRuntimeVersion,
   NotebookEnvSchema,
   type CodeCell,
+  type CommandCell,
   type MarkdownCell,
-  type ShellCell,
+  type TerminalCell,
   type Notebook,
   type NotebookCell,
   type NotebookEnv,
   type NotebookFile,
   type NotebookFileCell,
   type NotebookFileCodeCell,
-  type NotebookFileShellCell,
+  type NotebookFileCommandCell,
+  type NotebookFileLegacyShellCell,
   type NotebookFileNotebook,
+  type NotebookFileTerminalCell,
 } from "@nodebooks/notebook-schema";
 
 const cloneEnv = (env?: NotebookFileNotebook["env"]): NotebookEnv => {
@@ -39,18 +43,32 @@ const cloneCells = (cells: NotebookFileCell[]): NotebookCell[] => {
       );
       continue;
     }
-    if (cell.type === "shell") {
-      const shellCell = cell as NotebookFileShellCell;
-      const shell = createShellCell({
-        metadata: shellCell.metadata ?? {},
-        buffer: shellCell.buffer ?? "",
+    if (cell.type === "terminal") {
+      const terminalCell = cell as NotebookFileTerminalCell;
+      const terminal = createTerminalCell({
+        metadata: terminalCell.metadata ?? {},
+        buffer: terminalCell.buffer ?? "",
       });
-      const timeout =
-        typeof shellCell.metadata?.timeoutMs === "number"
-          ? { timeoutMs: shellCell.metadata.timeoutMs }
-          : {};
-      const metadata = { ...shell.metadata, ...timeout };
-      result.push({ ...shell, metadata });
+      result.push(terminal);
+      continue;
+    }
+    if (cell.type === "shell") {
+      const legacy = cell as NotebookFileLegacyShellCell;
+      const terminal = createTerminalCell({
+        metadata: legacy.metadata ?? {},
+        buffer: legacy.buffer ?? "",
+      });
+      result.push(terminal);
+      continue;
+    }
+    if (cell.type === "command") {
+      const commandCell = cell as NotebookFileCommandCell;
+      const command = createCommandCell({
+        metadata: commandCell.metadata ?? {},
+        command: commandCell.command ?? "",
+        notes: commandCell.notes ?? "",
+      });
+      result.push(command);
       continue;
     }
     const codeCell = cell as NotebookFileCodeCell;
@@ -129,9 +147,9 @@ const serializeCodeCell = (cell: CodeCell): NotebookFileCell => {
   return result;
 };
 
-const serializeShellCell = (cell: ShellCell): NotebookFileCell => {
+const serializeTerminalCell = (cell: TerminalCell): NotebookFileCell => {
   const result: NotebookFileCell = {
-    type: "shell",
+    type: "terminal",
   };
   if (!isEmptyRecord(cell.metadata)) {
     result.metadata = cell.metadata;
@@ -142,13 +160,32 @@ const serializeShellCell = (cell: ShellCell): NotebookFileCell => {
   return result;
 };
 
+const serializeCommandCell = (cell: CommandCell): NotebookFileCell => {
+  const result: NotebookFileCell = {
+    type: "command",
+  };
+  if (!isEmptyRecord(cell.metadata)) {
+    result.metadata = cell.metadata;
+  }
+  if (cell.command && cell.command.length > 0) {
+    result.command = cell.command;
+  }
+  if (cell.notes && cell.notes.length > 0) {
+    result.notes = cell.notes;
+  }
+  return result;
+};
+
 const serializeCells = (cells: NotebookCell[]): NotebookFileCell[] => {
   return cells.map((cell) => {
     if (cell.type === "markdown") {
       return serializeMarkdownCell(cell);
     }
-    if (cell.type === "shell") {
-      return serializeShellCell(cell as ShellCell);
+    if (cell.type === "terminal") {
+      return serializeTerminalCell(cell as TerminalCell);
+    }
+    if (cell.type === "command") {
+      return serializeCommandCell(cell as CommandCell);
     }
     return serializeCodeCell(cell as CodeCell);
   });
