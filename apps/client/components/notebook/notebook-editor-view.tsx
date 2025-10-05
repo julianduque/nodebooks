@@ -35,7 +35,7 @@ export interface NotebookEditorViewProps {
   aiEnabled: boolean;
   readOnly: boolean;
   readOnlyMessage?: string;
-  pendingShellIds: Set<string>;
+  pendingTerminalIds: Set<string>;
   depBusy: boolean;
   depError: string | null;
   depOutputs: NotebookOutput[];
@@ -68,7 +68,7 @@ const NotebookEditorView = ({
   aiEnabled,
   readOnly,
   readOnlyMessage,
-  pendingShellIds,
+  pendingTerminalIds,
   depBusy,
   depError,
   depOutputs,
@@ -139,7 +139,7 @@ const NotebookEditorView = ({
                   </p>
                   <p className="text-sm text-muted-foreground">
                     Add a Markdown note, run JavaScript or TypeScript, or open a
-                    shell session to begin.
+                    terminal session to begin.
                   </p>
                 </div>
                 <AddCellMenu
@@ -237,58 +237,62 @@ const NotebookEditorView = ({
             </div>
           )}
           <div className="space-y-2">
-            {notebook.cells.map((cell, index) => (
-              <CellCard
-                key={cell.id}
-                cell={cell}
-                notebookId={notebook.id}
-                onAttachmentUploaded={onAttachmentUploaded}
-                isRunning={runningCellId === cell.id}
-                queued={runQueue.includes(cell.id)}
-                canRun={socketReady && !readOnly}
-                canMoveUp={index > 0}
-                canMoveDown={index < notebook.cells.length - 1}
-                editorKey={`${cell.id}:${index}`}
-                editorPath={
-                  cell.type === "code"
-                    ? cellUri(notebook.id, index, {
-                        id: cell.id,
-                        language: cell.language === "ts" ? "ts" : "js",
-                      })
-                    : undefined
-                }
-                active={activeCellId === cell.id}
-                onActivate={() => onActivateCell(cell.id)}
-                onChange={(updater, options) => {
-                  if (readOnly) return;
-                  onCellChange(cell.id, updater, options);
-                }}
-                onDelete={() => {
-                  if (readOnly) return;
-                  onDeleteCell(cell.id);
-                }}
-                onRun={() => {
-                  if (readOnly) return;
-                  onRunCell(cell.id);
-                }}
-                onInterrupt={() => {
-                  if (readOnly) return;
-                  onInterruptKernel();
-                }}
-                onMove={(direction) => {
-                  if (readOnly) return;
-                  onMoveCell(cell.id, direction);
-                }}
-                onAddBelow={(type) => {
-                  if (readOnly) return;
-                  onAddCell(type, index + 1);
-                }}
-                aiEnabled={aiEnabled}
-                dependencies={notebook.env.packages}
-                pendingShellPersist={pendingShellIds.has(cell.id)}
-                readOnly={readOnly}
-              />
-            ))}
+            {notebook.cells.map((cell, index) => {
+              const cellCanRun =
+                cell.type === "command" ? !readOnly : socketReady && !readOnly;
+              return (
+                <CellCard
+                  key={cell.id}
+                  cell={cell}
+                  notebookId={notebook.id}
+                  onAttachmentUploaded={onAttachmentUploaded}
+                  isRunning={runningCellId === cell.id}
+                  queued={runQueue.includes(cell.id)}
+                  canRun={cellCanRun}
+                  canMoveUp={index > 0}
+                  canMoveDown={index < notebook.cells.length - 1}
+                  editorKey={`${cell.id}:${index}`}
+                  editorPath={
+                    cell.type === "code"
+                      ? cellUri(notebook.id, index, {
+                          id: cell.id,
+                          language: cell.language === "ts" ? "ts" : "js",
+                        })
+                      : undefined
+                  }
+                  active={activeCellId === cell.id}
+                  onActivate={() => onActivateCell(cell.id)}
+                  onChange={(updater, options) => {
+                    if (readOnly) return;
+                    onCellChange(cell.id, updater, options);
+                  }}
+                  onDelete={() => {
+                    if (readOnly) return;
+                    onDeleteCell(cell.id);
+                  }}
+                  onRun={() => {
+                    if (readOnly) return;
+                    onRunCell(cell.id);
+                  }}
+                  onInterrupt={() => {
+                    if (readOnly) return;
+                    onInterruptKernel();
+                  }}
+                  onMove={(direction) => {
+                    if (readOnly) return;
+                    onMoveCell(cell.id, direction);
+                  }}
+                  onAddBelow={(type) => {
+                    if (readOnly) return;
+                    onAddCell(type, index + 1);
+                  }}
+                  aiEnabled={aiEnabled}
+                  dependencies={notebook.env.packages}
+                  pendingTerminalPersist={pendingTerminalIds.has(cell.id)}
+                  readOnly={readOnly}
+                />
+              );
+            })}
           </div>
         </div>
       </div>

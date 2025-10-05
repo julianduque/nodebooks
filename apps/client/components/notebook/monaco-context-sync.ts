@@ -10,7 +10,7 @@ import {
 
 type NotebookCell = {
   id: string;
-  type: "code" | "markdown" | "shell";
+  type: "code" | "markdown" | "terminal" | "command";
   language?: "js" | "ts";
   source?: string;
 };

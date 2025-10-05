@@ -13,13 +13,24 @@ import {
   type TerminalPreferences,
 } from "./editor-preferences";
 
+type TerminalCommandRequest = {
+  id: string;
+  command: string;
+  sourceId?: string;
+};
+
+type TerminalCellMetadata = Record<string, unknown> & {
+  terminal?: TerminalPreferences;
+  pendingCommand?: TerminalCommandRequest;
+};
+
 const API_BASE_URL = clientConfig().apiBaseUrl ?? "/api";
 const MAX_BUFFER_LENGTH = 1_000_000;
 
-type ShellCell = Extract<NotebookCell, { type: "shell" }>;
+type TerminalCell = Extract<NotebookCell, { type: "terminal" }>;
 
-interface ShellCellViewProps {
-  cell: ShellCell;
+interface TerminalCellViewProps {
+  cell: TerminalCell;
   notebookId: string;
   onChange: (
     updater: (cell: NotebookCell) => NotebookCell,
@@ -42,7 +53,7 @@ interface TerminalServerMessage {
 const buildWsUrl = (notebookId: string, cellId: string): string | null => {
   const encodedNotebook = encodeURIComponent(notebookId);
   const encodedCell = encodeURIComponent(cellId);
-  const path = `/ws/notebooks/${encodedNotebook}/shells/${encodedCell}`;
+  const path = `/ws/notebooks/${encodedNotebook}/terminals/${encodedCell}`;
   if (/^https?:/i.test(API_BASE_URL)) {
     const protocol = API_BASE_URL.startsWith("https") ? "wss" : "ws";
     return `${API_BASE_URL.replace(/^https?/, protocol)}${path}`;
@@ -54,32 +65,38 @@ const buildWsUrl = (notebookId: string, cellId: string): string | null => {
   return null;
 };
 
-const ShellCellView = ({
+const TerminalCellView = ({
   cell,
   notebookId,
   onChange,
   pendingPersist = false,
   readOnly = false,
-}: ShellCellViewProps) => {
+}: TerminalCellViewProps) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<XTermTerminal | null>(null);
   const fitRef = useRef<XTermFitAddon | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const bufferRef = useRef<string>(cell.buffer ?? "");
+  const commandQueueRef = useRef<TerminalCommandRequest[]>([]);
+  const processedCommandIdsRef = useRef<Set<string>>(new Set());
+  const lastCommandIdRef = useRef<string | null>(null);
   const dimsRef = useRef<{ cols: number; rows: number }>({
     cols: 80,
     rows: 24,
   });
-  const onChangeRef = useRef<ShellCellViewProps["onChange"] | null>(onChange);
+  const onChangeRef = useRef<TerminalCellViewProps["onChange"] | null>(
+    onChange
+  );
   const { theme } = useTheme();
   const [status, setStatus] = useState<TerminalStatus>("connecting");
   const [error, setError] = useState<string | null>(null);
   const [exitCode, setExitCode] = useState<number | null>(null);
   const [readyToConnect, setReadyToConnect] =
     useState<boolean>(!pendingPersist);
-  const terminalPrefs =
-    (cell.metadata as { terminal?: TerminalPreferences }).terminal ?? {};
+  const metadata = (cell.metadata as TerminalCellMetadata) ?? {};
+  const terminalPrefs = metadata.terminal ?? {};
+  const pendingCommand = metadata.pendingCommand;
   const terminalFontSize =
     terminalPrefs.fontSize ?? DEFAULT_TERMINAL_PREFERENCES.fontSize;
   const terminalCursorBlink =
@@ -104,7 +121,7 @@ const ShellCellView = ({
       }
       update(
         (current) => {
-          if (current.id !== cell.id || current.type !== "shell") {
+          if (current.id !== cell.id || current.type !== "terminal") {
             return current;
           }
           return { ...current, buffer: bufferRef.current };
@@ -118,6 +135,98 @@ const ShellCellView = ({
   useEffect(() => {
     bufferRef.current = cell.buffer ?? "";
   }, [cell.buffer, cell.id]);
+
+  const clearPendingCommandMetadata = useCallback(() => {
+    const update = onChangeRef.current;
+    if (!update) {
+      return;
+    }
+    update(
+      (current) => {
+        if (current.id !== cell.id || current.type !== "terminal") {
+          return current;
+        }
+        const currentMeta = {
+          ...((current.metadata ?? {}) as TerminalCellMetadata),
+        };
+        if (currentMeta.pendingCommand) {
+          delete currentMeta.pendingCommand;
+          return { ...current, metadata: currentMeta };
+        }
+        return current;
+      },
+      { persist: false, touch: false }
+    );
+  }, [cell.id]);
+
+  const sendCommandToSocket = useCallback((command: string): boolean => {
+    const socket = socketRef.current;
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      return false;
+    }
+    const payload = {
+      type: "input" as const,
+      data:
+        command.endsWith("\n") || command.endsWith("\r")
+          ? command
+          : `${command}\n`,
+    };
+    try {
+      socket.send(JSON.stringify(payload));
+      return true;
+    } catch (err) {
+      void err;
+      return false;
+    }
+  }, []);
+
+  const flushPendingCommands = useCallback(() => {
+    if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) {
+      return;
+    }
+    while (commandQueueRef.current.length > 0) {
+      const next = commandQueueRef.current[0]!;
+      if (!sendCommandToSocket(next.command)) {
+        break;
+      }
+      lastCommandIdRef.current = next.id;
+      commandQueueRef.current.shift();
+    }
+  }, [sendCommandToSocket]);
+
+  useEffect(() => {
+    if (!pendingCommand || typeof pendingCommand.command !== "string") {
+      return;
+    }
+    const trimmed = pendingCommand.command.trim();
+    if (!trimmed) {
+      clearPendingCommandMetadata();
+      return;
+    }
+    const commandId = pendingCommand.id ?? `${Date.now()}-${Math.random()}`;
+    if (processedCommandIdsRef.current.has(commandId)) {
+      clearPendingCommandMetadata();
+      return;
+    }
+    if (commandQueueRef.current.some((item) => item.id === commandId)) {
+      clearPendingCommandMetadata();
+      return;
+    }
+    processedCommandIdsRef.current.add(commandId);
+    commandQueueRef.current.push({
+      id: commandId,
+      command: trimmed,
+      sourceId: pendingCommand.sourceId,
+    });
+    clearPendingCommandMetadata();
+    flushPendingCommands();
+  }, [pendingCommand, clearPendingCommandMetadata, flushPendingCommands]);
+
+  useEffect(() => {
+    if (status === "ready") {
+      flushPendingCommands();
+    }
+  }, [status, flushPendingCommands]);
 
   useEffect(() => {
     if (pendingPersist) {
@@ -361,7 +470,7 @@ const ShellCellView = ({
       const socket = new WebSocket(targetUrl);
       socketRef.current = socket;
 
-      const safeClose = (code = 1000, reason = "shell cell unmounted") => {
+      const safeClose = (code = 1000, reason = "terminal cell unmounted") => {
         try {
           socket.close(code, reason);
         } catch (err) {
@@ -380,7 +489,7 @@ const ShellCellView = ({
         if (!ignoreEvents) {
           setStatus("connecting");
           setError(
-            message ? `${message} — retrying…` : "Retrying shell connection…"
+            message ? `${message} — retrying…` : "Retrying terminal connection…"
           );
         }
         scheduleRetry();
@@ -444,6 +553,7 @@ const ShellCellView = ({
               appendToTerminal(initial);
               applyBufferUpdate(() => initial);
             }
+            flushPendingCommands();
             return;
           }
           if (message.type === "data") {
@@ -461,8 +571,8 @@ const ShellCellView = ({
             setError(message.message ?? "Terminal error");
             setStatus("error");
             const text = message.message ?? "";
-            if (text.toLowerCase().includes("shell cell not found")) {
-              triggerRetry("Shell cell not found");
+            if (text.toLowerCase().includes("terminal cell not found")) {
+              triggerRetry("Terminal cell not found");
             }
           }
         } catch {
@@ -522,6 +632,7 @@ const ShellCellView = ({
     cell.id,
     notebookId,
     readyToConnect,
+    flushPendingCommands,
   ]);
 
   const statusBadge = useMemo(() => {
@@ -569,7 +680,7 @@ const ShellCellView = ({
             variant="secondary"
             className="bg-slate-800/80 text-[10px] uppercase tracking-[0.2em] text-slate-200"
           >
-            Shell
+            Terminal
           </Badge>
           {readOnly ? (
             <Badge
@@ -597,4 +708,4 @@ const ShellCellView = ({
   );
 };
 
-export default ShellCellView;
+export default TerminalCellView;

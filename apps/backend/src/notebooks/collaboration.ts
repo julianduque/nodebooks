@@ -152,9 +152,7 @@ export class NotebookCollaborationService {
         const accessRole = await this.getAccessRole(notebookId, auth.user);
         if (!accessRole) {
           try {
-            socket.write(
-              "HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n"
-            );
+            socket.write("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
           } catch (err) {
             void err;
           }

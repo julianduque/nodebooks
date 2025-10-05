@@ -10,7 +10,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import LoadingOverlay from "@/components/ui/loading-overlay";
-import { useCurrentUser } from "@/components/notebook/hooks/useCurrentUser";
+import { useCurrentUser } from "@/components/notebook/hooks/use-current-user";
 import { gravatarUrlForEmail } from "@/lib/avatar";
 
 import { clientConfig } from "@nodebooks/config/client";

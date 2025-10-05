@@ -14,7 +14,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import {
   createCodeCell,
   createMarkdownCell,
-  createShellCell,
+  createCommandCell,
+  createTerminalCell,
   type KernelExecuteRequest,
   type KernelServerMessage,
   type KernelInterruptRequest,
@@ -46,9 +47,9 @@ import NotebookHeaderRight from "@/components/notebook/notebook-header-right";
 import NotebookSecondaryHeader from "@/components/notebook/notebook-secondary-header";
 import NotebookSharingDialog from "@/components/notebook/notebook-sharing-dialog";
 import { API_BASE_URL } from "@/components/notebook/api";
-import { useCurrentUser } from "@/components/notebook/hooks/useCurrentUser";
-import { useNotebookAttachments } from "@/components/notebook/hooks/useNotebookAttachments";
-import { useNotebookSharing } from "@/components/notebook/hooks/useNotebookSharing";
+import { useCurrentUser } from "@/components/notebook/hooks/use-current-user";
+import { useNotebookAttachments } from "@/components/notebook/hooks/use-notebook-attachments";
+import { useNotebookSharing } from "@/components/notebook/hooks/use-notebook-sharing";
 import { gravatarUrlForEmail } from "@/lib/avatar";
 
 const normalizeNotebookState = (
@@ -59,6 +60,10 @@ const normalizeNotebookState = (
   }
   const { accessRole, ...rest } = raw as NotebookWithAccess;
   return { notebook: rest as Notebook, role: accessRole };
+};
+
+type CommandCellMetadata = {
+  terminalTargetId?: string;
 };
 
 const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
@@ -93,7 +98,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
   const [confirmRestartOpen, setConfirmRestartOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [pendingShellIds, setPendingShellIds] = useState<Set<string>>(
+  const [pendingTerminalIds, setPendingTerminalIds] = useState<Set<string>>(
     new Set<string>()
   );
   const [notebookAccessRole, setNotebookAccessRole] =
@@ -186,8 +191,8 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     [isViewer]
   );
 
-  const markShellPendingPersistence = useCallback((cellId: string) => {
-    setPendingShellIds((prev) => {
+  const markTerminalPendingPersistence = useCallback((cellId: string) => {
+    setPendingTerminalIds((prev) => {
       if (prev.has(cellId)) {
         return prev;
       }
@@ -197,8 +202,8 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     });
   }, []);
 
-  const removeShellPendingPersistence = useCallback((cellId: string) => {
-    setPendingShellIds((prev) => {
+  const removeTerminalPendingPersistence = useCallback((cellId: string) => {
+    setPendingTerminalIds((prev) => {
       if (!prev.has(cellId)) {
         return prev;
       }
@@ -208,11 +213,11 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     });
   }, []);
 
-  const resolveShellPendingPersistence = useCallback((cellIds: string[]) => {
+  const resolveTerminalPendingPersistence = useCallback((cellIds: string[]) => {
     if (cellIds.length === 0) {
       return;
     }
-    setPendingShellIds((prev) => {
+    setPendingTerminalIds((prev) => {
       let needsUpdate = false;
       for (const id of cellIds) {
         if (prev.has(id)) {
@@ -293,7 +298,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
   }, [notebook?.id]);
 
   useEffect(() => {
-    setPendingShellIds(new Set());
+    setPendingTerminalIds(new Set());
   }, [notebook?.id]);
 
   const refreshAiAvailability = useCallback(async () => {
@@ -492,14 +497,17 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
 
   const saveNotebookNow = useCallback(
     async (
-      options: { resolveShellIds?: string[]; notebookSnapshot?: Notebook } = {}
+      options: {
+        resolveTerminalIds?: string[];
+        notebookSnapshot?: Notebook;
+      } = {}
     ) => {
       const current = options.notebookSnapshot ?? notebookRef.current;
       if (!current) {
         return;
       }
-      const resolveShellIds =
-        options.resolveShellIds ?? Array.from(pendingShellIds);
+      const resolveTerminalIds =
+        options.resolveTerminalIds ?? Array.from(pendingTerminalIds);
       try {
         const response = await fetch(
           `${API_BASE_URL}/notebooks/${current.id}`,
@@ -535,26 +543,28 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
           });
           setDirty(false);
           setError(null);
-          if (resolveShellIds.length > 0) {
-            const shellIdsOnServer = new Set(
+          if (resolveTerminalIds.length > 0) {
+            const terminalIdsOnServer = new Set(
               saved.cells
-                .filter((cell) => cell.type === "shell")
+                .filter((cell) => cell.type === "terminal")
                 .map((cell) => cell.id)
             );
-            const missing = resolveShellIds.filter(
-              (id) => !shellIdsOnServer.has(id)
+            const missing = resolveTerminalIds.filter(
+              (id) => !terminalIdsOnServer.has(id)
             );
             if (missing.length === 0) {
-              resolveShellPendingPersistence(resolveShellIds);
+              resolveTerminalPendingPersistence(resolveTerminalIds);
               setActionError(null);
             } else {
-              const resolved = resolveShellIds.filter((id) =>
-                shellIdsOnServer.has(id)
+              const resolved = resolveTerminalIds.filter((id) =>
+                terminalIdsOnServer.has(id)
               );
               if (resolved.length > 0) {
-                resolveShellPendingPersistence(resolved);
+                resolveTerminalPendingPersistence(resolved);
               }
-              setActionError("Shell cell is still syncing. Please try again.");
+              setActionError(
+                "Terminal cell is still syncing. Please try again."
+              );
             }
           }
         }
@@ -564,7 +574,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         );
       }
     },
-    [pendingShellIds, resolveShellPendingPersistence]
+    [pendingTerminalIds, resolveTerminalPendingPersistence]
   );
 
   const scheduleAutoSave = useCallback(
@@ -1202,9 +1212,11 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
       const nextCell =
         type === "code"
           ? createCodeCell({ language: "ts" })
-          : type === "shell"
-            ? createShellCell()
-            : createMarkdownCell({ source: "" });
+          : type === "terminal"
+            ? createTerminalCell()
+            : type === "command"
+              ? createCommandCell()
+              : createMarkdownCell({ source: "" });
       const updatedNotebook = updateNotebook((current) => {
         const cells = [...current.cells];
         if (typeof index === "number") {
@@ -1215,11 +1227,11 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         return { ...current, cells };
       });
       setActiveCellId(nextCell.id);
-      if (type === "shell") {
-        markShellPendingPersistence(nextCell.id);
+      if (type === "terminal") {
+        markTerminalPendingPersistence(nextCell.id);
         clearPendingSave();
         void saveNotebookNow({
-          resolveShellIds: [nextCell.id],
+          resolveTerminalIds: [nextCell.id],
           notebookSnapshot: updatedNotebook,
         });
       } else {
@@ -1232,7 +1244,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
       scheduleAutoSave,
       saveNotebookNow,
       clearPendingSave,
-      markShellPendingPersistence,
+      markTerminalPendingPersistence,
     ]
   );
 
@@ -1245,14 +1257,14 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         ...current,
         cells: current.cells.filter((cell) => cell.id !== id),
       }));
-      removeShellPendingPersistence(id);
+      removeTerminalPendingPersistence(id);
       scheduleAutoSave({ markDirty: true });
     },
     [
       ensureEditable,
       updateNotebook,
       scheduleAutoSave,
-      removeShellPendingPersistence,
+      removeTerminalPendingPersistence,
     ]
   );
 
@@ -1285,6 +1297,106 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
       if (!ensureEditable()) {
         return;
       }
+      const cell = notebook.cells.find((item) => item.id === id);
+      if (!cell) {
+        return;
+      }
+
+      if (cell.type === "command") {
+        const metadata = (cell.metadata ?? {}) as CommandCellMetadata;
+        const commandText = (cell.command ?? "").trim();
+        if (!commandText) {
+          setActionError("Add a command before running this cell.");
+          return;
+        }
+
+        let targetId =
+          typeof metadata.terminalTargetId === "string"
+            ? metadata.terminalTargetId
+            : undefined;
+
+        const existingTerminal =
+          targetId &&
+          notebook.cells.find(
+            (item) => item.id === targetId && item.type === "terminal"
+          );
+
+        if (!existingTerminal) {
+          targetId = undefined;
+        }
+
+        if (!targetId) {
+          const newTerminal = createTerminalCell();
+          const updatedNotebook = updateNotebook((current) => {
+            const cells = [...current.cells];
+            const idx = cells.findIndex((item) => item.id === cell.id);
+            const position = idx >= 0 ? idx + 1 : cells.length;
+            cells.splice(position, 0, newTerminal);
+            return { ...current, cells };
+          });
+          targetId = newTerminal.id;
+          setActiveCellId(newTerminal.id);
+          markTerminalPendingPersistence(newTerminal.id);
+          clearPendingSave();
+          void saveNotebookNow({
+            resolveTerminalIds: [newTerminal.id],
+            notebookSnapshot: updatedNotebook,
+          });
+        } else {
+          setActiveCellId(targetId);
+        }
+
+        if (targetId) {
+          if (metadata.terminalTargetId !== targetId) {
+            updateNotebookCell(
+              cell.id,
+              (current) => {
+                if (current.type !== "command") {
+                  return current;
+                }
+                const nextMeta = {
+                  ...(current.metadata ?? {}),
+                  terminalTargetId: targetId,
+                };
+                return { ...current, metadata: nextMeta };
+              },
+              { persist: true }
+            );
+          }
+
+          const requestId =
+            typeof crypto !== "undefined" &&
+            typeof crypto.randomUUID === "function"
+              ? crypto.randomUUID()
+              : `${Date.now()}-${Math.round(Math.random() * 1e6)}`;
+
+          updateNotebookCell(
+            targetId,
+            (current) => {
+              if (current.type !== "terminal") {
+                return current;
+              }
+              const nextMeta = {
+                ...(current.metadata ?? {}),
+                pendingCommand: {
+                  id: requestId,
+                  command: commandText,
+                  sourceId: cell.id,
+                },
+              };
+              return { ...current, metadata: nextMeta };
+            },
+            { persist: false, touch: false }
+          );
+        }
+        setActionError(null);
+        return;
+      }
+
+      if (cell.type !== "code") {
+        return;
+      }
+
       const busy =
         runningRef.current !== null ||
         runPendingRef.current.size > 0 ||
@@ -1295,8 +1407,6 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         return;
       }
       if (runningCellId === id || runningRef.current === id) return;
-      const cell = notebook.cells.find((item) => item.id === id);
-      if (!cell || cell.type !== "code") return;
       const socket = socketRef.current;
       if (!socket || socket.readyState !== WebSocket.OPEN) {
         setError("Kernel is not connected yet");
@@ -1330,7 +1440,16 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
       };
       socket.send(JSON.stringify(payload));
     },
-    [ensureEditable, notebook, updateNotebookCell, runningCellId]
+    [
+      clearPendingSave,
+      ensureEditable,
+      markTerminalPendingPersistence,
+      notebook,
+      runningCellId,
+      saveNotebookNow,
+      updateNotebook,
+      updateNotebookCell,
+    ]
   );
 
   // When a cell completes and queue has items, run the next one.
@@ -1924,7 +2043,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         aiEnabled={aiEnabled}
         readOnly={!canEditNotebook}
         readOnlyMessage={readOnlyMessage}
-        pendingShellIds={pendingShellIds}
+        pendingTerminalIds={pendingTerminalIds}
         depBusy={depBusy}
         depError={depError}
         depOutputs={depOutputs}

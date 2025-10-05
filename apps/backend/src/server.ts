@@ -53,7 +53,7 @@ import { registerAiRoutes } from "./routes/ai.js";
 import { registerAttachmentRoutes } from "./routes/attachments.js";
 import { registerNotebookSharingRoutes } from "./routes/notebook-sharing.js";
 import { createKernelUpgradeHandler } from "./kernel/router.js";
-import { createShellUpgradeHandler } from "./shell/router.js";
+import { createTerminalUpgradeHandler } from "./terminal/router.js";
 import { NotebookCollaborationService } from "./notebooks/collaboration.js";
 import { AuthService } from "./auth/service.js";
 import {
@@ -503,7 +503,7 @@ export const createServer = async ({
       authenticate: authenticateUpgrade,
     }
   );
-  const shellUpgrade = createShellUpgradeHandler("/api", store, {
+  const terminalUpgrade = createTerminalUpgradeHandler("/api", store, {
     authenticate: authenticateUpgrade,
   });
   const collabUpgrade = collaboration.getUpgradeHandler(
@@ -522,7 +522,7 @@ export const createServer = async ({
         if (kernelUpgrade(req, socket, head)) {
           return;
         }
-        if (shellUpgrade(req, socket, head)) {
+        if (terminalUpgrade(req, socket, head)) {
           return;
         }
         if (collabUpgrade(req, socket, head)) {

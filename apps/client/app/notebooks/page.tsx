@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Play, Trash2, Download, Upload, Loader2 } from "lucide-react";
 import ConfirmDialog from "@/components/ui/confirm";
 import type { NotebookWithAccess } from "@/components/notebook/types";
-import { useCurrentUser } from "@/components/notebook/hooks/useCurrentUser";
+import { useCurrentUser } from "@/components/notebook/hooks/use-current-user";
 import { useRouter } from "next/navigation";
 import LoadingOverlay from "@/components/ui/loading-overlay";
 import NewNotebookCallout from "@/components/notebook/new-notebook-callout";
