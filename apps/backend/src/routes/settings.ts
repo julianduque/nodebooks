@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 
 import type { SettingsService, SettingsUpdate } from "../settings/service.js";
+import { ensureAdmin } from "../notebooks/permissions.js";
 
 const ThemeSchema = z.enum(["light", "dark"]);
 
@@ -102,10 +103,16 @@ export const registerSettingsRoutes = async (
   options: RegisterSettingsRoutesOptions
 ) => {
   app.get("/settings", async (_request, _reply) => {
+    if (!ensureAdmin(_request, _reply)) {
+      return;
+    }
     return { data: options.settings.getSnapshot() };
   });
 
   app.put("/settings", async (request, reply) => {
+    if (!ensureAdmin(request, reply)) {
+      return;
+    }
     const result = SettingsUpdateSchema.safeParse(request.body ?? {});
     if (!result.success) {
       reply.code(400);

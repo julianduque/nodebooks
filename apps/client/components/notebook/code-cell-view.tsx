@@ -26,6 +26,7 @@ interface CodeCellViewProps {
   queued?: boolean;
   isGenerating?: boolean;
   editorKey: string;
+  readOnly?: boolean;
 }
 
 const CodeCellView = ({
@@ -37,6 +38,7 @@ const CodeCellView = ({
   queued,
   isGenerating = false,
   editorKey,
+  readOnly = false,
 }: CodeCellViewProps) => {
   const runShortcutRef = useRef(onRun);
   // Start at roughly one visual line + padding (updated on mount)
@@ -221,7 +223,7 @@ const CodeCellView = ({
               scrollBeyondLastLine: false,
               wordWrap: editorWordWrap,
               automaticLayout: true,
-              readOnly: isRunning || isGenerating,
+              readOnly: readOnly || isRunning || isGenerating,
               fixedOverflowWidgets: true,
               padding: { top: 18, bottom: 18 },
               scrollbar: {

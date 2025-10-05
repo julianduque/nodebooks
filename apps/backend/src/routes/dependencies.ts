@@ -5,10 +5,11 @@ import {
   ensureNotebookRuntimeVersion,
   NotebookSchema,
 } from "@nodebooks/notebook-schema";
-import type { NotebookStore } from "../types.js";
+import type { NotebookCollaboratorStore, NotebookStore } from "../types.js";
 import { WorkerClient } from "@nodebooks/runtime-host";
 import { getWorkerPool } from "../kernel/runtime-pool.js";
 import { loadServerConfig } from "@nodebooks/config";
+import { ensureNotebookAccess } from "../notebooks/permissions.js";
 
 const encodePackagePath = (name: string) => {
   // Encode each path component while preserving slashes
@@ -33,7 +34,8 @@ const resolveVersion = async (name: string, version: string) => {
 
 export const registerDependencyRoutes = (
   app: FastifyInstance,
-  store: NotebookStore
+  store: NotebookStore,
+  collaborators: NotebookCollaboratorStore
 ) => {
   app.post("/notebooks/:id/dependencies", async (request, reply) => {
     const params = z.object({ id: z.string() }).parse(request.params);
@@ -45,6 +47,18 @@ export const registerDependencyRoutes = (
     if (!notebook) {
       reply.code(404);
       return { error: "Notebook not found" };
+    }
+
+    if (
+      !(await ensureNotebookAccess(
+        request,
+        reply,
+        collaborators,
+        notebook.id,
+        "editor"
+      ))
+    ) {
+      return;
     }
 
     const resolved = await resolveVersion(body.name, body.version ?? "latest");
@@ -108,6 +122,18 @@ export const registerDependencyRoutes = (
     if (!notebook) {
       reply.code(404);
       return { error: "Notebook not found" };
+    }
+
+    if (
+      !(await ensureNotebookAccess(
+        request,
+        reply,
+        collaborators,
+        notebook.id,
+        "editor"
+      ))
+    ) {
+      return;
     }
 
     if (!(params.name in (notebook.env.packages ?? {}))) {

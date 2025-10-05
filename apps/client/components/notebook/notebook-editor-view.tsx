@@ -33,6 +33,8 @@ export interface NotebookEditorViewProps {
   activeCellId: string | null;
   themeMode: ThemeMode;
   aiEnabled: boolean;
+  readOnly: boolean;
+  readOnlyMessage?: string;
   pendingShellIds: Set<string>;
   depBusy: boolean;
   depError: string | null;
@@ -64,6 +66,8 @@ const NotebookEditorView = ({
   activeCellId,
   themeMode,
   aiEnabled,
+  readOnly,
+  readOnlyMessage,
   pendingShellIds,
   depBusy,
   depError,
@@ -118,19 +122,33 @@ const NotebookEditorView = ({
       <div className="flex flex-1 items-center justify-center p-10">
         <Card className="w-full max-w-lg text-center">
           <CardContent className="space-y-6 py-10">
-            <div className="space-y-2">
-              <p className="text-lg font-semibold text-foreground">
-                Start building your notebook
-              </p>
-              <p className="text-sm text-muted-foreground">
-                Add a Markdown note, run JavaScript or TypeScript, or open a
-                shell session to begin.
-              </p>
-            </div>
-            <AddCellMenu
-              onAdd={(type) => onAddCell(type)}
-              className="mt-0 flex justify-center gap-2 text-[13px]"
-            />
+            {readOnly ? (
+              <AlertCallout
+                level="info"
+                text={
+                  readOnlyMessage ??
+                  "This notebook is read-only. An editor can add content."
+                }
+                themeMode={themeMode}
+              />
+            ) : (
+              <>
+                <div className="space-y-2">
+                  <p className="text-lg font-semibold text-foreground">
+                    Start building your notebook
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    Add a Markdown note, run JavaScript or TypeScript, or open a
+                    shell session to begin.
+                  </p>
+                </div>
+                <AddCellMenu
+                  onAdd={(type) => onAddCell(type)}
+                  className="mt-0 flex justify-center gap-2 text-[13px]"
+                  disabled={readOnly}
+                />
+              </>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -139,6 +157,15 @@ const NotebookEditorView = ({
 
   return (
     <div className="flex min-h-full flex-1 flex-col">
+      {readOnly ? (
+        <div className="px-2 pt-2">
+          <AlertCallout
+            level="info"
+            text={readOnlyMessage ?? "This notebook is currently read-only."}
+            themeMode={themeMode}
+          />
+        </div>
+      ) : null}
       <div className="flex flex-1 overflow-visible">
         <div className="flex-1 px-2 py-2">
           {error ? (
@@ -169,8 +196,11 @@ const NotebookEditorView = ({
                     variant="ghost"
                     size="icon"
                     className="text-muted-foreground hover:text-foreground"
-                    onClick={onClearDepOutputs}
-                    disabled={!depBusy && depOutputs.length === 0 && !depError}
+                    onClick={readOnly ? undefined : onClearDepOutputs}
+                    disabled={
+                      readOnly ||
+                      (!depBusy && depOutputs.length === 0 && !depError)
+                    }
                     aria-label="Clear outputs"
                   >
                     <Eraser className="h-4 w-4" />
@@ -181,8 +211,9 @@ const NotebookEditorView = ({
                       variant="ghost"
                       size="icon"
                       className="text-rose-600 hover:text-rose-700"
-                      onClick={onAbortInstall}
+                      onClick={readOnly ? undefined : onAbortInstall}
                       aria-label="Abort install"
+                      disabled={readOnly}
                     >
                       <XCircle className="h-4 w-4" />
                     </Button>
@@ -214,7 +245,7 @@ const NotebookEditorView = ({
                 onAttachmentUploaded={onAttachmentUploaded}
                 isRunning={runningCellId === cell.id}
                 queued={runQueue.includes(cell.id)}
-                canRun={socketReady}
+                canRun={socketReady && !readOnly}
                 canMoveUp={index > 0}
                 canMoveDown={index < notebook.cells.length - 1}
                 editorKey={`${cell.id}:${index}`}
@@ -228,17 +259,34 @@ const NotebookEditorView = ({
                 }
                 active={activeCellId === cell.id}
                 onActivate={() => onActivateCell(cell.id)}
-                onChange={(updater, options) =>
-                  onCellChange(cell.id, updater, options)
-                }
-                onDelete={() => onDeleteCell(cell.id)}
-                onRun={() => onRunCell(cell.id)}
-                onInterrupt={onInterruptKernel}
-                onMove={(direction) => onMoveCell(cell.id, direction)}
-                onAddBelow={(type) => onAddCell(type, index + 1)}
+                onChange={(updater, options) => {
+                  if (readOnly) return;
+                  onCellChange(cell.id, updater, options);
+                }}
+                onDelete={() => {
+                  if (readOnly) return;
+                  onDeleteCell(cell.id);
+                }}
+                onRun={() => {
+                  if (readOnly) return;
+                  onRunCell(cell.id);
+                }}
+                onInterrupt={() => {
+                  if (readOnly) return;
+                  onInterruptKernel();
+                }}
+                onMove={(direction) => {
+                  if (readOnly) return;
+                  onMoveCell(cell.id, direction);
+                }}
+                onAddBelow={(type) => {
+                  if (readOnly) return;
+                  onAddCell(type, index + 1);
+                }}
                 aiEnabled={aiEnabled}
                 dependencies={notebook.env.packages}
                 pendingShellPersist={pendingShellIds.has(cell.id)}
+                readOnly={readOnly}
               />
             ))}
           </div>

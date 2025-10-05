@@ -19,6 +19,7 @@ import {
   PanelLeft,
 } from "lucide-react";
 import { gravatarUrlForEmail } from "@/lib/avatar";
+import type { WorkspaceRole } from "@/components/notebook/types";
 
 type NavId = "home" | "notebooks" | "templates" | "settings";
 
@@ -60,6 +61,7 @@ type AccountInfo = {
   name?: string | null;
   email?: string | null;
   avatarUrl?: string | null;
+  role?: WorkspaceRole;
 } | null;
 
 interface AppShellProps {
@@ -82,9 +84,9 @@ interface AppShellProps {
     name: string;
     email: string;
     avatarUrl?: string | null;
+    role?: WorkspaceRole;
   } | null;
   userLoading?: boolean;
-  onOpenProfile?: () => void;
   onLogout?: () => void;
 }
 
@@ -101,7 +103,6 @@ const AppShell = ({
   headerRight,
   user,
   userLoading,
-  onOpenProfile,
   onLogout,
 }: AppShellProps) => {
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
@@ -113,6 +114,14 @@ const AppShell = ({
   const [accountLoading, setAccountLoading] = useState(
     user !== undefined ? Boolean(userLoading) : true
   );
+  const accountRole: WorkspaceRole | null = account?.role ?? user?.role ?? null;
+  const isAdminAccount = accountRole === "admin";
+  const filteredNavItems = useMemo(() => {
+    return isAdminAccount
+      ? navItems
+      : navItems.filter((item) => item.id === "notebooks");
+  }, [isAdminAccount]);
+  const canCreateNotebook = Boolean(onNewNotebook) && isAdminAccount;
 
   useEffect(() => {
     if (user !== undefined) {
@@ -137,6 +146,7 @@ const AppShell = ({
               name?: string | null;
               email?: string | null;
               avatarUrl?: string | null;
+              role?: WorkspaceRole;
             };
           };
           setAccount(payload?.data ? { ...payload.data } : null);
@@ -159,20 +169,6 @@ const AppShell = ({
       cancelled = true;
     };
   }, [user, userLoading]);
-
-  const handleProfileNavigate = useCallback(() => {
-    if (onOpenProfile) {
-      onOpenProfile();
-      return;
-    }
-    try {
-      router?.push?.("/settings");
-    } catch {
-      if (typeof window !== "undefined") {
-        window.location.href = "/settings";
-      }
-    }
-  }, [onOpenProfile, router]);
 
   const handleLogout = useCallback(async () => {
     if (onLogout) {
@@ -216,7 +212,7 @@ const AppShell = ({
       <aside
         className={cn(
           "flex h-screen shrink-0 border-r border-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-linear flex-col",
-          collapsed ? "w-12" : "w-56"
+          collapsed ? "w-16" : "w-56"
         )}
       >
         <div className="flex h-16 items-center gap-3 px-3">
@@ -230,8 +226,8 @@ const AppShell = ({
               <Image
                 src="/assets/nodebooks-logo.svg"
                 alt="NodeBooks"
-                width={28}
-                height={28}
+                width={32}
+                height={32}
                 priority
               />
             </button>
@@ -273,7 +269,7 @@ const AppShell = ({
             </div>
           )}
           <nav className="flex flex-col gap-1">
-            {navItems.map((item) => {
+            {filteredNavItems.map((item) => {
               const isActive = onNavigate
                 ? active === item.id
                 : pathname === item.href;
@@ -321,25 +317,26 @@ const AppShell = ({
               collapsed ? "items-center" : "items-stretch"
             )}
           >
-            <Button
-              className={cn(
-                collapsed ? "h-9 w-9 p-0" : "h-9 w-full justify-center gap-2"
-              )}
-              size={collapsed ? "icon" : "default"}
-              variant="default"
-              type="button"
-              onClick={onNewNotebook}
-              aria-label="Create new notebook"
-              title="Create new notebook"
-            >
-              <Plus className="h-4 w-4" />
-              {!collapsed && <span className="text-sm">New Notebook</span>}
-            </Button>
+            {canCreateNotebook ? (
+              <Button
+                className={cn(
+                  collapsed ? "h-9 w-9 p-0" : "h-9 w-full justify-center gap-2"
+                )}
+                size={collapsed ? "icon" : "default"}
+                variant="default"
+                type="button"
+                onClick={onNewNotebook}
+                aria-label="Create new notebook"
+                title="Create new notebook"
+              >
+                <Plus className="h-4 w-4" />
+                {!collapsed && <span className="text-sm">New Notebook</span>}
+              </Button>
+            ) : null}
             <ProfileMenu
               user={accountWithAvatar}
               loading={accountLoading}
               collapsed={collapsed}
-              onProfile={handleProfileNavigate}
               onLogout={() => {
                 void handleLogout();
               }}

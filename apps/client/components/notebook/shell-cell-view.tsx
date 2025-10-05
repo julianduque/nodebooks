@@ -26,6 +26,7 @@ interface ShellCellViewProps {
     options?: { persist?: boolean; touch?: boolean }
   ) => void;
   pendingPersist?: boolean;
+  readOnly?: boolean;
 }
 
 type TerminalStatus = "connecting" | "ready" | "closed" | "error";
@@ -58,6 +59,7 @@ const ShellCellView = ({
   notebookId,
   onChange,
   pendingPersist = false,
+  readOnly = false,
 }: ShellCellViewProps) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<XTermTerminal | null>(null);
@@ -169,6 +171,7 @@ const ShellCellView = ({
           fontFamily: "Menlo, Monaco, 'Courier New', monospace",
           fontSize: terminalFontSize,
           theme: themeOptions,
+          disableStdin: readOnly,
           allowProposedApi: true,
         });
         const fit = new FitAddon();
@@ -224,17 +227,20 @@ const ShellCellView = ({
         observer.observe(container);
         resizeObserverRef.current = observer;
 
-        term.onData((chunk) => {
-          if (socketRef.current?.readyState === WebSocket.OPEN) {
-            try {
-              socketRef.current.send(
-                JSON.stringify({ type: "input", data: chunk })
-              );
-            } catch (err) {
-              void err;
+        let disposeOnData: { dispose(): void } | null = null;
+        if (!readOnly) {
+          disposeOnData = term.onData((chunk) => {
+            if (socketRef.current?.readyState === WebSocket.OPEN) {
+              try {
+                socketRef.current.send(
+                  JSON.stringify({ type: "input", data: chunk })
+                );
+              } catch (err) {
+                void err;
+              }
             }
-          }
-        });
+          });
+        }
 
         const handlePointerFocus = () => {
           term.focus();
@@ -250,6 +256,11 @@ const ShellCellView = ({
           resizeObserverRef.current = null;
           try {
             container.removeEventListener("mousedown", handlePointerFocus);
+          } catch (err) {
+            void err;
+          }
+          try {
+            disposeOnData?.dispose();
           } catch (err) {
             void err;
           }
@@ -279,6 +290,7 @@ const ShellCellView = ({
     terminalCursorBlink,
     terminalCursorStyle,
     terminalFontSize,
+    readOnly,
   ]);
 
   const appendToTerminal = useCallback((text: string) => {
@@ -552,12 +564,22 @@ const ShellCellView = ({
             </span>
           ) : null}
         </div>
-        <Badge
-          variant="secondary"
-          className="bg-slate-800/80 text-[10px] uppercase tracking-[0.2em] text-slate-200"
-        >
-          Shell
-        </Badge>
+        <div className="flex items-center gap-2">
+          <Badge
+            variant="secondary"
+            className="bg-slate-800/80 text-[10px] uppercase tracking-[0.2em] text-slate-200"
+          >
+            Shell
+          </Badge>
+          {readOnly ? (
+            <Badge
+              variant="outline"
+              className="border-slate-700 bg-slate-900/60 text-[10px] uppercase tracking-[0.2em] text-slate-200"
+            >
+              View Only
+            </Badge>
+          ) : null}
+        </div>
       </div>
       <div className="px-4 pb-4">
         <div

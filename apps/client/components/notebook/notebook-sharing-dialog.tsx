@@ -13,34 +13,38 @@ import {
 } from "@/components/ui/dialog";
 import type {
   InvitationSummary,
-  SafeWorkspaceUser,
-  WorkspaceRole,
+  NotebookCollaboratorSummary,
+  NotebookRole,
 } from "@/components/notebook/types";
 import type { ThemeMode } from "@/components/theme-context";
-import { Ban, Check, Copy, Loader2, UserPlus } from "lucide-react";
+import { Ban, Check, Copy, Loader2, UserMinus, UserPlus } from "lucide-react";
 
 export interface NotebookSharingDialogProps {
   open: boolean;
   isAdmin: boolean;
   themeMode: ThemeMode;
   invitationEmail: string;
-  invitationRole: WorkspaceRole;
+  invitationRole: NotebookRole;
   invitationError: string | null;
   shareFetchError: string | null;
   shareSubmitting: boolean;
   invitesLoading: boolean;
   sortedInvitations: InvitationSummary[];
-  sortedMembers: SafeWorkspaceUser[];
+  sortedCollaborators: NotebookCollaboratorSummary[];
   currentUserId?: string;
   newInviteLink: string | null;
   copySuccess: boolean;
   revokingInvitationId: string | null;
+  updatingCollaboratorId: string | null;
+  removingCollaboratorId: string | null;
   onOpenChange(open: boolean): void;
   onInvitationEmailChange(value: string): void;
-  onInvitationRoleChange(value: WorkspaceRole): void;
+  onInvitationRoleChange(value: NotebookRole): void;
   onInviteSubmit(event: FormEvent<HTMLFormElement>): void;
   onCopyInviteLink(): void;
   onRevokeInvitation(id: string): void;
+  onUpdateCollaboratorRole(userId: string, role: NotebookRole): void;
+  onRemoveCollaborator(userId: string): void;
 }
 
 const NotebookSharingDialog = ({
@@ -54,17 +58,21 @@ const NotebookSharingDialog = ({
   shareSubmitting,
   invitesLoading,
   sortedInvitations,
-  sortedMembers,
+  sortedCollaborators,
   currentUserId,
   newInviteLink,
   copySuccess,
   revokingInvitationId,
+  updatingCollaboratorId,
+  removingCollaboratorId,
   onOpenChange,
   onInvitationEmailChange,
   onInvitationRoleChange,
   onInviteSubmit,
   onCopyInviteLink,
   onRevokeInvitation,
+  onUpdateCollaboratorRole,
+  onRemoveCollaborator,
 }: NotebookSharingDialogProps) => {
   const effectiveOpen = open && isAdmin;
 
@@ -74,8 +82,8 @@ const NotebookSharingDialog = ({
         <DialogHeader>
           <DialogTitle>Invite collaborators</DialogTitle>
           <DialogDescription>
-            Send role-based invitations. Invitees must create their own password
-            before accessing the workspace.
+            Share this notebook with editors or viewers. Invitees create their
+            own password before accessing the notebook.
           </DialogDescription>
         </DialogHeader>
         {shareFetchError ? (
@@ -117,18 +125,16 @@ const NotebookSharingDialog = ({
                 id="invitation-role"
                 value={invitationRole}
                 onChange={(event) =>
-                  onInvitationRoleChange(event.target.value as WorkspaceRole)
+                  onInvitationRoleChange(event.target.value as NotebookRole)
                 }
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring"
                 disabled={shareSubmitting}
               >
                 <option value="editor">Editor</option>
                 <option value="viewer">Viewer</option>
-                <option value="admin">Admin</option>
               </select>
               <p className="text-xs text-muted-foreground">
-                Admins can manage settings and invite others. Editors can modify
-                notebooks, while viewers have read-only access.
+                Editors can edit the notebook. Viewers have read-only access.
               </p>
             </div>
           </div>
@@ -276,32 +282,76 @@ const NotebookSharingDialog = ({
           <div className="space-y-2">
             <div className="flex items-center gap-2">
               <h4 className="text-sm font-semibold text-foreground">
-                Workspace members
+                Notebook collaborators
               </h4>
-              <Badge variant="outline">{sortedMembers.length}</Badge>
+              <Badge variant="outline">{sortedCollaborators.length}</Badge>
             </div>
-            {sortedMembers.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No members found.</p>
+            {sortedCollaborators.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No one else has access yet.
+              </p>
             ) : (
               <ul className="space-y-2">
-                {sortedMembers.map((member) => (
-                  <li
-                    key={member.id}
-                    className="flex flex-col gap-1 rounded-md border border-border bg-background p-3 sm:flex-row sm:items-center sm:justify-between"
-                  >
-                    <div>
-                      <p className="text-sm font-medium text-foreground">
-                        {member.name ?? member.email}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {member.email} · {member.role}
-                      </p>
-                    </div>
-                    {member.id === currentUserId ? (
-                      <Badge variant="secondary">You</Badge>
-                    ) : null}
-                  </li>
-                ))}
+                {sortedCollaborators.map((collaborator) => {
+                  const isSelf = collaborator.user.id === currentUserId;
+                  const isUpdating =
+                    updatingCollaboratorId === collaborator.userId;
+                  const isRemoving =
+                    removingCollaboratorId === collaborator.userId;
+                  return (
+                    <li
+                      key={collaborator.id}
+                      className="rounded-md border border-border bg-background p-3"
+                    >
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="space-y-1">
+                          <p className="text-sm font-medium text-foreground">
+                            {collaborator.user.name ?? collaborator.user.email}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {collaborator.user.email}
+                          </p>
+                        </div>
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+                          <select
+                            value={collaborator.role}
+                            onChange={(event) =>
+                              onUpdateCollaboratorRole(
+                                collaborator.userId,
+                                event.target.value as NotebookRole
+                              )
+                            }
+                            disabled={isUpdating || isRemoving}
+                            className="rounded-md border border-input bg-background px-3 py-2 text-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring"
+                          >
+                            <option value="editor">Editor</option>
+                            <option value="viewer">Viewer</option>
+                          </select>
+                          {isSelf ? (
+                            <Badge variant="secondary">You</Badge>
+                          ) : (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() =>
+                                onRemoveCollaborator(collaborator.userId)
+                              }
+                              disabled={isRemoving}
+                            >
+                              {isRemoving ? (
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              ) : (
+                                <UserMinus className="mr-2 h-4 w-4" />
+                              )}
+                              Remove
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </div>

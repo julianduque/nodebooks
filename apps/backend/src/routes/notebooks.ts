@@ -10,7 +10,11 @@ import {
   type NotebookEnv,
 } from "@nodebooks/notebook-schema";
 import type { Notebook } from "@nodebooks/notebook-schema";
-import type { NotebookStore } from "../types.js";
+import type {
+  NotebookCollaboratorStore,
+  NotebookRole,
+  NotebookStore,
+} from "../types.js";
 import {
   createNotebookFromTemplate,
   TemplateNotFoundError,
@@ -38,6 +42,13 @@ const formatNotebook = (notebook: Notebook) => {
   return ensureNotebookRuntimeVersion(notebook);
 };
 
+import {
+  ensureAdmin,
+  ensureAuthenticated,
+  ensureNotebookAccess,
+  toNotebookAccessRole,
+} from "../notebooks/permissions.js";
+
 const mergeNotebookEnv = (
   base: NotebookEnv,
   override?: NotebookEnv
@@ -56,26 +67,75 @@ const mergeNotebookEnv = (
 
 export const registerNotebookRoutes = (
   app: FastifyInstance,
-  store: NotebookStore
+  store: NotebookStore,
+  collaborators: NotebookCollaboratorStore
 ) => {
-  app.get("/notebooks", async () => {
-    return {
-      data: (await store.all()).map(formatNotebook),
-    };
+  app.get("/notebooks", async (request, reply) => {
+    if (!ensureAuthenticated(request, reply)) {
+      return;
+    }
+    const notebooks = await store.all();
+    if (request.user.role === "admin") {
+      const enriched = notebooks.map((notebook) => ({
+        ...formatNotebook(notebook),
+        accessRole: "editor" as NotebookRole,
+      }));
+      void reply.send({ data: enriched });
+      return;
+    }
+
+    const collaborations = await collaborators.listForUser(request.user.id);
+    const allowedIds = new Set(collaborations.map((c) => c.notebookId));
+    const roleByNotebook = new Map(
+      collaborations.map((c) => [c.notebookId, c.role])
+    );
+    const filtered = notebooks.filter((notebook) =>
+      allowedIds.has(notebook.id)
+    );
+    const enriched = filtered.map((notebook) => ({
+      ...formatNotebook(notebook),
+      accessRole: roleByNotebook.get(notebook.id) ?? "viewer",
+    }));
+    void reply.send({ data: enriched });
   });
 
   app.get("/notebooks/:id", async (request, reply) => {
-    const params = z.object({ id: z.string() }).parse(request.params);
-    const notebook = await store.get(params.id);
+    const parsedParams = z
+      .object({ id: z.string().min(1) })
+      .safeParse(request.params);
+    if (!parsedParams.success) {
+      void reply.code(400).send({ error: "Invalid notebook id" });
+      return;
+    }
+    const { id } = parsedParams.data;
+    const notebook = await store.get(id);
     if (!notebook) {
       reply.code(404);
       return { error: "Notebook not found" };
     }
-
-    return { data: formatNotebook(notebook) };
+    const accessRole = await ensureNotebookAccess(
+      request,
+      reply,
+      collaborators,
+      id,
+      "viewer"
+    );
+    if (!accessRole && request.user?.role !== "admin") {
+      return;
+    }
+    const role = toNotebookAccessRole(
+      accessRole,
+      request.user?.role === "admin"
+    );
+    void reply.send({
+      data: { ...formatNotebook(notebook), accessRole: role },
+    });
   });
 
   app.post("/notebooks", async (request, reply) => {
+    if (!ensureAdmin(request, reply)) {
+      return;
+    }
     const body = NotebookCreateSchema.parse(request.body ?? {});
 
     const templateId = body.template ?? "blank";
@@ -106,15 +166,35 @@ export const registerNotebookRoutes = (
       )
     );
     reply.code(201);
-    return { data: formatNotebook(notebook) };
+    void reply.send({
+      data: { ...formatNotebook(notebook), accessRole: "editor" },
+    });
   });
 
   app.put("/notebooks/:id", async (request, reply) => {
-    const params = z.object({ id: z.string() }).parse(request.params);
-    const notebook = await store.get(params.id);
+    const parsedParams = z
+      .object({ id: z.string().min(1) })
+      .safeParse(request.params);
+    if (!parsedParams.success) {
+      void reply.code(400).send({ error: "Invalid notebook id" });
+      return;
+    }
+    const { id } = parsedParams.data;
+    const notebook = await store.get(id);
     if (!notebook) {
       reply.code(404);
       return { error: "Notebook not found" };
+    }
+
+    const accessRole = await ensureNotebookAccess(
+      request,
+      reply,
+      collaborators,
+      id,
+      "editor"
+    );
+    if (!accessRole && request.user?.role !== "admin") {
+      return;
     }
 
     const body = NotebookMutationSchema.parse(request.body ?? {});
@@ -128,21 +208,41 @@ export const registerNotebookRoutes = (
       })
     );
 
-    return { data: formatNotebook(updated) };
+    const role = toNotebookAccessRole(
+      accessRole,
+      request.user?.role === "admin"
+    );
+
+    void reply.send({
+      data: { ...formatNotebook(updated), accessRole: role },
+    });
   });
 
   app.delete("/notebooks/:id", async (request, reply) => {
-    const params = z.object({ id: z.string() }).parse(request.params);
-    const deleted = await store.remove(params.id);
+    if (!ensureAdmin(request, reply)) {
+      return;
+    }
+    const parsedParams = z
+      .object({ id: z.string().min(1) })
+      .safeParse(request.params);
+    if (!parsedParams.success) {
+      void reply.code(400).send({ error: "Invalid notebook id" });
+      return;
+    }
+    const { id } = parsedParams.data;
+    const deleted = await store.remove(id);
     if (!deleted) {
       reply.code(404);
       return { error: "Notebook not found" };
     }
 
-    return { data: deleted ? formatNotebook(deleted) : deleted };
+    void reply.send({ data: deleted ? formatNotebook(deleted) : deleted });
   });
 
   app.post("/notebooks/import", async (request, reply) => {
+    if (!ensureAdmin(request, reply)) {
+      return;
+    }
     const body = NotebookImportSchema.safeParse(request.body ?? {});
     if (!body.success) {
       reply.code(400);
@@ -164,17 +264,30 @@ export const registerNotebookRoutes = (
     );
 
     reply.code(201);
-    return { data: formatNotebook(notebook) };
+    void reply.send({
+      data: { ...formatNotebook(notebook), accessRole: "editor" },
+    });
   });
 
   app.get("/notebooks/:id/export", async (request, reply) => {
-    const params = z.object({ id: z.string() }).parse(request.params);
-    const notebook = await store.get(params.id);
+    const parsedParams = z
+      .object({ id: z.string().min(1) })
+      .safeParse(request.params);
+    if (!parsedParams.success) {
+      void reply.code(400).send({ error: "Invalid notebook id" });
+      return;
+    }
+    const { id } = parsedParams.data;
+    const notebook = await store.get(id);
     if (!notebook) {
       reply.code(404);
       return { error: "Notebook not found" };
     }
-
+    if (
+      !(await ensureNotebookAccess(request, reply, collaborators, id, "viewer"))
+    ) {
+      return;
+    }
     const serialized = serializeNotebookToFileDefinition(
       formatNotebook(notebook)
     );

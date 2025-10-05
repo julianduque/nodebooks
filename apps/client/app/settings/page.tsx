@@ -102,7 +102,7 @@ const parseSettings = (value: unknown): SettingsPayload | null => {
   }
   const ai = parseAiSettings(record.ai);
   const aiEnabled =
-    typeof record.aiEnabled === "boolean" ? record.aiEnabled : true;
+    typeof record.aiEnabled === "boolean" ? record.aiEnabled : false;
   return {
     theme: record.theme,
     kernelTimeoutMs: record.kernelTimeoutMs,
@@ -413,6 +413,7 @@ const SettingsPage = () => {
       name: currentUser.name ?? email,
       email,
       avatarUrl: avatar ?? undefined,
+      role: currentUser.role,
     };
   }, [currentUser]);
 

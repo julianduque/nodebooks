@@ -36,6 +36,7 @@ interface MarkdownCellViewProps {
   ) => void;
   editorKey: string;
   onAttachmentUploaded?: (attachment: AttachmentMetadata, url: string) => void;
+  readOnly?: boolean;
 }
 
 const stripMarkdownUnsafeChars = (value: string) =>
@@ -129,6 +130,7 @@ const MarkdownCellView = ({
   onChange,
   editorKey,
   onAttachmentUploaded,
+  readOnly = false,
 }: MarkdownCellViewProps) => {
   // Start at roughly one visual line + padding (updated on mount)
   const [editorHeight, setEditorHeight] = useState<number>(10);
@@ -146,7 +148,9 @@ const MarkdownCellView = ({
   }, [cell.source]);
 
   type MarkdownUIMeta = { ui?: { edit?: boolean } };
-  const isEditing = (cell.metadata as MarkdownUIMeta).ui?.edit ?? true;
+  const isEditing = readOnly
+    ? false
+    : ((cell.metadata as MarkdownUIMeta).ui?.edit ?? true);
   const editorPrefs =
     (cell.metadata as { editor?: MonacoEditorSettings }).editor ?? {};
   const editorFontSize =
@@ -166,6 +170,9 @@ const MarkdownCellView = ({
 
   const handleUploadedFiles = useCallback(
     async (files: File[]) => {
+      if (readOnly) {
+        return;
+      }
       const results = await uploadFiles(files);
       if (results.length === 0) {
         return;
@@ -194,7 +201,7 @@ const MarkdownCellView = ({
         { persist: true }
       );
     },
-    [uploadFiles, onChange]
+    [readOnly, uploadFiles, onChange]
   );
 
   const {
@@ -204,7 +211,7 @@ const MarkdownCellView = ({
     handleDragLeave,
     handleDrop,
   } = useAttachmentDropzone({
-    disabled: isUploading,
+    disabled: isUploading || readOnly,
     onFiles: handleUploadedFiles,
   });
 

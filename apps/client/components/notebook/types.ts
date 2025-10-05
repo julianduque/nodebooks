@@ -1,4 +1,7 @@
-import type { NotebookTemplateId as SchemaNotebookTemplateId } from "@nodebooks/notebook-schema";
+import type {
+  Notebook,
+  NotebookTemplateId as SchemaNotebookTemplateId,
+} from "@nodebooks/notebook-schema";
 
 export interface NotebookSessionSummary {
   id: string;
@@ -21,6 +24,7 @@ export interface NotebookViewProps {
 }
 
 export type WorkspaceRole = "admin" | "editor" | "viewer";
+export type NotebookRole = "editor" | "viewer";
 
 export interface SafeWorkspaceUser {
   id: string;
@@ -34,7 +38,8 @@ export interface SafeWorkspaceUser {
 export interface InvitationSummary {
   id: string;
   email: string;
-  role: WorkspaceRole;
+  notebookId: string;
+  role: NotebookRole;
   invitedBy: string | null;
   createdAt: string;
   updatedAt: string;
@@ -43,3 +48,15 @@ export interface InvitationSummary {
   revokedAt: string | null;
   invitedByUser?: SafeWorkspaceUser | null;
 }
+
+export interface NotebookCollaboratorSummary {
+  id: string;
+  notebookId: string;
+  userId: string;
+  role: NotebookRole;
+  createdAt: string;
+  updatedAt: string;
+  user: SafeWorkspaceUser;
+}
+
+export type NotebookWithAccess = Notebook & { accessRole?: NotebookRole };

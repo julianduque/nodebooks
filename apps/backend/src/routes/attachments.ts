@@ -2,7 +2,12 @@ import { Buffer } from "node:buffer";
 import type { FastifyInstance } from "fastify";
 import { customAlphabet } from "nanoid";
 import { z } from "zod";
-import type { NotebookAttachment, NotebookStore } from "../types.js";
+import type {
+  NotebookAttachment,
+  NotebookCollaboratorStore,
+  NotebookStore,
+} from "../types.js";
+import { ensureNotebookAccess } from "../notebooks/permissions.js";
 
 const MAX_ATTACHMENT_SIZE_BYTES = 10 * 1024 * 1024; // 10 MiB ceiling per file
 const MAX_CHUNK_SIZE_BYTES = 512 * 1024; // 512 KiB per chunk to stay below Fastify bodyLimit
@@ -98,7 +103,8 @@ const summarize = (attachment: NotebookAttachment) => ({
 
 export const registerAttachmentRoutes = (
   app: FastifyInstance,
-  store: NotebookStore
+  store: NotebookStore,
+  collaborators: NotebookCollaboratorStore
 ) => {
   const uploads = new Map<string, PendingUpload>();
 
@@ -113,6 +119,30 @@ export const registerAttachmentRoutes = (
     if (!notebook) {
       reply.code(404);
       return { error: "Notebook not found" };
+    }
+
+    if (
+      !(await ensureNotebookAccess(
+        request,
+        reply,
+        collaborators,
+        notebook.id,
+        "editor"
+      ))
+    ) {
+      return;
+    }
+
+    if (
+      !(await ensureNotebookAccess(
+        request,
+        reply,
+        collaborators,
+        notebook.id,
+        "viewer"
+      ))
+    ) {
+      return;
     }
 
     const attachments = await store.listAttachments(notebook.id);
@@ -195,6 +225,18 @@ export const registerAttachmentRoutes = (
       if (!upload || upload.notebookId !== params.data.id) {
         reply.code(404);
         return { error: "Upload session not found" };
+      }
+
+      if (
+        !(await ensureNotebookAccess(
+          request,
+          reply,
+          collaborators,
+          upload.notebookId,
+          "editor"
+        ))
+      ) {
+        return;
       }
 
       if (body.data.index !== upload.nextIndex) {
@@ -286,6 +328,18 @@ export const registerAttachmentRoutes = (
         return { error: "Attachment not found" };
       }
 
+      if (
+        !(await ensureNotebookAccess(
+          request,
+          reply,
+          collaborators,
+          attachment.notebookId,
+          "viewer"
+        ))
+      ) {
+        return;
+      }
+
       return { data: summarize(attachment) };
     }
   );
@@ -308,6 +362,18 @@ export const registerAttachmentRoutes = (
         return { error: "Attachment not found" };
       }
 
+      if (
+        !(await ensureNotebookAccess(
+          request,
+          reply,
+          collaborators,
+          attachment.notebookId,
+          "viewer"
+        ))
+      ) {
+        return;
+      }
+
       reply.header("Content-Type", attachment.mimeType);
       reply.header("Content-Length", String(attachment.size));
       reply.header(
@@ -326,6 +392,24 @@ export const registerAttachmentRoutes = (
       if (!params.success) {
         reply.code(400);
         return { error: "Invalid attachment parameters" };
+      }
+
+      const notebook = await store.get(params.data.id);
+      if (!notebook) {
+        reply.code(404);
+        return { error: "Notebook not found" };
+      }
+
+      if (
+        !(await ensureNotebookAccess(
+          request,
+          reply,
+          collaborators,
+          notebook.id,
+          "editor"
+        ))
+      ) {
+        return;
       }
 
       const removed = await store.removeAttachment(

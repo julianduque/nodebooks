@@ -15,7 +15,6 @@ export interface ProfileMenuProps {
   loading?: boolean;
   collapsed?: boolean;
   showMenu?: boolean;
-  onProfile?: () => void;
   onLogout?: () => void;
   className?: string;
 }
@@ -30,7 +29,6 @@ const ProfileMenu = ({
   loading = false,
   collapsed = false,
   showMenu = true,
-  onProfile,
   onLogout,
   className,
 }: ProfileMenuProps) => {
@@ -149,8 +147,10 @@ const ProfileMenu = ({
         {open ? (
           <div
             className={cn(
-              "absolute bottom-full left-0 z-50 mb-3 w-60 rounded-md border border-border bg-popover p-3 shadow-lg",
-              collapsed && "left-1/2 w-60 -translate-x-1/2"
+              "absolute z-50 w-60 rounded-md border border-border bg-popover p-3 shadow-lg",
+              collapsed
+                ? "left-full top-1/2 ml-3 -translate-y-3/4"
+                : "bottom-full left-0 mb-3"
             )}
           >
             <div className="mb-3">
@@ -162,16 +162,6 @@ const ProfileMenu = ({
               ) : null}
             </div>
             <div className="flex flex-col gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => {
-                  setOpen(false);
-                  onProfile?.();
-                }}
-              >
-                Profile
-              </Button>
               <Button
                 type="button"
                 variant="destructive"
@@ -187,16 +177,7 @@ const ProfileMenu = ({
         ) : null}
       </div>
     );
-  }, [
-    collapsed,
-    className,
-    loading,
-    onLogout,
-    onProfile,
-    open,
-    showMenu,
-    user,
-  ]);
+  }, [collapsed, className, loading, onLogout, open, showMenu, user]);
 
   return content;
 };

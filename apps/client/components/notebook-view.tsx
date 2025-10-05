@@ -25,6 +25,8 @@ import {
 import type {
   NotebookSessionSummary,
   NotebookTemplateId,
+  NotebookWithAccess,
+  NotebookRole,
   OutlineItem,
   NotebookViewProps,
 } from "@/components/notebook/types";
@@ -48,6 +50,16 @@ import { useCurrentUser } from "@/components/notebook/hooks/useCurrentUser";
 import { useNotebookAttachments } from "@/components/notebook/hooks/useNotebookAttachments";
 import { useNotebookSharing } from "@/components/notebook/hooks/useNotebookSharing";
 import { gravatarUrlForEmail } from "@/lib/avatar";
+
+const normalizeNotebookState = (
+  raw: Notebook | NotebookWithAccess | null | undefined
+): { notebook: Notebook | null; role?: NotebookRole } => {
+  if (!raw) {
+    return { notebook: null, role: undefined };
+  }
+  const { accessRole, ...rest } = raw as NotebookWithAccess;
+  return { notebook: rest as Notebook, role: accessRole };
+};
 
 const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
   const { theme } = useTheme();
@@ -84,6 +96,8 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
   const [pendingShellIds, setPendingShellIds] = useState<Set<string>>(
     new Set<string>()
   );
+  const [notebookAccessRole, setNotebookAccessRole] =
+    useState<NotebookRole>("viewer");
   const collabSocketRef = useRef<WebSocket | null>(null);
   const suppressCollabBroadcastRef = useRef(false);
   const activeCellIdRef = useRef<string | null>(null);
@@ -111,16 +125,66 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     newInviteLink,
     copySuccess,
     revokingInvitationId,
-    sortedMembers,
+    updatingCollaboratorId,
+    removingCollaboratorId,
+    sortedCollaborators,
     sortedInvitations,
     handleOpenSharing,
     handleInviteSubmit,
     handleSharingOpenChange,
     handleCopyInviteLink,
     handleRevokeInvitation,
+    handleUpdateCollaboratorRole,
+    handleRemoveCollaborator,
     setInvitationEmail,
     setInvitationRole,
-  } = useNotebookSharing({ isAdmin });
+  } = useNotebookSharing({ isAdmin, notebookId: notebook?.id });
+
+  const canEditNotebook = isAdmin || notebookAccessRole === "editor";
+  const isViewer = !isAdmin && notebookAccessRole === "viewer";
+  const readOnlyMessage = isViewer
+    ? "You only have read-only access to this notebook."
+    : "Only workspace admins can edit notebooks.";
+
+  const ensureEditable = useCallback(() => {
+    if (!canEditNotebook) {
+      setActionError(readOnlyMessage);
+      return false;
+    }
+    return true;
+  }, [canEditNotebook, readOnlyMessage]);
+
+  const safeDeleteAttachment = useCallback(
+    async (attachmentId: string) => {
+      if (!ensureEditable()) {
+        return;
+      }
+      await handleDeleteAttachment(attachmentId);
+    },
+    [ensureEditable, handleDeleteAttachment]
+  );
+
+  useEffect(() => {
+    if (isAdmin) {
+      setNotebookAccessRole("editor");
+    }
+  }, [isAdmin]);
+
+  useEffect(() => {
+    if (isViewer && sidebarView !== "outline") {
+      setSidebarView("outline");
+    }
+  }, [isViewer, sidebarView]);
+
+  const handleSidebarChange = useCallback(
+    (next: "outline" | "attachments" | "setup") => {
+      if (isViewer && next !== "outline") {
+        return;
+      }
+      setSidebarView(next);
+    },
+    [isViewer]
+  );
 
   const markShellPendingPersistence = useCallback((cellId: string) => {
     setPendingShellIds((prev) => {
@@ -237,6 +301,10 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
       const response = await fetch(`${API_BASE_URL}/settings`, {
         cache: "no-store",
       });
+      if (response.status === 403) {
+        setAiEnabled(false);
+        return;
+      }
       if (!response.ok) {
         throw new Error(`Request failed with status ${response.status}`);
       }
@@ -848,6 +916,9 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
 
   const handleInterruptKernel = useCallback(() => {
     if (!notebook) return;
+    if (!ensureEditable()) {
+      return;
+    }
     const socket = socketRef.current;
     if (!socket || socket.readyState !== WebSocket.OPEN) {
       setError("Kernel is not connected yet");
@@ -862,7 +933,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     } catch {
       // ignore send errors; status handler will reflect kernel state
     }
-  }, [notebook]);
+  }, [ensureEditable, notebook]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -872,6 +943,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
       try {
         const response = await fetch(`${API_BASE_URL}/notebooks`, {
           signal: controller.signal,
+          headers: { Accept: "application/json" },
         });
         if (!response.ok) {
           throw new Error(
@@ -879,14 +951,30 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
           );
         }
         const payload = await response.json();
-        const notebooks: Notebook[] = Array.isArray(payload?.data)
-          ? payload.data
+        const notebooks: NotebookWithAccess[] = Array.isArray(payload?.data)
+          ? (payload.data as NotebookWithAccess[])
           : [];
 
-        let initial: Notebook | undefined =
+        let initialEntry: NotebookWithAccess | Notebook | undefined =
           notebooks.find((n) => n.id === initialNotebookId) ?? notebooks[0];
 
-        if (!initial) {
+        if (!initialEntry && initialNotebookId) {
+          const res = await fetch(
+            `${API_BASE_URL}/notebooks/${initialNotebookId}`,
+            {
+              signal: controller.signal,
+              headers: { Accept: "application/json" },
+            }
+          );
+          if (res.ok) {
+            const singlePayload = await res.json().catch(() => null);
+            initialEntry = singlePayload?.data as
+              | NotebookWithAccess
+              | undefined;
+          }
+        }
+
+        if (!initialEntry && isAdmin) {
           const created = await fetch(`${API_BASE_URL}/notebooks`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -899,26 +987,22 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
             );
           }
           const createdPayload = await created.json();
-          initial = createdPayload.data;
+          initialEntry = createdPayload.data as NotebookWithAccess;
         }
 
         if (!controller.signal.aborted) {
-          if (!initial && initialNotebookId) {
-            // Try to fetch the requested id directly
-            const res = await fetch(
-              `${API_BASE_URL}/notebooks/${initialNotebookId}`,
-              { signal: controller.signal }
-            );
-            if (res.ok) {
-              const p = await res.json();
-              initial = p?.data;
-            }
-          }
-          notebookRef.current = initial ?? null;
-          if (initial) {
-            setNotebook(initial);
+          const { notebook: initialNotebook, role } =
+            normalizeNotebookState(initialEntry);
+          notebookRef.current = initialNotebook;
+          setNotebook(initialNotebook);
+          setNotebookAccessRole(
+            role ?? (isAdmin ? "editor" : notebookAccessRole)
+          );
+          if (initialNotebook) {
             setDirty(false);
             setError(null);
+          } else if (!isAdmin) {
+            setError("No notebooks are currently shared with you.");
           }
         }
       } catch (err) {
@@ -944,10 +1028,10 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     return () => {
       controller.abort();
     };
-  }, [initialNotebookId]);
+  }, [initialNotebookId, isAdmin, notebookAccessRole]);
 
   useEffect(() => {
-    if (!notebookId) {
+    if (!notebookId || !canEditNotebook) {
       return;
     }
 
@@ -983,7 +1067,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     return () => {
       cancelled = true;
     };
-  }, [notebookId]);
+  }, [notebookId, canEditNotebook]);
 
   useEffect(() => {
     if (!sessionId) {
@@ -1056,10 +1140,21 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    if (!canEditNotebook) {
+      closeActiveSession("read-only access");
+      setSession(null);
+    }
+  }, [canEditNotebook, closeActiveSession]);
+
   // Notebook selection/navigation handled by router pages
 
   const handleCreateNotebook = useCallback(
     async (template: NotebookTemplateId = "blank") => {
+      if (!isAdmin) {
+        setActionError("Only workspace admins can create notebooks.");
+        return;
+      }
       try {
         const response = await fetch(`${API_BASE_URL}/notebooks`, {
           method: "POST",
@@ -1082,7 +1177,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         );
       }
     },
-    [router]
+    [isAdmin, router]
   );
 
   const handleCellChange = useCallback(
@@ -1091,13 +1186,19 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
       updater: (cell: NotebookCell) => NotebookCell,
       options?: { persist?: boolean; touch?: boolean }
     ) => {
+      if (!ensureEditable()) {
+        return;
+      }
       updateNotebookCell(id, updater, options);
     },
-    [updateNotebookCell]
+    [ensureEditable, updateNotebookCell]
   );
 
   const handleAddCell = useCallback(
     (type: NotebookCell["type"], index?: number) => {
+      if (!ensureEditable()) {
+        return;
+      }
       const nextCell =
         type === "code"
           ? createCodeCell({ language: "ts" })
@@ -1126,6 +1227,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
       }
     },
     [
+      ensureEditable,
       updateNotebook,
       scheduleAutoSave,
       saveNotebookNow,
@@ -1136,6 +1238,9 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
 
   const handleDeleteCell = useCallback(
     (id: string) => {
+      if (!ensureEditable()) {
+        return;
+      }
       updateNotebook((current) => ({
         ...current,
         cells: current.cells.filter((cell) => cell.id !== id),
@@ -1143,11 +1248,19 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
       removeShellPendingPersistence(id);
       scheduleAutoSave({ markDirty: true });
     },
-    [updateNotebook, scheduleAutoSave, removeShellPendingPersistence]
+    [
+      ensureEditable,
+      updateNotebook,
+      scheduleAutoSave,
+      removeShellPendingPersistence,
+    ]
   );
 
   const handleMoveCell = useCallback(
     (id: string, direction: "up" | "down") => {
+      if (!ensureEditable()) {
+        return;
+      }
       updateNotebook((current) => {
         const index = current.cells.findIndex((cell) => cell.id === id);
         if (index < 0) {
@@ -1163,12 +1276,15 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         return { ...current, cells };
       });
     },
-    [updateNotebook]
+    [ensureEditable, updateNotebook]
   );
 
   const handleRunCell = useCallback(
     (id: string) => {
       if (!notebook) return;
+      if (!ensureEditable()) {
+        return;
+      }
       const busy =
         runningRef.current !== null ||
         runPendingRef.current.size > 0 ||
@@ -1214,7 +1330,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
       };
       socket.send(JSON.stringify(payload));
     },
-    [notebook, updateNotebookCell, runningCellId]
+    [ensureEditable, notebook, updateNotebookCell, runningCellId]
   );
 
   // When a cell completes and queue has items, run the next one.
@@ -1230,6 +1346,9 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
   const handleInstallDependencyInline = useCallback(
     async (raw: string) => {
       if (!notebook) return;
+      if (!ensureEditable()) {
+        return;
+      }
 
       const items = parseMultipleDependencies(raw);
       if (items.length === 0) {
@@ -1295,19 +1414,26 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         depAbortRef.current = null;
       }
     },
-    [notebook, updateNotebook]
+    [ensureEditable, notebook, updateNotebook]
   );
 
   const handleRenameStart = useCallback(() => {
     if (!notebook) {
       return;
     }
+    if (!ensureEditable()) {
+      return;
+    }
     setRenameDraft(notebook.name);
     setIsRenaming(true);
-  }, [notebook]);
+  }, [notebook, ensureEditable]);
 
   const handleRenameCommit = useCallback(() => {
     if (!notebook) {
+      setIsRenaming(false);
+      return;
+    }
+    if (!canEditNotebook) {
       setIsRenaming(false);
       return;
     }
@@ -1316,7 +1442,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
       updateNotebook((current) => ({ ...current, name: trimmed }));
     }
     setIsRenaming(false);
-  }, [renameDraft, notebook, updateNotebook]);
+  }, [renameDraft, notebook, canEditNotebook, updateNotebook]);
 
   const handleRenameCancel = useCallback(() => {
     setIsRenaming(false);
@@ -1339,6 +1465,9 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
 
   const handleRunAll = useCallback(() => {
     if (!notebook) {
+      return;
+    }
+    if (!ensureEditable()) {
       return;
     }
     // Render markdown cells (exit edit mode)
@@ -1365,7 +1494,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         handleRunCell(cell.id);
       }
     });
-  }, [notebook, handleRunCell, updateNotebook]);
+  }, [ensureEditable, notebook, handleRunCell, updateNotebook]);
 
   const slugify = useCallback((value: string) => {
     return (
@@ -1414,6 +1543,9 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
   }, [notebook, slugify]);
 
   const handleRestartKernel = useCallback(async () => {
+    if (!ensureEditable()) {
+      return;
+    }
     setRunningCellId(null);
     runCounterRef.current = 0;
     runPendingRef.current.clear();
@@ -1455,7 +1587,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to restart kernel");
     }
-  }, [closeActiveSession, notebook, updateNotebook]);
+  }, [closeActiveSession, ensureEditable, notebook, updateNotebook]);
 
   const handleReconnectKernel = useCallback(() => {
     if (!sessionId) {
@@ -1470,6 +1602,9 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
   }, [sessionId, bumpSocketGeneration]);
 
   const handleClearAllOutputs = useCallback(() => {
+    if (!ensureEditable()) {
+      return;
+    }
     updateNotebook((current) => ({
       ...current,
       cells: current.cells.map((cell) =>
@@ -1478,12 +1613,16 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
           : cell
       ),
     }));
-  }, [updateNotebook]);
+  }, [ensureEditable, updateNotebook]);
 
   const handleDeleteNotebook = useCallback(
     async (id?: string) => {
       const targetId = id ?? notebook?.id;
       if (!targetId) return;
+      if (!isAdmin) {
+        setActionError("Only workspace admins can delete notebooks.");
+        return;
+      }
       try {
         const res = await fetch(`${API_BASE_URL}/notebooks/${targetId}`, {
           method: "DELETE",
@@ -1499,18 +1638,24 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         );
       }
     },
-    [notebook?.id, router]
+    [isAdmin, notebook?.id, router]
   );
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
 
   const handleSaveNow = useCallback(() => {
+    if (!ensureEditable()) {
+      return;
+    }
     clearPendingSave();
     void saveNotebookNow();
-  }, [clearPendingSave, saveNotebookNow]);
+  }, [clearPendingSave, ensureEditable, saveNotebookNow]);
 
   const handleRemoveDependency = useCallback(
     async (name: string) => {
       if (!notebook) return;
+      if (!ensureEditable()) {
+        return;
+      }
       const trimmedName = name.trim();
       if (!trimmedName) return;
       try {
@@ -1541,13 +1686,16 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         );
       }
     },
-    [notebook, updateNotebook]
+    [ensureEditable, notebook, updateNotebook]
   );
 
   const handleAddVariable = useCallback(
     (name: string, value: string) => {
       const key = name.trim();
       if (!notebook || !key) return;
+      if (!ensureEditable()) {
+        return;
+      }
       updateNotebook((current) => ({
         ...current,
         env: {
@@ -1556,7 +1704,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         },
       }));
     },
-    [notebook, updateNotebook]
+    [ensureEditable, notebook, updateNotebook]
   );
 
   const handleRemoveVariable = useCallback(
@@ -1564,13 +1712,16 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
       if (!notebook) return;
       const key = name.trim();
       if (!key) return;
+      if (!ensureEditable()) {
+        return;
+      }
       updateNotebook((current) => {
         const nextVars = { ...current.env.variables } as Record<string, string>;
         delete nextVars[key];
         return { ...current, env: { ...current.env, variables: nextVars } };
       });
     },
-    [notebook, updateNotebook]
+    [ensureEditable, notebook, updateNotebook]
   );
 
   const handleOutlineJump = useCallback((cellId: string) => {
@@ -1598,6 +1749,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         onRenameCommit={handleRenameCommit}
         onRenameKeyDown={handleRenameKeyDown}
         onRenameStart={handleRenameStart}
+        canRename={canEditNotebook}
       />
     );
   }, [
@@ -1607,6 +1759,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     handleRenameCommit,
     handleRenameKeyDown,
     handleRenameStart,
+    canEditNotebook,
   ]);
 
   const topbarRight = useMemo(() => {
@@ -1617,7 +1770,9 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         socketReady={socketReady}
         hasSession={Boolean(sessionId)}
         dirty={dirty}
-        isAdmin={isAdmin}
+        canEdit={canEditNotebook}
+        canShare={isAdmin}
+        canDelete={isAdmin}
         currentUserLoading={currentUserLoading}
         exporting={exporting}
         onSave={handleSaveNow}
@@ -1635,6 +1790,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     socketReady,
     sessionId,
     dirty,
+    canEditNotebook,
     isAdmin,
     currentUserLoading,
     exporting,
@@ -1648,9 +1804,14 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
   const secondaryHeader = useMemo(() => {
     if (!notebook) return null;
     return (
-      <NotebookSecondaryHeader value={sidebarView} onChange={setSidebarView} />
+      <NotebookSecondaryHeader
+        value={sidebarView}
+        onChange={handleSidebarChange}
+        showAttachments={!isViewer}
+        showSetup={!isViewer}
+      />
     );
-  }, [notebook, sidebarView]);
+  }, [notebook, sidebarView, handleSidebarChange, isViewer]);
 
   const secondarySidebar = useMemo(() => {
     if (!notebook) return null;
@@ -1662,8 +1823,9 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
             attachments={attachments}
             loading={attachmentsLoading}
             error={attachmentsError}
-            onDelete={handleDeleteAttachment}
+            onDelete={safeDeleteAttachment}
             onAttachmentUploaded={handleAttachmentUploaded}
+            canEdit={canEditNotebook}
           />
         ) : sidebarView === "setup" ? (
           <SetupPanel
@@ -1673,6 +1835,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
             depBusy={depBusy}
             onAddVariable={handleAddVariable}
             onRemoveVariable={handleRemoveVariable}
+            canEdit={canEditNotebook}
           />
         ) : (
           <OutlinePanel
@@ -1692,13 +1855,14 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     attachments,
     attachmentsLoading,
     attachmentsError,
-    handleDeleteAttachment,
+    safeDeleteAttachment,
     handleAttachmentUploaded,
     handleRemoveDependency,
     depBusy,
     handleInstallDependencyInline,
     handleAddVariable,
     handleRemoveVariable,
+    canEditNotebook,
   ]);
 
   const displayName = currentUser?.name?.trim()
@@ -1707,10 +1871,6 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
   const avatarUrl = currentUser?.email
     ? gravatarUrlForEmail(currentUser.email, 96)
     : null;
-
-  const handleOpenProfile = useCallback(() => {
-    router.push("/settings");
-  }, [router]);
 
   const handleLogout = useCallback(async () => {
     try {
@@ -1726,7 +1886,13 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
   return (
     <AppShell
       title={notebook?.name ?? "Notebook"}
-      onNewNotebook={() => void handleCreateNotebook()}
+      onNewNotebook={
+        isAdmin
+          ? () => {
+              void handleCreateNotebook();
+            }
+          : undefined
+      }
       secondarySidebar={secondarySidebar}
       defaultCollapsed={false}
       secondaryHeader={secondaryHeader}
@@ -1734,11 +1900,15 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
       headerRight={topbarRight}
       user={
         currentUser
-          ? { name: displayName, email: currentUser.email, avatarUrl }
+          ? {
+              name: displayName,
+              email: currentUser.email,
+              avatarUrl,
+              role: currentUser.role,
+            }
           : null
       }
       userLoading={currentUserLoading}
-      onOpenProfile={handleOpenProfile}
       onLogout={() => void handleLogout()}
     >
       <NotebookEditorView
@@ -1752,6 +1922,8 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         activeCellId={activeCellId}
         themeMode={theme}
         aiEnabled={aiEnabled}
+        readOnly={!canEditNotebook}
+        readOnlyMessage={readOnlyMessage}
         pendingShellIds={pendingShellIds}
         depBusy={depBusy}
         depError={depError}
@@ -1778,11 +1950,13 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         shareSubmitting={shareSubmitting}
         invitesLoading={invitesLoading}
         sortedInvitations={sortedInvitations}
-        sortedMembers={sortedMembers}
+        sortedCollaborators={sortedCollaborators}
         currentUserId={currentUser?.id}
         newInviteLink={newInviteLink}
         copySuccess={copySuccess}
         revokingInvitationId={revokingInvitationId}
+        updatingCollaboratorId={updatingCollaboratorId}
+        removingCollaboratorId={removingCollaboratorId}
         onOpenChange={handleSharingOpenChange}
         onInvitationEmailChange={setInvitationEmail}
         onInvitationRoleChange={setInvitationRole}
@@ -1792,6 +1966,12 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         }}
         onRevokeInvitation={(id) => {
           void handleRevokeInvitation(id);
+        }}
+        onUpdateCollaboratorRole={(userId, role) => {
+          void handleUpdateCollaboratorRole(userId, role);
+        }}
+        onRemoveCollaborator={(userId) => {
+          void handleRemoveCollaborator(userId);
         }}
       />
       <ConfirmDialog

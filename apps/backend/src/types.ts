@@ -1,6 +1,7 @@
 import type { Notebook } from "@nodebooks/notebook-schema";
 
 export type UserRole = "admin" | "editor" | "viewer";
+export type NotebookRole = "editor" | "viewer";
 
 export interface User {
   id: string;
@@ -61,7 +62,8 @@ export interface AuthSessionStore {
 export interface Invitation {
   id: string;
   email: string;
-  role: UserRole;
+  notebookId: string;
+  role: NotebookRole;
   tokenHash: string;
   invitedBy: string | null;
   createdAt: string;
@@ -75,7 +77,8 @@ export type SafeInvitation = Omit<Invitation, "tokenHash">;
 
 export interface CreateInvitationInput {
   email: string;
-  role: UserRole;
+  notebookId: string;
+  role: NotebookRole;
   tokenHash: string;
   invitedBy?: string | null;
   expiresAt: string;
@@ -85,10 +88,44 @@ export interface InvitationStore {
   create(input: CreateInvitationInput): Promise<Invitation>;
   get(id: string): Promise<Invitation | undefined>;
   findByTokenHash(tokenHash: string): Promise<Invitation | undefined>;
-  findActiveByEmail(email: string): Promise<Invitation | undefined>;
+  findActiveByEmail(
+    email: string,
+    notebookId: string
+  ): Promise<Invitation | undefined>;
   list(): Promise<Invitation[]>;
+  listByNotebook(notebookId: string): Promise<Invitation[]>;
   markAccepted(id: string): Promise<Invitation | undefined>;
   revoke(id: string): Promise<Invitation | undefined>;
+}
+
+export interface NotebookCollaborator {
+  id: string;
+  notebookId: string;
+  userId: string;
+  role: NotebookRole;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface NotebookCollaboratorStore {
+  listByNotebook(notebookId: string): Promise<NotebookCollaborator[]>;
+  listNotebookIdsForUser(userId: string): Promise<string[]>;
+  listForUser(userId: string): Promise<NotebookCollaborator[]>;
+  get(
+    notebookId: string,
+    userId: string
+  ): Promise<NotebookCollaborator | undefined>;
+  upsert(input: {
+    notebookId: string;
+    userId: string;
+    role: NotebookRole;
+  }): Promise<NotebookCollaborator>;
+  updateRole(
+    notebookId: string,
+    userId: string,
+    role: NotebookRole
+  ): Promise<NotebookCollaborator | undefined>;
+  remove(notebookId: string, userId: string): Promise<boolean>;
 }
 
 export interface NotebookAttachment {

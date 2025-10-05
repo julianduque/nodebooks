@@ -10,6 +10,18 @@ const sessionCtor = vi.fn();
 const postgresCtor = vi.fn();
 const postgresSettingsCtor = vi.fn();
 const settingsServiceCtor = vi.fn();
+const authValidateSession = vi.fn(async (_token?: string) => null as const);
+const authHasUsers = vi.fn(async () => true);
+const authCreateUser = vi.fn();
+const authCompleteInvitation = vi.fn();
+const authAuthenticate = vi.fn();
+const authLogout = vi.fn();
+const authLogoutAll = vi.fn();
+const authInspectInvitation = vi.fn();
+const authListUsers = vi.fn();
+const authInviteToNotebook = vi.fn();
+const authListNotebookInvitations = vi.fn();
+const authListNotebookCollaborators = vi.fn();
 
 const originalPersistence = process.env.NODEBOOKS_PERSISTENCE;
 const originalDatabaseUrl = process.env.DATABASE_URL;
@@ -58,6 +70,18 @@ vi.mock("../src/store/sqlite.js", () => ({
     async set() {}
     async delete() {}
   },
+  SqliteUserStore: class {
+    constructor(_store: unknown) {}
+  },
+  SqliteAuthSessionStore: class {
+    constructor(_store: unknown) {}
+  },
+  SqliteInvitationStore: class {
+    constructor(_store: unknown) {}
+  },
+  SqliteNotebookCollaboratorStore: class {
+    constructor(_store: unknown) {}
+  },
 }));
 vi.mock("../src/store/memory.js", () => ({
   InMemoryNotebookStore: class {
@@ -83,6 +107,18 @@ vi.mock("../src/store/memory.js", () => ({
     async set() {}
     async delete() {}
   },
+  InMemoryUserStore: class {
+    constructor() {}
+  },
+  InMemoryAuthSessionStore: class {
+    constructor() {}
+  },
+  InMemoryInvitationStore: class {
+    constructor() {}
+  },
+  InMemoryNotebookCollaboratorStore: class {
+    constructor() {}
+  },
 }));
 vi.mock("../src/store/postgres.js", () => ({
   PostgresNotebookStore: class {
@@ -102,6 +138,18 @@ vi.mock("../src/store/postgres.js", () => ({
     }
     async set() {}
     async delete() {}
+  },
+  PostgresUserStore: class {
+    constructor(_store: unknown) {}
+  },
+  PostgresAuthSessionStore: class {
+    constructor(_store: unknown) {}
+  },
+  PostgresInvitationStore: class {
+    constructor(_store: unknown) {}
+  },
+  PostgresNotebookCollaboratorStore: class {
+    constructor(_store: unknown) {}
   },
 }));
 vi.mock("../src/routes/notebooks.js", () => ({
@@ -136,8 +184,49 @@ vi.mock("../src/settings/service.js", () => ({
 vi.mock("../src/settings/index.js", () => ({
   setSettingsService: () => {},
 }));
+vi.mock("../src/auth/service.js", () => ({
+  AuthService: class {
+    async hasUsers(...args: unknown[]) {
+      return authHasUsers(...args);
+    }
+    async validateSession(...args: unknown[]) {
+      return authValidateSession(...args);
+    }
+    async createUser(...args: unknown[]) {
+      return authCreateUser(...args);
+    }
+    async completeInvitation(...args: unknown[]) {
+      return authCompleteInvitation(...args);
+    }
+    async authenticate(...args: unknown[]) {
+      return authAuthenticate(...args);
+    }
+    async logout(...args: unknown[]) {
+      return authLogout(...args);
+    }
+    async logoutAll(...args: unknown[]) {
+      return authLogoutAll(...args);
+    }
+    async inspectInvitation(...args: unknown[]) {
+      return authInspectInvitation(...args);
+    }
+    async listUsers(...args: unknown[]) {
+      return authListUsers(...args);
+    }
+    async inviteToNotebook(...args: unknown[]) {
+      return authInviteToNotebook(...args);
+    }
+    async listNotebookInvitations(...args: unknown[]) {
+      return authListNotebookInvitations(...args);
+    }
+    async listNotebookCollaborators(...args: unknown[]) {
+      return authListNotebookCollaborators(...args);
+    }
+  },
+}));
 
 import { createServer, createNotebookStore } from "../src/server.js";
+import { SESSION_COOKIE_NAME } from "../src/auth/session.js";
 
 beforeEach(() => {
   handledPaths.length = 0;
@@ -149,6 +238,20 @@ beforeEach(() => {
   postgresCtor.mockClear();
   postgresSettingsCtor.mockClear();
   settingsServiceCtor.mockClear();
+  authValidateSession.mockReset();
+  authHasUsers.mockReset();
+  authCreateUser.mockReset();
+  authCompleteInvitation.mockReset();
+  authAuthenticate.mockReset();
+  authLogout.mockReset();
+  authLogoutAll.mockReset();
+  authInspectInvitation.mockReset();
+  authListUsers.mockReset();
+  authInviteToNotebook.mockReset();
+  authListNotebookInvitations.mockReset();
+  authListNotebookCollaborators.mockReset();
+  authValidateSession.mockResolvedValue(null);
+  authHasUsers.mockResolvedValue(true);
   delete process.env.NODEBOOKS_PERSISTENCE;
   delete process.env.DATABASE_URL;
   delete process.env.NODEBOOKS_SQLITE_PATH;
@@ -209,7 +312,7 @@ describe("createNotebookStore", () => {
 });
 
 describe("server integration (single-port)", () => {
-  it("serves health under /health and forwards other paths to Next", async () => {
+  it("allows health checks without auth and redirects unauthorized traffic", async () => {
     const app = await createServer({ logger: false });
     await app.ready();
 
@@ -218,6 +321,44 @@ describe("server integration (single-port)", () => {
     expect(health.json()).toEqual({ status: "ok" });
 
     const nextRes = await app.inject({ method: "GET", url: "/" });
+    expect(nextRes.statusCode).toBe(302);
+    expect(nextRes.headers.location).toBe("/login");
+    expect(handledPaths).not.toContain("/");
+
+    await app.close();
+  });
+
+  it("forwards authenticated requests to Next", async () => {
+    const app = await createServer({ logger: false });
+    await app.ready();
+
+    const user = {
+      id: "user-123",
+      email: "admin@example.com",
+      name: "Admin User",
+      role: "admin" as const,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    const session = {
+      id: "session-123",
+      userId: user.id,
+      tokenHash: "hashed-token",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      revokedAt: null,
+    };
+    authValidateSession.mockResolvedValueOnce({ user, session });
+
+    const nextRes = await app.inject({
+      method: "GET",
+      url: "/",
+      headers: {
+        cookie: `${SESSION_COOKIE_NAME}=valid-session-token`,
+      },
+    });
+
     expect(nextRes.statusCode).toBe(200);
     expect(nextRes.body).toBe("next-ok");
     expect(handledPaths).toContain("/");

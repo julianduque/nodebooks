@@ -1,10 +1,14 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Fastify from "fastify";
 import fastifyCookie from "@fastify/cookie";
 
 import { registerSettingsRoutes } from "../src/routes/settings.js";
 import { InMemorySettingsStore } from "../src/store/memory.js";
 import { SettingsService } from "../src/settings/service.js";
+
+vi.mock("../src/notebooks/permissions.js", () => ({
+  ensureAdmin: () => true,
+}));
 
 const originalTheme = process.env.NODEBOOKS_THEME;
 const originalTimeout = process.env.NODEBOOKS_KERNEL_TIMEOUT_MS;
