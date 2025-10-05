@@ -444,7 +444,7 @@ export const createServer = async ({
   }
 
   const kernelSessions = new InMemoryKernelSessionManager(store);
-  const collaboration = new NotebookCollaborationService(store);
+  const collaboration = new NotebookCollaborationService(store, collaborators);
 
   const maybeClosable = store as { close?: () => Promise<void> | void };
   if (typeof maybeClosable.close === "function") {
