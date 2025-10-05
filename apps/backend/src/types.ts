@@ -2,6 +2,7 @@ import type { Notebook } from "@nodebooks/notebook-schema";
 
 export type UserRole = "admin" | "editor" | "viewer";
 export type NotebookRole = "editor" | "viewer";
+export type ProjectRole = NotebookRole;
 
 export interface User {
   id: string;
@@ -126,6 +127,98 @@ export interface NotebookCollaboratorStore {
     role: NotebookRole
   ): Promise<NotebookCollaborator | undefined>;
   remove(notebookId: string, userId: string): Promise<boolean>;
+}
+
+export interface Project {
+  id: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateProjectInput {
+  name: string;
+}
+
+export interface UpdateProjectInput {
+  name?: string;
+}
+
+export interface ProjectStore {
+  list(): Promise<Project[]>;
+  get(id: string): Promise<Project | undefined>;
+  create(input: CreateProjectInput): Promise<Project>;
+  update(id: string, updates: UpdateProjectInput): Promise<Project>;
+  remove(id: string): Promise<boolean>;
+}
+
+export interface ProjectInvitation {
+  id: string;
+  email: string;
+  projectId: string;
+  role: ProjectRole;
+  tokenHash: string;
+  invitedBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+  expiresAt: string;
+  acceptedAt: string | null;
+  revokedAt: string | null;
+}
+
+export type SafeProjectInvitation = Omit<ProjectInvitation, "tokenHash">;
+
+export interface CreateProjectInvitationInput {
+  email: string;
+  projectId: string;
+  role: ProjectRole;
+  tokenHash: string;
+  invitedBy?: string | null;
+  expiresAt: string;
+}
+
+export interface ProjectInvitationStore {
+  create(input: CreateProjectInvitationInput): Promise<ProjectInvitation>;
+  get(id: string): Promise<ProjectInvitation | undefined>;
+  findByTokenHash(tokenHash: string): Promise<ProjectInvitation | undefined>;
+  findActiveByEmail(
+    email: string,
+    projectId: string
+  ): Promise<ProjectInvitation | undefined>;
+  list(): Promise<ProjectInvitation[]>;
+  listByProject(projectId: string): Promise<ProjectInvitation[]>;
+  markAccepted(id: string): Promise<ProjectInvitation | undefined>;
+  revoke(id: string): Promise<ProjectInvitation | undefined>;
+}
+
+export interface ProjectCollaborator {
+  id: string;
+  projectId: string;
+  userId: string;
+  role: ProjectRole;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProjectCollaboratorStore {
+  listByProject(projectId: string): Promise<ProjectCollaborator[]>;
+  listProjectIdsForUser(userId: string): Promise<string[]>;
+  get(
+    projectId: string,
+    userId: string
+  ): Promise<ProjectCollaborator | undefined>;
+  upsert(input: {
+    projectId: string;
+    userId: string;
+    role: ProjectRole;
+  }): Promise<ProjectCollaborator>;
+  updateRole(
+    projectId: string,
+    userId: string,
+    role: ProjectRole
+  ): Promise<ProjectCollaborator | undefined>;
+  remove(projectId: string, userId: string): Promise<boolean>;
+  removeAllForProject(projectId: string): Promise<void>;
 }
 
 export interface NotebookAttachment {

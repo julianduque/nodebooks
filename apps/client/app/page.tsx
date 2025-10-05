@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import AppShell from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { ChevronRight, NotebookPen, Trash2 } from "lucide-react";
 import ConfirmDialog from "../components/ui/confirm";
 import type { Notebook } from "@nodebooks/notebook-schema";
@@ -16,6 +17,7 @@ const API_BASE_URL = clientConfig().apiBaseUrl;
 export default function HomePage() {
   const [list, setList] = useState<Notebook[]>([]);
   const [loading, setLoading] = useState(true);
+  const [projectNames, setProjectNames] = useState<Record<string, string>>({});
   const router = useRouter();
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
@@ -25,7 +27,49 @@ export default function HomePage() {
     try {
       const res = await fetch(`${API_BASE_URL}/notebooks`);
       const payload = await res.json();
-      setList(Array.isArray(payload?.data) ? payload.data : []);
+      const notebooks: Notebook[] = Array.isArray(payload?.data)
+        ? payload.data
+        : [];
+      setList(notebooks);
+
+      const projectIds = Array.from(
+        new Set(
+          notebooks
+            .map((nb) => nb.projectId)
+            .filter(
+              (id): id is string => typeof id === "string" && id.length > 0
+            )
+        )
+      );
+      if (projectIds.length > 0) {
+        try {
+          const projectsResponse = await fetch(`${API_BASE_URL}/projects`);
+          if (projectsResponse.ok) {
+            const projectsPayload = (await projectsResponse
+              .json()
+              .catch(() => ({}))) as {
+              data?: {
+                projects?: {
+                  project: { id: string; name: string };
+                }[];
+              };
+            };
+            const mapped = new Map<string, string>();
+            for (const entry of projectsPayload?.data?.projects ?? []) {
+              if (entry?.project?.id) {
+                mapped.set(entry.project.id, entry.project.name);
+              }
+            }
+            setProjectNames(Object.fromEntries(mapped.entries()));
+          } else {
+            setProjectNames({});
+          }
+        } catch {
+          setProjectNames({});
+        }
+      } else {
+        setProjectNames({});
+      }
     } finally {
       setLoading(false);
     }
@@ -91,6 +135,11 @@ export default function HomePage() {
                   <p className="text-sm text-muted-foreground">
                     Last opened {new Date(item.updatedAt).toLocaleString()}
                   </p>
+                  {item.projectId ? (
+                    <Badge variant="outline" className="mt-2 w-fit">
+                      {projectNames[item.projectId] ?? "Project"}
+                    </Badge>
+                  ) : null}
                 </div>
               </div>
               <div className="mt-2 flex items-center gap-2 text-sm">
@@ -116,7 +165,7 @@ export default function HomePage() {
         ))}
       </div>
     );
-  }, [loading, list, handleCreate, handleOpen]);
+  }, [loading, list, handleCreate, handleOpen, projectNames]);
 
   return (
     <AppShell title="Home" onNewNotebook={handleCreate}>

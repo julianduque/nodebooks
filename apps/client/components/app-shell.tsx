@@ -330,7 +330,7 @@ const AppShell = ({
                 title="Create new notebook"
               >
                 <Plus className="h-4 w-4" />
-                {!collapsed && <span className="text-sm">New Notebook</span>}
+                {!collapsed && <span className="text-sm">New notebook</span>}
               </Button>
             ) : null}
             <ProfileMenu

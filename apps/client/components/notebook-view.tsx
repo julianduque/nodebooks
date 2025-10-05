@@ -103,6 +103,13 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
   );
   const [notebookAccessRole, setNotebookAccessRole] =
     useState<NotebookRole>("viewer");
+  const [projectNav, setProjectNav] = useState<{
+    id: string;
+    name: string;
+    notebooks: NotebookWithAccess[];
+  } | null>(null);
+  const [projectNavLoading, setProjectNavLoading] = useState(false);
+  const [projectNavError, setProjectNavError] = useState<string | null>(null);
   const collabSocketRef = useRef<WebSocket | null>(null);
   const suppressCollabBroadcastRef = useRef(false);
   const activeCellIdRef = useRef<string | null>(null);
@@ -191,6 +198,19 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     [isViewer]
   );
 
+  const notebookId = notebook?.id;
+  const sessionId = session?.id;
+
+  const handleProjectNotebookNavigate = useCallback(
+    (targetId: string) => {
+      if (!notebookId || targetId === notebookId) {
+        return;
+      }
+      router.push(`/notebooks/${targetId}`);
+    },
+    [router, notebookId]
+  );
+
   const markTerminalPendingPersistence = useCallback((cellId: string) => {
     setPendingTerminalIds((prev) => {
       if (prev.has(cellId)) {
@@ -271,8 +291,6 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
   // Immediate view of currently-running cell to avoid setState race during bursts
   const runningRef = useRef<string | null>(null);
 
-  const notebookId = notebook?.id;
-  const sessionId = session?.id;
   const runQueueRef = useRef<string[]>([]);
   useEffect(() => {
     runQueueRef.current = runQueue;
@@ -291,7 +309,18 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
       setRenameDraft("");
     }
     setIsRenaming(false);
-  }, [notebook?.name]);
+    if (notebook?.name) {
+      setProjectNav((prev) => {
+        if (!prev || notebook.projectId !== prev.id) {
+          return prev;
+        }
+        const updated = prev.notebooks.map((item) =>
+          item.id === notebook.id ? { ...item, name: notebook.name } : item
+        );
+        return { ...prev, notebooks: updated };
+      });
+    }
+  }, [notebook?.name, notebook?.projectId, notebook?.id]);
 
   useEffect(() => {
     setActionError(null);
@@ -1039,6 +1068,78 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
       controller.abort();
     };
   }, [initialNotebookId, isAdmin, notebookAccessRole]);
+
+  useEffect(() => {
+    const projectId = notebook?.projectId ?? null;
+    if (!projectId) {
+      setProjectNav((prev) => (prev && prev.id === projectId ? prev : null));
+      setProjectNavLoading(false);
+      setProjectNavError(null);
+      return;
+    }
+
+    const controller = new AbortController();
+
+    const loadProject = async () => {
+      setProjectNavLoading(true);
+      setProjectNavError(null);
+      try {
+        const response = await fetch(`${API_BASE_URL}/projects/${projectId}`, {
+          signal: controller.signal,
+          headers: { Accept: "application/json" },
+        });
+        const payload = (await response.json().catch(() => ({}))) as {
+          data?: {
+            project?: { id: string; name: string };
+            notebooks?: NotebookWithAccess[];
+          };
+          error?: string;
+        };
+        if (!response.ok || !payload?.data?.project) {
+          const message =
+            payload?.error ??
+            `Failed to load project details (status ${response.status})`;
+          throw new Error(message);
+        }
+        const list = Array.isArray(payload.data.notebooks)
+          ? [...payload.data.notebooks]
+          : [];
+        list.sort((a, b) => {
+          const orderA = a.projectOrder ?? Number.MAX_SAFE_INTEGER;
+          const orderB = b.projectOrder ?? Number.MAX_SAFE_INTEGER;
+          if (orderA !== orderB) {
+            return orderA - orderB;
+          }
+          return a.name.localeCompare(b.name);
+        });
+        if (!controller.signal.aborted) {
+          setProjectNav({
+            id: payload.data.project.id,
+            name: payload.data.project.name,
+            notebooks: list,
+          });
+        }
+      } catch (err) {
+        if (controller.signal.aborted) {
+          return;
+        }
+        setProjectNavError(
+          err instanceof Error ? err.message : "Unable to load project"
+        );
+        setProjectNav(null);
+      } finally {
+        if (!controller.signal.aborted) {
+          setProjectNavLoading(false);
+        }
+      }
+    };
+
+    void loadProject();
+
+    return () => {
+      controller.abort();
+    };
+  }, [notebook?.projectId]);
 
   useEffect(() => {
     if (!notebookId || !canEditNotebook) {
@@ -1957,11 +2058,62 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
             canEdit={canEditNotebook}
           />
         ) : (
-          <OutlinePanel
-            items={outlineItems}
-            onSelect={handleOutlineJump}
-            activeCellId={runningCellId ?? undefined}
-          />
+          <div className="flex h-full flex-col overflow-hidden">
+            {notebook.projectId ? (
+              <div className="shrink-0 space-y-2 rounded-md border border-border bg-muted/40 p-3">
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                    Project
+                  </p>
+                  <p className="text-sm font-semibold text-foreground">
+                    {projectNav?.name ?? (projectNavLoading ? "Loading…" : "")}
+                  </p>
+                </div>
+                {projectNavLoading ? (
+                  <p className="text-xs text-muted-foreground">
+                    Loading project notebooks…
+                  </p>
+                ) : projectNavError ? (
+                  <p className="text-xs text-destructive">{projectNavError}</p>
+                ) : projectNav ? (
+                  <ul className="space-y-1">
+                    {projectNav.notebooks.map((item) => {
+                      const isActive = item.id === notebook.id;
+                      return (
+                        <li key={item.id}>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleProjectNotebookNavigate(item.id)
+                            }
+                            disabled={isActive}
+                            className={`w-full rounded-md px-2 py-1 text-left text-sm transition-colors ${
+                              isActive
+                                ? "bg-muted text-foreground"
+                                : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                            }`}
+                          >
+                            <span className="block truncate">{item.name}</span>
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    No notebooks found in this project.
+                  </p>
+                )}
+              </div>
+            ) : null}
+            <div className="flex-1 overflow-y-auto pr-1">
+              <OutlinePanel
+                items={outlineItems}
+                onSelect={handleOutlineJump}
+                activeCellId={runningCellId ?? undefined}
+              />
+            </div>
+          </div>
         )}
       </div>
     );
@@ -1971,6 +2123,10 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     outlineItems,
     handleOutlineJump,
     runningCellId,
+    projectNav,
+    projectNavLoading,
+    projectNavError,
+    handleProjectNotebookNavigate,
     attachments,
     attachmentsLoading,
     attachmentsError,

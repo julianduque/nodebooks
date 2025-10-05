@@ -28,6 +28,8 @@ const NotebookMutationSchema = z.object({
   name: z.string().min(1).optional(),
   env: NotebookEnvSchema.optional(),
   cells: z.array(NotebookCellSchema).optional(),
+  projectId: z.string().nullable().optional(),
+  projectOrder: z.number().int().nonnegative().nullable().optional(),
 });
 
 const NotebookCreateSchema = NotebookMutationSchema.extend({

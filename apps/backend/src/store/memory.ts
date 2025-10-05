@@ -24,6 +24,16 @@ import type {
   NotebookCollaborator,
   NotebookCollaboratorStore,
   NotebookRole,
+  Project,
+  ProjectStore,
+  CreateProjectInput,
+  UpdateProjectInput,
+  ProjectCollaborator,
+  ProjectCollaboratorStore,
+  ProjectInvitation,
+  ProjectInvitationStore,
+  CreateProjectInvitationInput,
+  ProjectRole,
 } from "../types.js";
 
 const nanoid = customAlphabet("1234567890abcdefghijklmnopqrstuvwxyz", 12);
@@ -304,6 +314,22 @@ const cloneInvitation = (invitation: Invitation): Invitation => ({
 const cloneCollaborator = (
   collaborator: NotebookCollaborator
 ): NotebookCollaborator => ({
+  ...collaborator,
+});
+
+const cloneProject = (project: Project): Project => ({
+  ...project,
+});
+
+const cloneProjectInvitation = (
+  invitation: ProjectInvitation
+): ProjectInvitation => ({
+  ...invitation,
+});
+
+const cloneProjectCollaborator = (
+  collaborator: ProjectCollaborator
+): ProjectCollaborator => ({
   ...collaborator,
 });
 
@@ -595,5 +621,292 @@ export class InMemoryNotebookCollaboratorStore
       }
     }
     return true;
+  }
+}
+
+export class InMemoryProjectStore implements ProjectStore {
+  private readonly projectsById = new Map<string, Project>();
+
+  async list(): Promise<Project[]> {
+    return Array.from(this.projectsById.values())
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+      .map(cloneProject);
+  }
+
+  async get(id: string): Promise<Project | undefined> {
+    const project = this.projectsById.get(id);
+    return project ? cloneProject(project) : undefined;
+  }
+
+  async create(input: CreateProjectInput): Promise<Project> {
+    const now = new Date().toISOString();
+    const project: Project = {
+      id: userNanoid(),
+      name: input.name.trim(),
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.projectsById.set(project.id, project);
+    return cloneProject(project);
+  }
+
+  async update(id: string, updates: UpdateProjectInput): Promise<Project> {
+    const existing = this.projectsById.get(id);
+    if (!existing) {
+      throw new Error("Project not found");
+    }
+    if (typeof updates.name === "string") {
+      existing.name = updates.name.trim();
+    }
+    existing.updatedAt = new Date().toISOString();
+    return cloneProject(existing);
+  }
+
+  async remove(id: string): Promise<boolean> {
+    return this.projectsById.delete(id);
+  }
+}
+
+export class InMemoryProjectCollaboratorStore
+  implements ProjectCollaboratorStore
+{
+  private readonly collaborators = new Map<string, ProjectCollaborator>();
+  private readonly collaboratorIdsByProject = new Map<string, Set<string>>();
+  private readonly collaboratorIdsByUser = new Map<string, Set<string>>();
+
+  private key(projectId: string, userId: string): string {
+    return `${projectId}::${userId}`;
+  }
+
+  async listByProject(projectId: string): Promise<ProjectCollaborator[]> {
+    const ids = this.collaboratorIdsByProject.get(projectId);
+    if (!ids) {
+      return [];
+    }
+    return Array.from(ids.values())
+      .map((id) => this.collaborators.get(id))
+      .filter((collaborator): collaborator is ProjectCollaborator =>
+        Boolean(collaborator)
+      )
+      .map((collaborator) => cloneProjectCollaborator(collaborator));
+  }
+
+  async listProjectIdsForUser(userId: string): Promise<string[]> {
+    const ids = this.collaboratorIdsByUser.get(userId);
+    if (!ids) {
+      return [];
+    }
+    return Array.from(ids.values()).map(
+      (compoundId) => compoundId.split("::", 1)[0] ?? ""
+    );
+  }
+
+  async get(
+    projectId: string,
+    userId: string
+  ): Promise<ProjectCollaborator | undefined> {
+    const collaborator = this.collaborators.get(this.key(projectId, userId));
+    return collaborator ? cloneProjectCollaborator(collaborator) : undefined;
+  }
+
+  async upsert(input: {
+    projectId: string;
+    userId: string;
+    role: ProjectRole;
+  }): Promise<ProjectCollaborator> {
+    const key = this.key(input.projectId, input.userId);
+    const existing = this.collaborators.get(key);
+    const now = new Date().toISOString();
+    if (existing) {
+      existing.role = input.role;
+      existing.updatedAt = now;
+      return cloneProjectCollaborator(existing);
+    }
+    const collaborator: ProjectCollaborator = {
+      id: userNanoid(),
+      projectId: input.projectId,
+      userId: input.userId,
+      role: input.role,
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.collaborators.set(key, collaborator);
+    const byProject = this.collaboratorIdsByProject.get(input.projectId);
+    if (byProject) {
+      byProject.add(key);
+    } else {
+      this.collaboratorIdsByProject.set(input.projectId, new Set([key]));
+    }
+    const byUser = this.collaboratorIdsByUser.get(input.userId);
+    if (byUser) {
+      byUser.add(key);
+    } else {
+      this.collaboratorIdsByUser.set(input.userId, new Set([key]));
+    }
+    return cloneProjectCollaborator(collaborator);
+  }
+
+  async updateRole(
+    projectId: string,
+    userId: string,
+    role: ProjectRole
+  ): Promise<ProjectCollaborator | undefined> {
+    const collaborator = this.collaborators.get(this.key(projectId, userId));
+    if (!collaborator) {
+      return undefined;
+    }
+    collaborator.role = role;
+    collaborator.updatedAt = new Date().toISOString();
+    return cloneProjectCollaborator(collaborator);
+  }
+
+  async remove(projectId: string, userId: string): Promise<boolean> {
+    const key = this.key(projectId, userId);
+    const removed = this.collaborators.delete(key);
+    if (!removed) {
+      return false;
+    }
+    const byProject = this.collaboratorIdsByProject.get(projectId);
+    if (byProject) {
+      byProject.delete(key);
+      if (byProject.size === 0) {
+        this.collaboratorIdsByProject.delete(projectId);
+      }
+    }
+    const byUser = this.collaboratorIdsByUser.get(userId);
+    if (byUser) {
+      byUser.delete(key);
+      if (byUser.size === 0) {
+        this.collaboratorIdsByUser.delete(userId);
+      }
+    }
+    return true;
+  }
+
+  async removeAllForProject(projectId: string): Promise<void> {
+    const ids = this.collaboratorIdsByProject.get(projectId);
+    if (!ids) {
+      return;
+    }
+    for (const key of ids) {
+      this.collaborators.delete(key);
+      const [, userId] = key.split("::");
+      if (userId) {
+        const byUser = this.collaboratorIdsByUser.get(userId);
+        if (byUser) {
+          byUser.delete(key);
+          if (byUser.size === 0) {
+            this.collaboratorIdsByUser.delete(userId);
+          }
+        }
+      }
+    }
+    this.collaboratorIdsByProject.delete(projectId);
+  }
+}
+
+export class InMemoryProjectInvitationStore implements ProjectInvitationStore {
+  private readonly invitationsById = new Map<string, ProjectInvitation>();
+  private readonly invitationsByToken = new Map<string, string>();
+  private readonly invitationsByEmail = new Map<string, string>();
+
+  private emailKey(email: string, projectId: string): string {
+    return `${email.trim().toLowerCase()}::${projectId}`;
+  }
+
+  async create(
+    input: CreateProjectInvitationInput
+  ): Promise<ProjectInvitation> {
+    const email = input.email.trim().toLowerCase();
+    const now = new Date().toISOString();
+    const invitation: ProjectInvitation = {
+      id: userNanoid(),
+      email,
+      projectId: input.projectId,
+      role: input.role,
+      tokenHash: input.tokenHash,
+      invitedBy: input.invitedBy ?? null,
+      createdAt: now,
+      updatedAt: now,
+      expiresAt: input.expiresAt,
+      acceptedAt: null,
+      revokedAt: null,
+    };
+
+    this.invitationsById.set(invitation.id, invitation);
+    this.invitationsByToken.set(invitation.tokenHash, invitation.id);
+    this.invitationsByEmail.set(
+      this.emailKey(email, input.projectId),
+      invitation.id
+    );
+    return cloneProjectInvitation(invitation);
+  }
+
+  async get(id: string): Promise<ProjectInvitation | undefined> {
+    const invitation = this.invitationsById.get(id);
+    return invitation ? cloneProjectInvitation(invitation) : undefined;
+  }
+
+  async findByTokenHash(
+    tokenHash: string
+  ): Promise<ProjectInvitation | undefined> {
+    const id = this.invitationsByToken.get(tokenHash);
+    if (!id) {
+      return undefined;
+    }
+    return this.get(id);
+  }
+
+  async findActiveByEmail(
+    email: string,
+    projectId: string
+  ): Promise<ProjectInvitation | undefined> {
+    const id = this.invitationsByEmail.get(this.emailKey(email, projectId));
+    if (!id) {
+      return undefined;
+    }
+    const invitation = this.invitationsById.get(id);
+    if (!invitation) {
+      return undefined;
+    }
+    if (invitation.acceptedAt || invitation.revokedAt) {
+      return undefined;
+    }
+    return cloneProjectInvitation(invitation);
+  }
+
+  async list(): Promise<ProjectInvitation[]> {
+    return Array.from(this.invitationsById.values())
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .map(cloneProjectInvitation);
+  }
+
+  async listByProject(projectId: string): Promise<ProjectInvitation[]> {
+    return Array.from(this.invitationsById.values())
+      .filter((invitation) => invitation.projectId === projectId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .map(cloneProjectInvitation);
+  }
+
+  async markAccepted(id: string): Promise<ProjectInvitation | undefined> {
+    const invitation = this.invitationsById.get(id);
+    if (!invitation) {
+      return undefined;
+    }
+    const now = new Date().toISOString();
+    invitation.acceptedAt = now;
+    invitation.updatedAt = now;
+    return cloneProjectInvitation(invitation);
+  }
+
+  async revoke(id: string): Promise<ProjectInvitation | undefined> {
+    const invitation = this.invitationsById.get(id);
+    if (!invitation) {
+      return undefined;
+    }
+    const now = new Date().toISOString();
+    invitation.revokedAt = now;
+    invitation.updatedAt = now;
+    return cloneProjectInvitation(invitation);
   }
 }
