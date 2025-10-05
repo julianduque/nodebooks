@@ -17,6 +17,9 @@ import {
   InMemoryAuthSessionStore,
   InMemoryInvitationStore,
   InMemoryNotebookCollaboratorStore,
+  InMemoryProjectStore,
+  InMemoryProjectInvitationStore,
+  InMemoryProjectCollaboratorStore,
 } from "./store/memory.js";
 import {
   SqliteNotebookStore,
@@ -25,6 +28,9 @@ import {
   SqliteAuthSessionStore,
   SqliteInvitationStore,
   SqliteNotebookCollaboratorStore,
+  SqliteProjectStore,
+  SqliteProjectInvitationStore,
+  SqliteProjectCollaboratorStore,
 } from "./store/sqlite.js";
 import {
   PostgresNotebookStore,
@@ -33,6 +39,9 @@ import {
   PostgresAuthSessionStore,
   PostgresInvitationStore,
   PostgresNotebookCollaboratorStore,
+  PostgresProjectStore,
+  PostgresProjectInvitationStore,
+  PostgresProjectCollaboratorStore,
 } from "./store/postgres.js";
 import type {
   NotebookStore,
@@ -43,6 +52,9 @@ import type {
   AuthSession,
   InvitationStore,
   NotebookCollaboratorStore,
+  ProjectStore,
+  ProjectInvitationStore,
+  ProjectCollaboratorStore,
 } from "./types.js";
 import { registerNotebookRoutes } from "./routes/notebooks.js";
 import { registerDependencyRoutes } from "./routes/dependencies.js";
@@ -52,6 +64,8 @@ import { registerTypesRoutes } from "./routes/types.js";
 import { registerAiRoutes } from "./routes/ai.js";
 import { registerAttachmentRoutes } from "./routes/attachments.js";
 import { registerNotebookSharingRoutes } from "./routes/notebook-sharing.js";
+import { registerProjectRoutes } from "./routes/projects.js";
+import { registerProjectSharingRoutes } from "./routes/project-sharing.js";
 import { createKernelUpgradeHandler } from "./kernel/router.js";
 import { createTerminalUpgradeHandler } from "./terminal/router.js";
 import { NotebookCollaborationService } from "./notebooks/collaboration.js";
@@ -90,6 +104,9 @@ export const createServer = async ({
     authSessions,
     invitations,
     collaborators,
+    projects,
+    projectInvitations,
+    projectCollaborators,
   } = createNotebookStore({}, baseConfig);
   const settingsService = new SettingsService(settings);
   await settingsService.whenReady();
@@ -111,7 +128,11 @@ export const createServer = async ({
     users,
     authSessions,
     invitations,
-    collaborators
+    collaborators,
+    projects,
+    projectInvitations,
+    projectCollaborators,
+    store
   );
 
   const cookieOptions: FastifyCookieNamespace.CookieSerializeOptions = {
@@ -466,7 +487,15 @@ export const createServer = async ({
       await registerAiRoutes(api, { settings: settingsService });
       registerAttachmentRoutes(api, store, collaborators);
       registerNotebookRoutes(api, store, collaborators);
+      registerProjectRoutes(api, {
+        store,
+        projects,
+        projectCollaborators,
+        projectInvitations,
+        collaborators,
+      });
       registerNotebookSharingRoutes(api, { auth: authService });
+      registerProjectSharingRoutes(api, { auth: authService });
       registerDependencyRoutes(api, store, collaborators);
       registerSessionRoutes(api, kernelSessions, store, collaborators);
       registerTemplateRoutes(api);
@@ -557,6 +586,9 @@ interface NotebookStoreResult {
   authSessions: AuthSessionStore;
   invitations: InvitationStore;
   collaborators: NotebookCollaboratorStore;
+  projects: ProjectStore;
+  projectInvitations: ProjectInvitationStore;
+  projectCollaborators: ProjectCollaboratorStore;
   driver: PersistenceDriver;
 }
 
@@ -594,6 +626,9 @@ export const createNotebookStore = (
         authSessions: new InMemoryAuthSessionStore(),
         invitations: new InMemoryInvitationStore(),
         collaborators: new InMemoryNotebookCollaboratorStore(),
+        projects: new InMemoryProjectStore(),
+        projectInvitations: new InMemoryProjectInvitationStore(),
+        projectCollaborators: new InMemoryProjectCollaboratorStore(),
         driver,
       };
     case "sqlite": {
@@ -607,6 +642,9 @@ export const createNotebookStore = (
         authSessions: new SqliteAuthSessionStore(sqliteStore),
         invitations: new SqliteInvitationStore(sqliteStore),
         collaborators: new SqliteNotebookCollaboratorStore(sqliteStore),
+        projects: new SqliteProjectStore(sqliteStore),
+        projectInvitations: new SqliteProjectInvitationStore(sqliteStore),
+        projectCollaborators: new SqliteProjectCollaboratorStore(sqliteStore),
         driver,
       };
     }
@@ -621,6 +659,11 @@ export const createNotebookStore = (
         authSessions: new PostgresAuthSessionStore(postgresStore),
         invitations: new PostgresInvitationStore(postgresStore),
         collaborators: new PostgresNotebookCollaboratorStore(postgresStore),
+        projects: new PostgresProjectStore(postgresStore),
+        projectInvitations: new PostgresProjectInvitationStore(postgresStore),
+        projectCollaborators: new PostgresProjectCollaboratorStore(
+          postgresStore
+        ),
         driver,
       };
     }

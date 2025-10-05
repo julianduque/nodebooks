@@ -22,6 +22,16 @@ import type {
   NotebookCollaborator,
   NotebookCollaboratorStore,
   NotebookRole,
+  Project,
+  ProjectStore,
+  CreateProjectInput,
+  UpdateProjectInput,
+  ProjectCollaborator,
+  ProjectCollaboratorStore,
+  ProjectInvitation,
+  ProjectInvitationStore,
+  CreateProjectInvitationInput,
+  ProjectRole,
 } from "../types.js";
 import { loadServerConfig } from "@nodebooks/config";
 
@@ -35,6 +45,60 @@ const userNanoid = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", 18);
 type NotebookRow = {
   data: unknown;
 };
+
+const mapProjectRow = (row: {
+  id: string;
+  name: string;
+  created_at: Date;
+  updated_at: Date;
+}): Project => ({
+  id: row.id,
+  name: row.name,
+  createdAt: row.created_at.toISOString(),
+  updatedAt: row.updated_at.toISOString(),
+});
+
+const mapProjectCollaboratorRow = (row: {
+  id: string;
+  project_id: string;
+  user_id: string;
+  role: string;
+  created_at: Date;
+  updated_at: Date;
+}): ProjectCollaborator => ({
+  id: row.id,
+  projectId: row.project_id,
+  userId: row.user_id,
+  role: row.role as ProjectRole,
+  createdAt: row.created_at.toISOString(),
+  updatedAt: row.updated_at.toISOString(),
+});
+
+const mapProjectInvitationRow = (row: {
+  id: string;
+  email: string;
+  project_id: string;
+  role: string;
+  token_hash: string;
+  invited_by: string | null;
+  created_at: Date;
+  updated_at: Date;
+  expires_at: Date;
+  accepted_at: Date | null;
+  revoked_at: Date | null;
+}): ProjectInvitation => ({
+  id: row.id,
+  email: row.email,
+  projectId: row.project_id,
+  role: row.role as ProjectRole,
+  tokenHash: row.token_hash,
+  invitedBy: row.invited_by,
+  createdAt: row.created_at.toISOString(),
+  updatedAt: row.updated_at.toISOString(),
+  expiresAt: row.expires_at.toISOString(),
+  acceptedAt: row.accepted_at ? row.accepted_at.toISOString() : null,
+  revokedAt: row.revoked_at ? row.revoked_at.toISOString() : null,
+});
 
 type SslConfig = { rejectUnauthorized: boolean };
 
@@ -103,6 +167,14 @@ export class PostgresNotebookStore implements NotebookStore {
     }
 
     this.ready = this.initialize();
+  }
+
+  getPool(): Pool {
+    return this.pool;
+  }
+
+  async ensureReady(): Promise<void> {
+    await this.ready;
   }
 
   async all(): Promise<Notebook[]> {
@@ -287,14 +359,6 @@ export class PostgresNotebookStore implements NotebookStore {
     await this.pool.end();
   }
 
-  async ensureReady(): Promise<void> {
-    await this.ready;
-  }
-
-  getPool(): Pool {
-    return this.pool;
-  }
-
   private async initialize(): Promise<void> {
     await this.pool.query(`
       CREATE TABLE IF NOT EXISTS notebooks (
@@ -352,6 +416,20 @@ export class PostgresNotebookStore implements NotebookStore {
         created_at TIMESTAMPTZ NOT NULL,
         updated_at TIMESTAMPTZ NOT NULL
       )
+    `);
+
+    await this.pool.query(`
+      CREATE TABLE IF NOT EXISTS projects (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL
+      )
+    `);
+
+    await this.pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_projects_created_at
+        ON projects (created_at ASC, id ASC)
     `);
 
     await this.pool.query(`
@@ -417,6 +495,49 @@ export class PostgresNotebookStore implements NotebookStore {
     await this.pool.query(`
       CREATE INDEX IF NOT EXISTS idx_notebook_collaborators_user
         ON notebook_collaborators (user_id, notebook_id)
+    `);
+
+    await this.pool.query(`
+      CREATE TABLE IF NOT EXISTS project_collaborators (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        role TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL,
+        UNIQUE (project_id, user_id)
+      )
+    `);
+
+    await this.pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_project_collaborators_user
+        ON project_collaborators (user_id, project_id)
+    `);
+
+    await this.pool.query(`
+      CREATE TABLE IF NOT EXISTS project_invitations (
+        id TEXT PRIMARY KEY,
+        email TEXT NOT NULL,
+        project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        role TEXT NOT NULL,
+        token_hash TEXT NOT NULL UNIQUE,
+        invited_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL,
+        expires_at TIMESTAMPTZ NOT NULL,
+        accepted_at TIMESTAMPTZ,
+        revoked_at TIMESTAMPTZ
+      )
+    `);
+
+    await this.pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_project_invitations_email
+        ON project_invitations (email, created_at DESC, id ASC)
+    `);
+
+    await this.pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_project_invitations_project
+        ON project_invitations (project_id, created_at DESC, id ASC)
     `);
   }
 
@@ -987,5 +1108,335 @@ export class PostgresNotebookCollaboratorStore
       [notebookId, userId]
     );
     return (result.rowCount ?? 0) > 0;
+  }
+}
+
+export class PostgresProjectStore implements ProjectStore {
+  constructor(private readonly notebooks: PostgresNotebookStore) {}
+
+  private async getPool(): Promise<Pool> {
+    await this.notebooks.ensureReady();
+    return this.notebooks.getPool();
+  }
+
+  async list(): Promise<Project[]> {
+    const pool = await this.getPool();
+    const result = await pool.query(
+      `SELECT id, name, created_at, updated_at
+       FROM projects
+       ORDER BY created_at ASC, id ASC`
+    );
+    return result.rows.map(mapProjectRow);
+  }
+
+  async get(id: string): Promise<Project | undefined> {
+    const pool = await this.getPool();
+    const result = await pool.query(
+      `SELECT id, name, created_at, updated_at
+       FROM projects
+       WHERE id = $1
+       LIMIT 1`,
+      [id]
+    );
+    const row = result.rows[0];
+    return row ? mapProjectRow(row) : undefined;
+  }
+
+  async create(input: CreateProjectInput): Promise<Project> {
+    const pool = await this.getPool();
+    const now = new Date();
+    const result = await pool.query(
+      `INSERT INTO projects (id, name, created_at, updated_at)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id, name, created_at, updated_at`,
+      [userNanoid(), input.name.trim(), now, now]
+    );
+    const row = result.rows[0];
+    if (!row) {
+      throw new Error("Failed to create project");
+    }
+    return mapProjectRow(row);
+  }
+
+  async update(id: string, updates: UpdateProjectInput): Promise<Project> {
+    const pool = await this.getPool();
+    const fields: string[] = [];
+    const values: unknown[] = [];
+    if (typeof updates.name === "string") {
+      fields.push(`name = $${fields.length + 2}`);
+      values.push(updates.name.trim());
+    }
+    if (fields.length === 0) {
+      const current = await this.get(id);
+      if (!current) {
+        throw new Error("Project not found");
+      }
+      return current;
+    }
+    const updatedAt = new Date();
+    fields.push(`updated_at = $${fields.length + 2}`);
+    values.push(updatedAt);
+    const result = await pool.query(
+      `UPDATE projects
+         SET ${fields.join(", ")}
+       WHERE id = $1
+       RETURNING id, name, created_at, updated_at`,
+      [id, ...values]
+    );
+    const row = result.rows[0];
+    if (!row) {
+      throw new Error("Project not found");
+    }
+    return mapProjectRow(row);
+  }
+
+  async remove(id: string): Promise<boolean> {
+    const pool = await this.getPool();
+    const result = await pool.query(`DELETE FROM projects WHERE id = $1`, [id]);
+    return (result.rowCount ?? 0) > 0;
+  }
+}
+
+export class PostgresProjectCollaboratorStore
+  implements ProjectCollaboratorStore
+{
+  constructor(private readonly notebooks: PostgresNotebookStore) {}
+
+  private async getPool(): Promise<Pool> {
+    await this.notebooks.ensureReady();
+    return this.notebooks.getPool();
+  }
+
+  async listByProject(projectId: string): Promise<ProjectCollaborator[]> {
+    const pool = await this.getPool();
+    const result = await pool.query(
+      `SELECT id, project_id, user_id, role, created_at, updated_at
+       FROM project_collaborators
+       WHERE project_id = $1
+       ORDER BY updated_at DESC, created_at DESC`,
+      [projectId]
+    );
+    return result.rows.map(mapProjectCollaboratorRow);
+  }
+
+  async listProjectIdsForUser(userId: string): Promise<string[]> {
+    const pool = await this.getPool();
+    const result = await pool.query(
+      `SELECT project_id
+       FROM project_collaborators
+       WHERE user_id = $1
+       ORDER BY project_id ASC`,
+      [userId]
+    );
+    return result.rows.map((row) => row.project_id);
+  }
+
+  async get(
+    projectId: string,
+    userId: string
+  ): Promise<ProjectCollaborator | undefined> {
+    const pool = await this.getPool();
+    const result = await pool.query(
+      `SELECT id, project_id, user_id, role, created_at, updated_at
+       FROM project_collaborators
+       WHERE project_id = $1 AND user_id = $2
+       LIMIT 1`,
+      [projectId, userId]
+    );
+    const row = result.rows[0];
+    return row ? mapProjectCollaboratorRow(row) : undefined;
+  }
+
+  async upsert(input: {
+    projectId: string;
+    userId: string;
+    role: ProjectRole;
+  }): Promise<ProjectCollaborator> {
+    const pool = await this.getPool();
+    const now = new Date();
+    const result = await pool.query(
+      `INSERT INTO project_collaborators (
+         id, project_id, user_id, role, created_at, updated_at
+       ) VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (project_id, user_id) DO UPDATE SET
+         role = EXCLUDED.role,
+         updated_at = EXCLUDED.updated_at
+       RETURNING id, project_id, user_id, role, created_at, updated_at`,
+      [userNanoid(), input.projectId, input.userId, input.role, now, now]
+    );
+    const row = result.rows[0];
+    if (!row) {
+      throw new Error("Failed to upsert project collaborator");
+    }
+    return mapProjectCollaboratorRow(row);
+  }
+
+  async updateRole(
+    projectId: string,
+    userId: string,
+    role: ProjectRole
+  ): Promise<ProjectCollaborator | undefined> {
+    const pool = await this.getPool();
+    const updatedAt = new Date();
+    const result = await pool.query(
+      `UPDATE project_collaborators
+         SET role = $1, updated_at = $2
+       WHERE project_id = $3 AND user_id = $4
+       RETURNING id, project_id, user_id, role, created_at, updated_at`,
+      [role, updatedAt, projectId, userId]
+    );
+    const row = result.rows[0];
+    return row ? mapProjectCollaboratorRow(row) : undefined;
+  }
+
+  async remove(projectId: string, userId: string): Promise<boolean> {
+    const pool = await this.getPool();
+    const result = await pool.query(
+      `DELETE FROM project_collaborators
+       WHERE project_id = $1 AND user_id = $2`,
+      [projectId, userId]
+    );
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  async removeAllForProject(projectId: string): Promise<void> {
+    const pool = await this.getPool();
+    await pool.query(
+      `DELETE FROM project_collaborators WHERE project_id = $1`,
+      [projectId]
+    );
+  }
+}
+
+export class PostgresProjectInvitationStore implements ProjectInvitationStore {
+  constructor(private readonly notebooks: PostgresNotebookStore) {}
+
+  private async getPool(): Promise<Pool> {
+    await this.notebooks.ensureReady();
+    return this.notebooks.getPool();
+  }
+
+  async create(
+    input: CreateProjectInvitationInput
+  ): Promise<ProjectInvitation> {
+    const pool = await this.getPool();
+    const now = new Date();
+    const result = await pool.query(
+      `INSERT INTO project_invitations (
+         id, email, project_id, role, token_hash, invited_by, created_at, updated_at, expires_at, accepted_at, revoked_at
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NULL, NULL)
+       RETURNING id, email, project_id, role, token_hash, invited_by, created_at, updated_at, expires_at, accepted_at, revoked_at`,
+      [
+        userNanoid(),
+        input.email.trim().toLowerCase(),
+        input.projectId,
+        input.role,
+        input.tokenHash,
+        input.invitedBy ?? null,
+        now,
+        now,
+        new Date(input.expiresAt),
+      ]
+    );
+    const row = result.rows[0];
+    if (!row) {
+      throw new Error("Failed to create project invitation");
+    }
+    return mapProjectInvitationRow(row);
+  }
+
+  async get(id: string): Promise<ProjectInvitation | undefined> {
+    const pool = await this.getPool();
+    const result = await pool.query(
+      `SELECT id, email, project_id, role, token_hash, invited_by, created_at, updated_at, expires_at, accepted_at, revoked_at
+       FROM project_invitations
+       WHERE id = $1
+       LIMIT 1`,
+      [id]
+    );
+    const row = result.rows[0];
+    return row ? mapProjectInvitationRow(row) : undefined;
+  }
+
+  async findByTokenHash(
+    tokenHash: string
+  ): Promise<ProjectInvitation | undefined> {
+    const pool = await this.getPool();
+    const result = await pool.query(
+      `SELECT id, email, project_id, role, token_hash, invited_by, created_at, updated_at, expires_at, accepted_at, revoked_at
+       FROM project_invitations
+       WHERE token_hash = $1
+       LIMIT 1`,
+      [tokenHash]
+    );
+    const row = result.rows[0];
+    return row ? mapProjectInvitationRow(row) : undefined;
+  }
+
+  async findActiveByEmail(
+    email: string,
+    projectId: string
+  ): Promise<ProjectInvitation | undefined> {
+    const pool = await this.getPool();
+    const result = await pool.query(
+      `SELECT id, email, project_id, role, token_hash, invited_by, created_at, updated_at, expires_at, accepted_at, revoked_at
+       FROM project_invitations
+       WHERE email = $1 AND project_id = $2
+       ORDER BY created_at DESC, id DESC
+       LIMIT 1`,
+      [email.trim().toLowerCase(), projectId]
+    );
+    const row = result.rows[0];
+    return row ? mapProjectInvitationRow(row) : undefined;
+  }
+
+  async list(): Promise<ProjectInvitation[]> {
+    const pool = await this.getPool();
+    const result = await pool.query(
+      `SELECT id, email, project_id, role, token_hash, invited_by, created_at, updated_at, expires_at, accepted_at, revoked_at
+       FROM project_invitations
+       ORDER BY created_at DESC, id DESC`
+    );
+    return result.rows.map(mapProjectInvitationRow);
+  }
+
+  async listByProject(projectId: string): Promise<ProjectInvitation[]> {
+    const pool = await this.getPool();
+    const result = await pool.query(
+      `SELECT id, email, project_id, role, token_hash, invited_by, created_at, updated_at, expires_at, accepted_at, revoked_at
+       FROM project_invitations
+       WHERE project_id = $1
+       ORDER BY created_at DESC, id DESC`,
+      [projectId]
+    );
+    return result.rows.map(mapProjectInvitationRow);
+  }
+
+  async markAccepted(id: string): Promise<ProjectInvitation | undefined> {
+    const pool = await this.getPool();
+    const now = new Date();
+    const result = await pool.query(
+      `UPDATE project_invitations
+         SET accepted_at = $1, updated_at = $1
+       WHERE id = $2
+       RETURNING id, email, project_id, role, token_hash, invited_by, created_at, updated_at, expires_at, accepted_at, revoked_at`,
+      [now, id]
+    );
+    const row = result.rows[0];
+    return row ? mapProjectInvitationRow(row) : undefined;
+  }
+
+  async revoke(id: string): Promise<ProjectInvitation | undefined> {
+    const pool = await this.getPool();
+    const now = new Date();
+    const result = await pool.query(
+      `UPDATE project_invitations
+         SET revoked_at = $1, updated_at = $1
+       WHERE id = $2
+       RETURNING id, email, project_id, role, token_hash, invited_by, created_at, updated_at, expires_at, accepted_at, revoked_at`,
+      [now, id]
+    );
+    const row = result.rows[0];
+    return row ? mapProjectInvitationRow(row) : undefined;
   }
 }

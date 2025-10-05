@@ -11,7 +11,16 @@ import {
   type User,
   type UserStore,
   type UserRole,
+  type ProjectStore,
+  type ProjectInvitation,
+  type ProjectInvitationStore,
+  type SafeProjectInvitation,
+  type ProjectCollaborator,
+  type ProjectCollaboratorStore,
+  type ProjectRole,
+  type NotebookStore,
 } from "../types.js";
+import type { Notebook } from "@nodebooks/notebook-schema";
 import { hashPassword, verifyPassword } from "./password.js";
 import {
   SESSION_COOKIE_MAX_AGE_MS,
@@ -47,7 +56,11 @@ export class AuthService {
     private readonly users: UserStore,
     private readonly sessions: AuthSessionStore,
     private readonly invitations: InvitationStore,
-    private readonly collaborators: NotebookCollaboratorStore
+    private readonly collaborators: NotebookCollaboratorStore,
+    private readonly projects: ProjectStore,
+    private readonly projectInvitations: ProjectInvitationStore,
+    private readonly projectCollaborators: ProjectCollaboratorStore,
+    private readonly notebooks: NotebookStore
   ) {}
 
   async hasUsers(): Promise<boolean> {
@@ -95,7 +108,20 @@ export class AuthService {
     return Number.isFinite(expiresAt) && expiresAt <= Date.now();
   }
 
+  private isProjectInvitationExpired(invitation: ProjectInvitation): boolean {
+    const expiresAt = Date.parse(invitation.expiresAt);
+    return Number.isFinite(expiresAt) && expiresAt <= Date.now();
+  }
+
   private toSafeInvitation(invitation: Invitation): SafeInvitation {
+    const { tokenHash, ...rest } = invitation;
+    void tokenHash;
+    return { ...rest };
+  }
+
+  private toSafeProjectInvitation(
+    invitation: ProjectInvitation
+  ): SafeProjectInvitation {
     const { tokenHash, ...rest } = invitation;
     void tokenHash;
     return { ...rest };
@@ -115,22 +141,53 @@ export class AuthService {
     return { ...base, invitedByUser: toSafeUser(inviter) };
   }
 
+  private async augmentProjectInvitation(
+    invitation: ProjectInvitation
+  ): Promise<SafeProjectInvitation & { invitedByUser?: SafeUser | null }> {
+    const base = this.toSafeProjectInvitation(invitation);
+    if (!invitation.invitedBy) {
+      return base;
+    }
+    const inviter = await this.users.get(invitation.invitedBy);
+    if (!inviter) {
+      return base;
+    }
+    return { ...base, invitedByUser: toSafeUser(inviter) };
+  }
+
   private async findActiveInvitationByToken(
     token: string
-  ): Promise<Invitation | null> {
+  ): Promise<
+    | { type: "notebook"; invitation: Invitation }
+    | { type: "project"; invitation: ProjectInvitation }
+    | null
+  > {
     const hashed = hashInvitationToken(token);
-    const invitation = await this.invitations.findByTokenHash(hashed);
-    if (!invitation) {
+    const notebookInvitation = await this.invitations.findByTokenHash(hashed);
+    if (notebookInvitation) {
+      if (notebookInvitation.revokedAt || notebookInvitation.acceptedAt) {
+        return null;
+      }
+      if (this.isInvitationExpired(notebookInvitation)) {
+        await this.invitations.revoke(notebookInvitation.id);
+        return null;
+      }
+      return { type: "notebook", invitation: notebookInvitation };
+    }
+
+    const projectInvitation =
+      await this.projectInvitations.findByTokenHash(hashed);
+    if (!projectInvitation) {
       return null;
     }
-    if (invitation.revokedAt || invitation.acceptedAt) {
+    if (projectInvitation.revokedAt || projectInvitation.acceptedAt) {
       return null;
     }
-    if (this.isInvitationExpired(invitation)) {
-      await this.invitations.revoke(invitation.id);
+    if (this.isProjectInvitationExpired(projectInvitation)) {
+      await this.projectInvitations.revoke(projectInvitation.id);
       return null;
     }
-    return invitation;
+    return { type: "project", invitation: projectInvitation };
   }
 
   async inviteToNotebook(input: {
@@ -191,6 +248,66 @@ export class AuthService {
     return { ...collaborator, user: toSafeUser(user) };
   }
 
+  private async augmentProjectCollaborator(
+    collaborator: ProjectCollaborator
+  ): Promise<(ProjectCollaborator & { user: SafeUser }) | null> {
+    const user = await this.users.get(collaborator.userId);
+    if (!user) {
+      return null;
+    }
+    return { ...collaborator, user: toSafeUser(user) };
+  }
+
+  private async getNotebooksForProject(projectId: string): Promise<Notebook[]> {
+    const notebooks = await this.notebooks.all();
+    return notebooks.filter((notebook) => notebook.projectId === projectId);
+  }
+
+  private roleRank(role: NotebookRole | ProjectRole): number {
+    return role === "editor" ? 2 : 1;
+  }
+
+  private normalizeRole(role: NotebookRole | ProjectRole): NotebookRole {
+    return role === "editor" ? "editor" : "viewer";
+  }
+
+  private maxRole(a: NotebookRole, b: ProjectRole): NotebookRole {
+    return this.roleRank(a) >= this.roleRank(b) ? a : this.normalizeRole(b);
+  }
+
+  private async applyProjectRoleToNotebooks(
+    userId: string,
+    projectId: string,
+    role: ProjectRole
+  ) {
+    const notebooks = await this.getNotebooksForProject(projectId);
+    for (const notebook of notebooks) {
+      const existing = await this.collaborators.get(notebook.id, userId);
+      if (existing) {
+        const desired = this.maxRole(existing.role, role);
+        if (existing.role !== desired) {
+          await this.collaborators.updateRole(notebook.id, userId, desired);
+        }
+      } else {
+        await this.collaborators.upsert({
+          notebookId: notebook.id,
+          userId,
+          role: this.normalizeRole(role),
+        });
+      }
+    }
+  }
+
+  private async removeProjectRoleFromNotebooks(
+    userId: string,
+    projectId: string
+  ) {
+    const notebooks = await this.getNotebooksForProject(projectId);
+    for (const notebook of notebooks) {
+      await this.collaborators.remove(notebook.id, userId);
+    }
+  }
+
   async listNotebookCollaborators(
     notebookId: string
   ): Promise<(NotebookCollaborator & { user: SafeUser })[]> {
@@ -238,6 +355,125 @@ export class AuthService {
     return this.collaborators.remove(notebookId, userId);
   }
 
+  async listProjectCollaborators(
+    projectId: string
+  ): Promise<(ProjectCollaborator & { user: SafeUser })[]> {
+    const collaborators =
+      await this.projectCollaborators.listByProject(projectId);
+    const summaries = await Promise.all(
+      collaborators.map((collaborator) =>
+        this.augmentProjectCollaborator(collaborator)
+      )
+    );
+    return summaries.filter(
+      (summary): summary is ProjectCollaborator & { user: SafeUser } =>
+        summary !== null
+    );
+  }
+
+  async listProjectInvitations(
+    projectId: string
+  ): Promise<(SafeProjectInvitation & { invitedByUser?: SafeUser | null })[]> {
+    const invitations = await this.projectInvitations.listByProject(projectId);
+    return Promise.all(
+      invitations.map((inv) => this.augmentProjectInvitation(inv))
+    );
+  }
+
+  async inviteToProject(input: {
+    email: string;
+    projectId: string;
+    role?: ProjectRole;
+    invitedBy?: string | null;
+    expiresAt?: Date;
+  }): Promise<{
+    invitation: SafeProjectInvitation & { invitedByUser?: SafeUser | null };
+    token: string;
+  }> {
+    const email = normalizeEmail(input.email);
+    const active = await this.projectInvitations.findActiveByEmail(
+      email,
+      input.projectId
+    );
+    if (active) {
+      await this.projectInvitations.revoke(active.id);
+    }
+
+    const token = createInvitationToken();
+    const hashedToken = hashInvitationToken(token);
+    const expiresAt = input.expiresAt
+      ? input.expiresAt.toISOString()
+      : new Date(Date.now() + INVITATION_EXPIRY_MS).toISOString();
+    const invitation = await this.projectInvitations.create({
+      email,
+      projectId: input.projectId,
+      role: input.role ?? "editor",
+      tokenHash: hashedToken,
+      invitedBy: input.invitedBy ?? null,
+      expiresAt,
+    });
+    const summary = await this.augmentProjectInvitation(invitation);
+    return { invitation: summary, token };
+  }
+
+  async grantProjectAccess(input: {
+    projectId: string;
+    userId: string;
+    role: ProjectRole;
+  }): Promise<(ProjectCollaborator & { user: SafeUser }) | null> {
+    const collaborator = await this.projectCollaborators.upsert(input);
+    await this.applyProjectRoleToNotebooks(
+      input.userId,
+      input.projectId,
+      input.role
+    );
+    return this.augmentProjectCollaborator(collaborator);
+  }
+
+  async updateProjectCollaboratorRole(input: {
+    projectId: string;
+    userId: string;
+    role: ProjectRole;
+  }): Promise<(ProjectCollaborator & { user: SafeUser }) | null> {
+    const updated = await this.projectCollaborators.updateRole(
+      input.projectId,
+      input.userId,
+      input.role
+    );
+    if (!updated) {
+      return null;
+    }
+    await this.applyProjectRoleToNotebooks(
+      input.userId,
+      input.projectId,
+      input.role
+    );
+    return this.augmentProjectCollaborator(updated);
+  }
+
+  async removeProjectCollaborator(
+    projectId: string,
+    userId: string
+  ): Promise<boolean> {
+    const removed = await this.projectCollaborators.remove(projectId, userId);
+    if (removed) {
+      await this.removeProjectRoleFromNotebooks(userId, projectId);
+    }
+    return removed;
+  }
+
+  async revokeProjectInvitation(
+    id: string
+  ): Promise<
+    (SafeProjectInvitation & { invitedByUser?: SafeUser | null }) | null
+  > {
+    const revoked = await this.projectInvitations.revoke(id);
+    if (!revoked) {
+      return null;
+    }
+    return this.augmentProjectInvitation(revoked);
+  }
+
   async revokeInvitation(
     id: string
   ): Promise<(SafeInvitation & { invitedByUser?: SafeUser | null }) | null> {
@@ -248,14 +484,36 @@ export class AuthService {
     return this.augmentInvitation(revoked);
   }
 
-  async inspectInvitation(
-    token: string
-  ): Promise<(SafeInvitation & { invitedByUser?: SafeUser | null }) | null> {
-    const invitation = await this.findActiveInvitationByToken(token);
-    if (!invitation) {
+  async inspectInvitation(token: string): Promise<
+    | ({
+        type: "notebook";
+        notebookId: string;
+      } & (SafeInvitation & { invitedByUser?: SafeUser | null }))
+    | ({
+        type: "project";
+        projectId: string;
+        projectName: string | null;
+      } & (SafeProjectInvitation & { invitedByUser?: SafeUser | null }))
+    | null
+  > {
+    const pending = await this.findActiveInvitationByToken(token);
+    if (!pending) {
       return null;
     }
-    return this.augmentInvitation(invitation);
+    if (pending.type === "notebook") {
+      const summary = await this.augmentInvitation(pending.invitation);
+      return {
+        type: "notebook" as const,
+        ...summary,
+      };
+    }
+    const summary = await this.augmentProjectInvitation(pending.invitation);
+    const project = await this.projects.get(pending.invitation.projectId);
+    return {
+      type: "project" as const,
+      projectName: project?.name ?? null,
+      ...summary,
+    };
   }
 
   async completeInvitation(input: {
@@ -267,24 +525,47 @@ export class AuthService {
     | AuthenticatedSession
     | { user: SafeUser; token?: undefined; session?: undefined }
   > {
-    const invitation = await this.findActiveInvitationByToken(input.token);
-    if (!invitation) {
+    const pending = await this.findActiveInvitationByToken(input.token);
+    if (!pending) {
       throw new Error("Invitation is no longer valid");
     }
 
     const passwordHash = await hashPassword(input.password);
-    const user = await this.users.create({
-      email: invitation.email,
+    const baseUser = await this.users.create({
+      email:
+        pending.type === "notebook"
+          ? pending.invitation.email
+          : pending.invitation.email,
       name: input.name.trim(),
-      role: invitation.role,
+      role:
+        pending.type === "notebook"
+          ? pending.invitation.role
+          : pending.invitation.role,
       passwordHash,
     });
-    await this.collaborators.upsert({
-      notebookId: invitation.notebookId,
-      userId: user.id,
-      role: invitation.role,
-    });
-    await this.invitations.markAccepted(invitation.id);
+
+    if (pending.type === "notebook") {
+      await this.collaborators.upsert({
+        notebookId: pending.invitation.notebookId,
+        userId: baseUser.id,
+        role: pending.invitation.role,
+      });
+      await this.invitations.markAccepted(pending.invitation.id);
+    } else {
+      await this.projectCollaborators.upsert({
+        projectId: pending.invitation.projectId,
+        userId: baseUser.id,
+        role: pending.invitation.role,
+      });
+      await this.applyProjectRoleToNotebooks(
+        baseUser.id,
+        pending.invitation.projectId,
+        pending.invitation.role
+      );
+      await this.projectInvitations.markAccepted(pending.invitation.id);
+    }
+
+    const user = pending.type === "notebook" ? baseUser : baseUser;
     const safeUser = toSafeUser(user);
     if (input.autoLogin === false) {
       return { user: safeUser };

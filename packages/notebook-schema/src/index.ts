@@ -708,6 +708,8 @@ export const NotebookSchema = z.object({
   cells: z.array(NotebookCellSchema),
   createdAt: z.string(),
   updatedAt: z.string(),
+  projectId: z.string().optional().nullable(),
+  projectOrder: z.number().int().nonnegative().optional().nullable(),
 });
 
 export type Notebook = z.infer<typeof NotebookSchema>;
@@ -742,6 +744,17 @@ export type NotebookFileNotebook = z.infer<typeof NotebookFileNotebookSchema>;
 export type NotebookFileSummary = z.infer<typeof NotebookFileSummarySchema>;
 export type NotebookFile = z.infer<typeof NotebookFileSchema>;
 
+export const ProjectRoleSchema = z.enum(["editor", "viewer"]);
+export type ProjectRole = z.infer<typeof ProjectRoleSchema>;
+
+export const ProjectSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+export type Project = z.infer<typeof ProjectSchema>;
+
 export const normalizeNotebookEnvVersion = <
   T extends { runtime: NotebookEnv["runtime"]; version?: string },
 >(
@@ -762,7 +775,13 @@ export const normalizeNotebookEnvVersion = <
 };
 
 export const ensureNotebookRuntimeVersion = (notebook: Notebook): Notebook => {
-  return { ...notebook, env: normalizeNotebookEnvVersion(notebook.env) };
+  return {
+    ...notebook,
+    env: normalizeNotebookEnvVersion(notebook.env),
+    projectId: notebook.projectId ?? null,
+    projectOrder:
+      notebook.projectOrder === undefined ? null : notebook.projectOrder,
+  };
 };
 
 export const createEmptyNotebook = (partial?: Partial<Notebook>): Notebook => {
@@ -774,6 +793,9 @@ export const createEmptyNotebook = (partial?: Partial<Notebook>): Notebook => {
     cells: partial?.cells ?? [],
     createdAt: partial?.createdAt ?? now,
     updatedAt: partial?.updatedAt ?? now,
+    projectId: partial?.projectId ?? null,
+    projectOrder:
+      partial?.projectOrder === undefined ? null : partial.projectOrder,
   };
   const parsed = NotebookSchema.parse({ ...base, ...partial });
   return ensureNotebookRuntimeVersion(parsed);

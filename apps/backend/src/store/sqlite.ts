@@ -28,6 +28,16 @@ import type {
   NotebookCollaborator,
   NotebookCollaboratorStore,
   NotebookRole,
+  Project,
+  ProjectStore,
+  CreateProjectInput,
+  UpdateProjectInput,
+  ProjectCollaborator,
+  ProjectCollaboratorStore,
+  ProjectInvitation,
+  ProjectInvitationStore,
+  CreateProjectInvitationInput,
+  ProjectRole,
 } from "../types.js";
 
 export interface SqliteNotebookStoreOptions {
@@ -384,6 +394,20 @@ export class SqliteNotebookStore implements NotebookStore {
     );
 
     this.db.run(
+      `CREATE TABLE IF NOT EXISTS projects (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )`
+    );
+
+    this.db.run(
+      `CREATE INDEX IF NOT EXISTS idx_projects_created_at
+        ON projects (created_at ASC, id ASC)`
+    );
+
+    this.db.run(
       `CREATE TABLE IF NOT EXISTS user_sessions (
         id TEXT PRIMARY KEY,
         user_id TEXT NOT NULL,
@@ -452,6 +476,53 @@ export class SqliteNotebookStore implements NotebookStore {
     this.db.run(
       `CREATE INDEX IF NOT EXISTS idx_notebook_collaborators_user
         ON notebook_collaborators (user_id, notebook_id)`
+    );
+
+    this.db.run(
+      `CREATE TABLE IF NOT EXISTS project_collaborators (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        role TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE (project_id, user_id),
+        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      )`
+    );
+
+    this.db.run(
+      `CREATE INDEX IF NOT EXISTS idx_project_collaborators_user
+        ON project_collaborators (user_id, project_id)`
+    );
+
+    this.db.run(
+      `CREATE TABLE IF NOT EXISTS project_invitations (
+        id TEXT PRIMARY KEY,
+        email TEXT NOT NULL,
+        project_id TEXT NOT NULL,
+        role TEXT NOT NULL,
+        token_hash TEXT NOT NULL UNIQUE,
+        invited_by TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        accepted_at TEXT,
+        revoked_at TEXT,
+        FOREIGN KEY (invited_by) REFERENCES users(id) ON DELETE SET NULL,
+        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+      )`
+    );
+
+    this.db.run(
+      `CREATE INDEX IF NOT EXISTS idx_project_invitations_email
+        ON project_invitations (email, created_at DESC, id ASC)`
+    );
+
+    this.db.run(
+      `CREATE INDEX IF NOT EXISTS idx_project_invitations_project
+        ON project_invitations (project_id, created_at DESC, id ASC)`
     );
 
     await this.persistToDisk();
@@ -619,6 +690,60 @@ const mapCollaboratorRow = (row: {
   role: row.role as NotebookRole,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
+});
+
+const mapProjectRow = (row: {
+  id: string;
+  name: string;
+  created_at: string;
+  updated_at: string;
+}): Project => ({
+  id: row.id,
+  name: row.name,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+});
+
+const mapProjectCollaboratorRow = (row: {
+  id: string;
+  project_id: string;
+  user_id: string;
+  role: string;
+  created_at: string;
+  updated_at: string;
+}): ProjectCollaborator => ({
+  id: row.id,
+  projectId: row.project_id,
+  userId: row.user_id,
+  role: row.role as ProjectRole,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+});
+
+const mapProjectInvitationRow = (row: {
+  id: string;
+  email: string;
+  project_id: string;
+  role: string;
+  token_hash: string;
+  invited_by: string | null;
+  created_at: string;
+  updated_at: string;
+  expires_at: string;
+  accepted_at: string | null;
+  revoked_at: string | null;
+}): ProjectInvitation => ({
+  id: row.id,
+  email: row.email,
+  projectId: row.project_id,
+  role: row.role as ProjectRole,
+  tokenHash: row.token_hash,
+  invitedBy: row.invited_by,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+  expiresAt: row.expires_at,
+  acceptedAt: row.accepted_at,
+  revokedAt: row.revoked_at,
 });
 
 export class SqliteUserStore implements UserStore {
@@ -1349,5 +1474,550 @@ export class SqliteNotebookCollaboratorStore
     } finally {
       statement.free();
     }
+  }
+}
+
+export class SqliteProjectStore implements ProjectStore {
+  constructor(private readonly notebooks: SqliteNotebookStore) {}
+
+  private async getDb(): Promise<SqlDatabase> {
+    await this.notebooks.ensureReady();
+    return this.notebooks.getDatabase();
+  }
+
+  async list(): Promise<Project[]> {
+    const db = await this.getDb();
+    const statement = db.prepare(
+      `SELECT id, name, created_at, updated_at FROM projects ORDER BY created_at ASC, id ASC`
+    );
+    const projects: Project[] = [];
+    try {
+      while (statement.step()) {
+        const row = statement.getAsObject() as {
+          id: string;
+          name: string;
+          created_at: string;
+          updated_at: string;
+        };
+        projects.push(mapProjectRow(row));
+      }
+    } finally {
+      statement.free();
+    }
+    return projects;
+  }
+
+  async get(id: string): Promise<Project | undefined> {
+    const db = await this.getDb();
+    const statement = db.prepare(
+      `SELECT id, name, created_at, updated_at FROM projects WHERE id = ?1 LIMIT 1`
+    );
+    statement.bind([id]);
+    try {
+      if (!statement.step()) {
+        return undefined;
+      }
+      const row = statement.getAsObject() as {
+        id: string;
+        name: string;
+        created_at: string;
+        updated_at: string;
+      };
+      return mapProjectRow(row);
+    } finally {
+      statement.free();
+    }
+  }
+
+  async create(input: CreateProjectInput): Promise<Project> {
+    const db = await this.getDb();
+    const now = new Date().toISOString();
+    const id = userNanoid();
+    const statement = db.prepare(
+      `INSERT INTO projects (id, name, created_at, updated_at)
+       VALUES (?1, ?2, ?3, ?4)`
+    );
+    try {
+      statement.run([id, input.name.trim(), now, now]);
+    } finally {
+      statement.free();
+    }
+    await this.notebooks.flush();
+    const created = await this.get(id);
+    if (!created) {
+      throw new Error("Failed to create project");
+    }
+    return created;
+  }
+
+  async update(id: string, updates: UpdateProjectInput): Promise<Project> {
+    const db = await this.getDb();
+    const fragments: string[] = [];
+    const values: (string | null)[] = [];
+    if (typeof updates.name === "string") {
+      fragments.push("name = ?");
+      values.push(updates.name.trim());
+    }
+    if (fragments.length === 0) {
+      const current = await this.get(id);
+      if (!current) {
+        throw new Error("Project not found");
+      }
+      return current;
+    }
+    const now = new Date().toISOString();
+    fragments.push("updated_at = ?");
+    values.push(now);
+    values.push(id);
+    const statement = db.prepare(
+      `UPDATE projects SET ${fragments.join(", ")} WHERE id = ?`
+    );
+    try {
+      statement.run(values);
+    } finally {
+      statement.free();
+    }
+    if (db.getRowsModified() === 0) {
+      throw new Error("Project not found");
+    }
+    await this.notebooks.flush();
+    const updated = await this.get(id);
+    if (!updated) {
+      throw new Error("Project not found");
+    }
+    return updated;
+  }
+
+  async remove(id: string): Promise<boolean> {
+    const db = await this.getDb();
+    const statement = db.prepare("DELETE FROM projects WHERE id = ?1");
+    try {
+      statement.run([id]);
+    } finally {
+      statement.free();
+    }
+    const removed = db.getRowsModified() > 0;
+    if (removed) {
+      await this.notebooks.flush();
+    }
+    return removed;
+  }
+}
+
+export class SqliteProjectCollaboratorStore
+  implements ProjectCollaboratorStore
+{
+  constructor(private readonly notebooks: SqliteNotebookStore) {}
+
+  private async getDb(): Promise<SqlDatabase> {
+    await this.notebooks.ensureReady();
+    return this.notebooks.getDatabase();
+  }
+
+  async listByProject(projectId: string): Promise<ProjectCollaborator[]> {
+    const db = await this.getDb();
+    const statement = db.prepare(
+      `SELECT id, project_id, user_id, role, created_at, updated_at
+       FROM project_collaborators
+       WHERE project_id = ?1
+       ORDER BY updated_at DESC, created_at DESC`
+    );
+    statement.bind([projectId]);
+    const collaborators: ProjectCollaborator[] = [];
+    try {
+      while (statement.step()) {
+        const row = statement.getAsObject() as {
+          id: string;
+          project_id: string;
+          user_id: string;
+          role: string;
+          created_at: string;
+          updated_at: string;
+        };
+        collaborators.push(mapProjectCollaboratorRow(row));
+      }
+    } finally {
+      statement.free();
+    }
+    return collaborators;
+  }
+
+  async listProjectIdsForUser(userId: string): Promise<string[]> {
+    const db = await this.getDb();
+    const statement = db.prepare(
+      `SELECT project_id
+       FROM project_collaborators
+       WHERE user_id = ?1
+       ORDER BY project_id ASC`
+    );
+    statement.bind([userId]);
+    const projectIds: string[] = [];
+    try {
+      while (statement.step()) {
+        const row = statement.getAsObject() as { project_id: string };
+        projectIds.push(row.project_id);
+      }
+    } finally {
+      statement.free();
+    }
+    return projectIds;
+  }
+
+  async get(
+    projectId: string,
+    userId: string
+  ): Promise<ProjectCollaborator | undefined> {
+    const db = await this.getDb();
+    const statement = db.prepare(
+      `SELECT id, project_id, user_id, role, created_at, updated_at
+       FROM project_collaborators
+       WHERE project_id = ?1 AND user_id = ?2
+       LIMIT 1`
+    );
+    statement.bind([projectId, userId]);
+    try {
+      if (!statement.step()) {
+        return undefined;
+      }
+      const row = statement.getAsObject() as {
+        id: string;
+        project_id: string;
+        user_id: string;
+        role: string;
+        created_at: string;
+        updated_at: string;
+      };
+      return mapProjectCollaboratorRow(row);
+    } finally {
+      statement.free();
+    }
+  }
+
+  async upsert(input: {
+    projectId: string;
+    userId: string;
+    role: ProjectRole;
+  }): Promise<ProjectCollaborator> {
+    const db = await this.getDb();
+    const now = new Date().toISOString();
+    const statement = db.prepare(
+      `INSERT INTO project_collaborators (
+         id, project_id, user_id, role, created_at, updated_at
+       ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+       ON CONFLICT(project_id, user_id) DO UPDATE SET
+         role = excluded.role,
+         updated_at = excluded.updated_at`
+    );
+    const id = userNanoid();
+    try {
+      statement.run([id, input.projectId, input.userId, input.role, now, now]);
+    } finally {
+      statement.free();
+    }
+    await this.notebooks.flush();
+    const collaborator = await this.get(input.projectId, input.userId);
+    if (!collaborator) {
+      throw new Error("Failed to upsert project collaborator");
+    }
+    return collaborator;
+  }
+
+  async updateRole(
+    projectId: string,
+    userId: string,
+    role: ProjectRole
+  ): Promise<ProjectCollaborator | undefined> {
+    const db = await this.getDb();
+    const now = new Date().toISOString();
+    const statement = db.prepare(
+      `UPDATE project_collaborators
+       SET role = ?1, updated_at = ?2
+       WHERE project_id = ?3 AND user_id = ?4`
+    );
+    try {
+      statement.run([role, now, projectId, userId]);
+    } finally {
+      statement.free();
+    }
+    if (db.getRowsModified() === 0) {
+      return undefined;
+    }
+    await this.notebooks.flush();
+    return this.get(projectId, userId);
+  }
+
+  async remove(projectId: string, userId: string): Promise<boolean> {
+    const db = await this.getDb();
+    const statement = db.prepare(
+      `DELETE FROM project_collaborators
+       WHERE project_id = ?1 AND user_id = ?2`
+    );
+    try {
+      statement.run([projectId, userId]);
+    } finally {
+      statement.free();
+    }
+    const removed = db.getRowsModified() > 0;
+    if (removed) {
+      await this.notebooks.flush();
+    }
+    return removed;
+  }
+
+  async removeAllForProject(projectId: string): Promise<void> {
+    const db = await this.getDb();
+    const statement = db.prepare(
+      `DELETE FROM project_collaborators WHERE project_id = ?1`
+    );
+    try {
+      statement.run([projectId]);
+    } finally {
+      statement.free();
+    }
+    await this.notebooks.flush();
+  }
+}
+
+export class SqliteProjectInvitationStore implements ProjectInvitationStore {
+  constructor(private readonly notebooks: SqliteNotebookStore) {}
+
+  private async getDb(): Promise<SqlDatabase> {
+    await this.notebooks.ensureReady();
+    return this.notebooks.getDatabase();
+  }
+
+  async create(
+    input: CreateProjectInvitationInput
+  ): Promise<ProjectInvitation> {
+    const db = await this.getDb();
+    const now = new Date().toISOString();
+    const id = userNanoid();
+    const email = input.email.trim().toLowerCase();
+    const statement = db.prepare(
+      `INSERT INTO project_invitations (
+         id, email, project_id, role, token_hash, invited_by, created_at, updated_at, expires_at, accepted_at, revoked_at
+       ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, NULL, NULL)`
+    );
+    try {
+      statement.run([
+        id,
+        email,
+        input.projectId,
+        input.role,
+        input.tokenHash,
+        input.invitedBy ?? null,
+        now,
+        now,
+        input.expiresAt,
+      ]);
+    } finally {
+      statement.free();
+    }
+    await this.notebooks.flush();
+    const created = await this.get(id);
+    if (!created) {
+      throw new Error("Failed to create project invitation");
+    }
+    return created;
+  }
+
+  async get(id: string): Promise<ProjectInvitation | undefined> {
+    const db = await this.getDb();
+    const statement = db.prepare(
+      `SELECT id, email, project_id, role, token_hash, invited_by, created_at, updated_at, expires_at, accepted_at, revoked_at
+       FROM project_invitations
+       WHERE id = ?1
+       LIMIT 1`
+    );
+    statement.bind([id]);
+    try {
+      if (!statement.step()) {
+        return undefined;
+      }
+      const row = statement.getAsObject() as {
+        id: string;
+        email: string;
+        project_id: string;
+        role: string;
+        token_hash: string;
+        invited_by: string | null;
+        created_at: string;
+        updated_at: string;
+        expires_at: string;
+        accepted_at: string | null;
+        revoked_at: string | null;
+      };
+      return mapProjectInvitationRow(row);
+    } finally {
+      statement.free();
+    }
+  }
+
+  async findByTokenHash(
+    tokenHash: string
+  ): Promise<ProjectInvitation | undefined> {
+    const db = await this.getDb();
+    const statement = db.prepare(
+      `SELECT id, email, project_id, role, token_hash, invited_by, created_at, updated_at, expires_at, accepted_at, revoked_at
+       FROM project_invitations
+       WHERE token_hash = ?1
+       LIMIT 1`
+    );
+    statement.bind([tokenHash]);
+    try {
+      if (!statement.step()) {
+        return undefined;
+      }
+      const row = statement.getAsObject() as {
+        id: string;
+        email: string;
+        project_id: string;
+        role: string;
+        token_hash: string;
+        invited_by: string | null;
+        created_at: string;
+        updated_at: string;
+        expires_at: string;
+        accepted_at: string | null;
+        revoked_at: string | null;
+      };
+      return mapProjectInvitationRow(row);
+    } finally {
+      statement.free();
+    }
+  }
+
+  async findActiveByEmail(
+    email: string,
+    projectId: string
+  ): Promise<ProjectInvitation | undefined> {
+    const db = await this.getDb();
+    const statement = db.prepare(
+      `SELECT id, email, project_id, role, token_hash, invited_by, created_at, updated_at, expires_at, accepted_at, revoked_at
+       FROM project_invitations
+       WHERE email = ?1 AND project_id = ?2
+       ORDER BY created_at DESC, id DESC
+       LIMIT 1`
+    );
+    statement.bind([email.trim().toLowerCase(), projectId]);
+    try {
+      if (!statement.step()) {
+        return undefined;
+      }
+      const row = statement.getAsObject() as {
+        id: string;
+        email: string;
+        project_id: string;
+        role: string;
+        token_hash: string;
+        invited_by: string | null;
+        created_at: string;
+        updated_at: string;
+        expires_at: string;
+        accepted_at: string | null;
+        revoked_at: string | null;
+      };
+      return mapProjectInvitationRow(row);
+    } finally {
+      statement.free();
+    }
+  }
+
+  async list(): Promise<ProjectInvitation[]> {
+    const db = await this.getDb();
+    const statement = db.prepare(
+      `SELECT id, email, project_id, role, token_hash, invited_by, created_at, updated_at, expires_at, accepted_at, revoked_at
+       FROM project_invitations
+       ORDER BY created_at DESC, id DESC`
+    );
+    const invitations: ProjectInvitation[] = [];
+    try {
+      while (statement.step()) {
+        const row = statement.getAsObject() as {
+          id: string;
+          email: string;
+          project_id: string;
+          role: string;
+          token_hash: string;
+          invited_by: string | null;
+          created_at: string;
+          updated_at: string;
+          expires_at: string;
+          accepted_at: string | null;
+          revoked_at: string | null;
+        };
+        invitations.push(mapProjectInvitationRow(row));
+      }
+    } finally {
+      statement.free();
+    }
+    return invitations;
+  }
+
+  async listByProject(projectId: string): Promise<ProjectInvitation[]> {
+    const db = await this.getDb();
+    const statement = db.prepare(
+      `SELECT id, email, project_id, role, token_hash, invited_by, created_at, updated_at, expires_at, accepted_at, revoked_at
+       FROM project_invitations
+       WHERE project_id = ?1
+       ORDER BY created_at DESC, id DESC`
+    );
+    statement.bind([projectId]);
+    const invitations: ProjectInvitation[] = [];
+    try {
+      while (statement.step()) {
+        const row = statement.getAsObject() as {
+          id: string;
+          email: string;
+          project_id: string;
+          role: string;
+          token_hash: string;
+          invited_by: string | null;
+          created_at: string;
+          updated_at: string;
+          expires_at: string;
+          accepted_at: string | null;
+          revoked_at: string | null;
+        };
+        invitations.push(mapProjectInvitationRow(row));
+      }
+    } finally {
+      statement.free();
+    }
+    return invitations;
+  }
+
+  async markAccepted(id: string): Promise<ProjectInvitation | undefined> {
+    const db = await this.getDb();
+    const now = new Date().toISOString();
+    const statement = db.prepare(
+      `UPDATE project_invitations
+       SET accepted_at = ?1, updated_at = ?1
+       WHERE id = ?2`
+    );
+    try {
+      statement.run([now, id]);
+    } finally {
+      statement.free();
+    }
+    await this.notebooks.flush();
+    return this.get(id);
+  }
+
+  async revoke(id: string): Promise<ProjectInvitation | undefined> {
+    const db = await this.getDb();
+    const now = new Date().toISOString();
+    const statement = db.prepare(
+      `UPDATE project_invitations
+       SET revoked_at = ?1, updated_at = ?1
+       WHERE id = ?2`
+    );
+    try {
+      statement.run([now, id]);
+    } finally {
+      statement.free();
+    }
+    await this.notebooks.flush();
+    return this.get(id);
   }
 }

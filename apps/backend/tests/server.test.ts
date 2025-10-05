@@ -82,6 +82,15 @@ vi.mock("../src/store/sqlite.js", () => ({
   SqliteNotebookCollaboratorStore: class {
     constructor(_store: unknown) {}
   },
+  SqliteProjectStore: class {
+    constructor(_store: unknown) {}
+  },
+  SqliteProjectInvitationStore: class {
+    constructor(_store: unknown) {}
+  },
+  SqliteProjectCollaboratorStore: class {
+    constructor(_store: unknown) {}
+  },
 }));
 vi.mock("../src/store/memory.js", () => ({
   InMemoryNotebookStore: class {
@@ -119,6 +128,15 @@ vi.mock("../src/store/memory.js", () => ({
   InMemoryNotebookCollaboratorStore: class {
     constructor() {}
   },
+  InMemoryProjectStore: class {
+    constructor() {}
+  },
+  InMemoryProjectInvitationStore: class {
+    constructor() {}
+  },
+  InMemoryProjectCollaboratorStore: class {
+    constructor() {}
+  },
 }));
 vi.mock("../src/store/postgres.js", () => ({
   PostgresNotebookStore: class {
@@ -149,6 +167,15 @@ vi.mock("../src/store/postgres.js", () => ({
     constructor(_store: unknown) {}
   },
   PostgresNotebookCollaboratorStore: class {
+    constructor(_store: unknown) {}
+  },
+  PostgresProjectStore: class {
+    constructor(_store: unknown) {}
+  },
+  PostgresProjectInvitationStore: class {
+    constructor(_store: unknown) {}
+  },
+  PostgresProjectCollaboratorStore: class {
     constructor(_store: unknown) {}
   },
 }));
