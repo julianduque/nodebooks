@@ -69,7 +69,12 @@ import { registerProjectSharingRoutes } from "./routes/project-sharing.js";
 import { createKernelUpgradeHandler } from "./kernel/router.js";
 import { createTerminalUpgradeHandler } from "./terminal/router.js";
 import { NotebookCollaborationService } from "./notebooks/collaboration.js";
-import { AuthService } from "./auth/service.js";
+import {
+  AuthService,
+  CannotRemoveLastAdminError,
+  CannotRemoveSelfError,
+  InvalidCurrentPasswordError,
+} from "./auth/service.js";
 import {
   SESSION_COOKIE_NAME,
   SESSION_COOKIE_MAX_AGE_MS,
@@ -323,6 +328,15 @@ export const createServer = async ({
     password: z.string().min(1),
   });
 
+  const passwordUpdateSchema = z.object({
+    currentPassword: z.string().min(8),
+    newPassword: z.string().min(8),
+  });
+
+  const deleteUserParamsSchema = z.object({
+    id: z.string().min(1),
+  });
+
   app.post("/auth/login", async (request, reply) => {
     const body = loginSchema.safeParse(request.body);
     if (!body.success) {
@@ -359,6 +373,44 @@ export const createServer = async ({
     void reply.send({ data: request.user });
   });
 
+  app.patch("/auth/password", async (request, reply) => {
+    if (!request.user) {
+      void reply.code(401).send({ error: "Unauthorized" });
+      return;
+    }
+    const body = passwordUpdateSchema.safeParse(request.body);
+    if (!body.success) {
+      void reply.code(400).send({ error: "Invalid password payload" });
+      return;
+    }
+
+    try {
+      const session = await authService.updatePassword({
+        userId: request.user.id,
+        currentPassword: body.data.currentPassword,
+        newPassword: body.data.newPassword,
+      });
+      reply.setCookie(SESSION_COOKIE_NAME, session.token, cookieOptions);
+      void reply.send({ data: session.user });
+    } catch (error) {
+      if (error instanceof InvalidCurrentPasswordError) {
+        void reply.code(400).send({ error: "Current password is incorrect" });
+        return;
+      }
+      const message = error instanceof Error ? error.message : "Unknown";
+      if (message.includes("New password must be different")) {
+        void reply.code(400).send({ error: "Choose a different password" });
+        return;
+      }
+      if (message.includes("User not found")) {
+        void reply.code(404).send({ error: "User not found" });
+        return;
+      }
+      request.log.error({ err: error }, "Failed to update password");
+      void reply.code(500).send({ error: "Failed to update password" });
+    }
+  });
+
   const ensureAdmin = (
     request: FastifyRequest,
     reply: FastifyReply
@@ -390,6 +442,42 @@ export const createServer = async ({
     }
     const usersList = await authService.listUsers();
     void reply.send({ data: usersList });
+  });
+
+  app.delete("/auth/users/:id", async (request, reply) => {
+    if (!ensureAdmin(request, reply)) {
+      return;
+    }
+    const params = deleteUserParamsSchema.safeParse(request.params);
+    if (!params.success) {
+      void reply.code(400).send({ error: "Invalid user id" });
+      return;
+    }
+
+    try {
+      await authService.removeUser(request.user.id, params.data.id);
+      void reply.code(204).send();
+    } catch (error) {
+      if (error instanceof CannotRemoveSelfError) {
+        void reply
+          .code(400)
+          .send({ error: "You cannot remove your own account" });
+        return;
+      }
+      if (error instanceof CannotRemoveLastAdminError) {
+        void reply
+          .code(409)
+          .send({ error: "At least one admin must remain in the workspace" });
+        return;
+      }
+      const message = error instanceof Error ? error.message : "Unknown";
+      if (message.includes("User not found")) {
+        void reply.code(404).send({ error: "User not found" });
+        return;
+      }
+      request.log.error({ err: error }, "Failed to remove user");
+      void reply.code(500).send({ error: "Failed to remove user" });
+    }
   });
 
   // Mount Next.js (apps/client) using Next's handler so UI is served by Fastify

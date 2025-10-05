@@ -294,6 +294,16 @@ export class InMemoryUserStore implements UserStore {
     return cloneUser(existing);
   }
 
+  async remove(id: string): Promise<boolean> {
+    const existing = this.usersById.get(id);
+    if (!existing) {
+      return false;
+    }
+    this.usersById.delete(id);
+    this.usersByEmail.delete(existing.email);
+    return true;
+  }
+
   async list(): Promise<User[]> {
     return Array.from(this.usersById.values()).map(cloneUser);
   }

@@ -34,6 +34,7 @@ export interface UserStore {
   get(id: string): Promise<User | undefined>;
   findByEmail(email: string): Promise<User | undefined>;
   update(id: string, updates: UpdateUserInput): Promise<User>;
+  remove(id: string): Promise<boolean>;
   list(): Promise<User[]>;
   count(): Promise<number>;
 }

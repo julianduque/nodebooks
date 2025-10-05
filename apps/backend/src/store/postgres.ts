@@ -736,6 +736,12 @@ export class PostgresUserStore implements UserStore {
     return result.rows.map(mapPgUser);
   }
 
+  async remove(id: string): Promise<boolean> {
+    const pool = await this.getPool();
+    const result = await pool.query(`DELETE FROM users WHERE id = $1`, [id]);
+    return (result.rowCount ?? 0) > 0;
+  }
+
   async count(): Promise<number> {
     const pool = await this.getPool();
     const result = await pool.query<{ count: string }>(
