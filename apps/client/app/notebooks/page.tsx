@@ -12,7 +12,8 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Play, Trash2, Download, Upload, Loader2 } from "lucide-react";
 import ConfirmDialog from "@/components/ui/confirm";
-import type { Notebook } from "@nodebooks/notebook-schema";
+import type { NotebookWithAccess } from "@/components/notebook/types";
+import { useCurrentUser } from "@/components/notebook/hooks/useCurrentUser";
 import { useRouter } from "next/navigation";
 import LoadingOverlay from "@/components/ui/loading-overlay";
 import NewNotebookCallout from "@/components/notebook/new-notebook-callout";
@@ -21,7 +22,8 @@ import { clientConfig } from "@nodebooks/config/client";
 const API_BASE_URL = clientConfig().apiBaseUrl;
 
 export default function NotebooksPage() {
-  const [list, setList] = useState<Notebook[]>([]);
+  const { isAdmin } = useCurrentUser();
+  const [list, setList] = useState<NotebookWithAccess[]>([]);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -36,7 +38,11 @@ export default function NotebooksPage() {
     try {
       const res = await fetch(`${API_BASE_URL}/notebooks`);
       const payload = await res.json();
-      setList(Array.isArray(payload?.data) ? payload.data : []);
+      setList(
+        Array.isArray(payload?.data)
+          ? (payload.data as NotebookWithAccess[])
+          : []
+      );
     } finally {
       setLoading(false);
     }
@@ -52,31 +58,49 @@ export default function NotebooksPage() {
   );
   const handleDelete = useCallback(
     async (id: string) => {
+      if (!isAdmin) {
+        setActionError("Only workspace admins can delete notebooks.");
+        return;
+      }
       await fetch(`${API_BASE_URL}/notebooks/${id}`, { method: "DELETE" });
       void refresh();
     },
-    [refresh]
+    [isAdmin, refresh]
   );
   const handleCreate = useCallback(async () => {
+    if (!isAdmin) {
+      setActionError("Only workspace admins can create notebooks.");
+      return;
+    }
     const res = await fetch(`${API_BASE_URL}/notebooks`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ template: "blank" }),
     });
     const payload = await res.json();
-    const created: Notebook | undefined = payload?.data;
+    const created: NotebookWithAccess | undefined = payload?.data;
     if (created) router.push(`/notebooks/${created.id}`);
-  }, [router]);
+  }, [isAdmin, router]);
 
   const handleImportClick = useCallback(() => {
     setActionError(null);
+    if (!isAdmin) {
+      setActionError("Only workspace admins can import notebooks.");
+      return;
+    }
     fileInputRef.current?.click();
-  }, []);
+  }, [isAdmin]);
 
   const handleImportFile = useCallback(
     async (event: ChangeEvent<HTMLInputElement>) => {
       const file = event.target.files?.[0];
       if (!file) {
+        return;
+      }
+      if (!isAdmin) {
+        setImporting(false);
+        setActionError("Only workspace admins can import notebooks.");
+        event.target.value = "";
         return;
       }
       setImporting(true);
@@ -96,7 +120,7 @@ export default function NotebooksPage() {
               : "Failed to import notebook";
           throw new Error(message);
         }
-        const created: Notebook | undefined = payload?.data;
+        const created: NotebookWithAccess | undefined = payload?.data;
         if (created) {
           router.push(`/notebooks/${created.id}`);
         } else {
@@ -112,7 +136,7 @@ export default function NotebooksPage() {
         event.target.value = "";
       }
     },
-    [router, refresh]
+    [isAdmin, router, refresh]
   );
 
   const slugify = useCallback((value: string) => {
@@ -126,7 +150,7 @@ export default function NotebooksPage() {
   }, []);
 
   const handleExport = useCallback(
-    async (notebook: Notebook) => {
+    async (notebook: NotebookWithAccess) => {
       setExportingId(notebook.id);
       setActionError(null);
       try {
@@ -165,7 +189,7 @@ export default function NotebooksPage() {
   return (
     <AppShell
       title="Notebooks"
-      onNewNotebook={handleCreate}
+      onNewNotebook={isAdmin ? handleCreate : undefined}
       headerRight={
         <div className="flex items-center gap-2">
           <input
@@ -180,7 +204,7 @@ export default function NotebooksPage() {
             size="sm"
             className="gap-2"
             onClick={handleImportClick}
-            disabled={importing}
+            disabled={importing || !isAdmin}
           >
             {importing ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -202,7 +226,14 @@ export default function NotebooksPage() {
       {loading ? (
         <LoadingOverlay label="Loading notebooks…" />
       ) : list.length === 0 ? (
-        <NewNotebookCallout onCreate={handleCreate} />
+        isAdmin ? (
+          <NewNotebookCallout onCreate={handleCreate} />
+        ) : (
+          <p className="mt-8 text-sm text-muted-foreground">
+            You don’t have any notebooks yet. Ask an admin to share one with
+            you.
+          </p>
+        )
       ) : (
         <div className="mt-8 space-y-3">
           {list.map((n) => (
@@ -242,18 +273,20 @@ export default function NotebooksPage() {
                     <Download className="h-4 w-4" />
                   )}
                 </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="text-rose-600 hover:text-rose-700"
-                  onClick={() => {
-                    setPendingDeleteId(n.id);
-                    setConfirmOpen(true);
-                  }}
-                  aria-label={`Delete ${n.name}`}
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
+                {isAdmin ? (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="text-rose-600 hover:text-rose-700"
+                    onClick={() => {
+                      setPendingDeleteId(n.id);
+                      setConfirmOpen(true);
+                    }}
+                    aria-label={`Delete ${n.name}`}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                ) : null}
               </div>
             </Card>
           ))}

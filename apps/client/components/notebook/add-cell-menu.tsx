@@ -8,11 +8,16 @@ import type { NotebookCell } from "@nodebooks/notebook-schema";
 const AddCellMenu = ({
   onAdd,
   className,
+  disabled = false,
 }: {
   onAdd: (type: NotebookCell["type"]) => void | Promise<void>;
   className?: string;
+  disabled?: boolean;
 }) => {
   const handleAdd = (type: NotebookCell["type"]) => {
+    if (disabled) {
+      return;
+    }
     void onAdd(type);
   };
 
@@ -28,6 +33,7 @@ const AddCellMenu = ({
         size="sm"
         className="gap-2"
         onClick={() => handleAdd("markdown")}
+        disabled={disabled}
       >
         <Plus className="h-4 w-4" />
         Markdown
@@ -37,6 +43,7 @@ const AddCellMenu = ({
         size="sm"
         className="gap-2"
         onClick={() => handleAdd("code")}
+        disabled={disabled}
       >
         <Plus className="h-4 w-4" />
         Code
@@ -46,6 +53,7 @@ const AddCellMenu = ({
         size="sm"
         className="gap-2"
         onClick={() => handleAdd("shell")}
+        disabled={disabled}
       >
         <Terminal className="h-4 w-4" />
         Shell

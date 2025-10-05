@@ -3,6 +3,9 @@ import {
   type AuthSessionStore,
   type Invitation,
   type InvitationStore,
+  type NotebookCollaborator,
+  type NotebookCollaboratorStore,
+  type NotebookRole,
   type SafeInvitation,
   type SafeUser,
   type User,
@@ -43,7 +46,8 @@ export class AuthService {
   constructor(
     private readonly users: UserStore,
     private readonly sessions: AuthSessionStore,
-    private readonly invitations: InvitationStore
+    private readonly invitations: InvitationStore,
+    private readonly collaborators: NotebookCollaboratorStore
   ) {}
 
   async hasUsers(): Promise<boolean> {
@@ -53,6 +57,11 @@ export class AuthService {
   async listUsers(): Promise<SafeUser[]> {
     const rows = await this.users.list();
     return rows.map(toSafeUser);
+  }
+
+  async findUserByEmail(email: string): Promise<SafeUser | null> {
+    const user = await this.users.findByEmail(normalizeEmail(email));
+    return user ? toSafeUser(user) : null;
   }
 
   async createUser(input: {
@@ -124,9 +133,10 @@ export class AuthService {
     return invitation;
   }
 
-  async inviteUser(input: {
+  async inviteToNotebook(input: {
     email: string;
-    role?: UserRole;
+    notebookId: string;
+    role?: NotebookRole;
     invitedBy?: string | null;
     expiresAt?: Date;
   }): Promise<{
@@ -139,7 +149,10 @@ export class AuthService {
       throw new Error("User with that email already exists");
     }
 
-    const active = await this.invitations.findActiveByEmail(email);
+    const active = await this.invitations.findActiveByEmail(
+      email,
+      input.notebookId
+    );
     if (active) {
       await this.invitations.revoke(active.id);
     }
@@ -151,6 +164,7 @@ export class AuthService {
       : new Date(Date.now() + INVITATION_EXPIRY_MS).toISOString();
     const invitation = await this.invitations.create({
       email,
+      notebookId: input.notebookId,
       role: input.role ?? "editor",
       tokenHash: hashedToken,
       invitedBy: input.invitedBy ?? null,
@@ -160,11 +174,68 @@ export class AuthService {
     return { invitation: summary, token };
   }
 
-  async listInvitations(): Promise<
-    (SafeInvitation & { invitedByUser?: SafeUser | null })[]
-  > {
-    const invitations = await this.invitations.list();
+  async listNotebookInvitations(
+    notebookId: string
+  ): Promise<(SafeInvitation & { invitedByUser?: SafeUser | null })[]> {
+    const invitations = await this.invitations.listByNotebook(notebookId);
     return Promise.all(invitations.map((inv) => this.augmentInvitation(inv)));
+  }
+
+  private async augmentCollaborator(
+    collaborator: NotebookCollaborator
+  ): Promise<(NotebookCollaborator & { user: SafeUser }) | null> {
+    const user = await this.users.get(collaborator.userId);
+    if (!user) {
+      return null;
+    }
+    return { ...collaborator, user: toSafeUser(user) };
+  }
+
+  async listNotebookCollaborators(
+    notebookId: string
+  ): Promise<(NotebookCollaborator & { user: SafeUser })[]> {
+    const collaborators = await this.collaborators.listByNotebook(notebookId);
+    const summaries = await Promise.all(
+      collaborators.map((collaborator) =>
+        this.augmentCollaborator(collaborator)
+      )
+    );
+    return summaries.filter(
+      (summary): summary is NotebookCollaborator & { user: SafeUser } =>
+        summary !== null
+    );
+  }
+
+  async grantNotebookAccess(input: {
+    notebookId: string;
+    userId: string;
+    role: NotebookRole;
+  }): Promise<(NotebookCollaborator & { user: SafeUser }) | null> {
+    const collaborator = await this.collaborators.upsert(input);
+    return this.augmentCollaborator(collaborator);
+  }
+
+  async updateNotebookCollaboratorRole(input: {
+    notebookId: string;
+    userId: string;
+    role: NotebookRole;
+  }): Promise<(NotebookCollaborator & { user: SafeUser }) | null> {
+    const updated = await this.collaborators.updateRole(
+      input.notebookId,
+      input.userId,
+      input.role
+    );
+    if (!updated) {
+      return null;
+    }
+    return this.augmentCollaborator(updated);
+  }
+
+  async removeNotebookCollaborator(
+    notebookId: string,
+    userId: string
+  ): Promise<boolean> {
+    return this.collaborators.remove(notebookId, userId);
   }
 
   async revokeInvitation(
@@ -207,6 +278,11 @@ export class AuthService {
       name: input.name.trim(),
       role: invitation.role,
       passwordHash,
+    });
+    await this.collaborators.upsert({
+      notebookId: invitation.notebookId,
+      userId: user.id,
+      role: invitation.role,
     });
     await this.invitations.markAccepted(invitation.id);
     const safeUser = toSafeUser(user);

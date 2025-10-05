@@ -26,6 +26,7 @@ export interface AttachmentsPanelProps {
   error?: string | null;
   onDelete: (id: string) => Promise<void> | void;
   onAttachmentUploaded: (attachment: AttachmentMetadata, url: string) => void;
+  canEdit: boolean;
 }
 
 const formatBytes = (value: number) => {
@@ -123,6 +124,7 @@ const AttachmentsPanel = ({
   error = null,
   onDelete,
   onAttachmentUploaded,
+  canEdit,
 }: AttachmentsPanelProps) => {
   const [preview, setPreview] = useState<{
     attachment: AttachmentMetadata;
@@ -144,9 +146,12 @@ const AttachmentsPanel = ({
 
   const handleUploadFiles = useCallback(
     async (files: File[]) => {
+      if (!canEdit) {
+        return;
+      }
       await uploadFiles(files);
     },
-    [uploadFiles]
+    [canEdit, uploadFiles]
   );
 
   const {
@@ -156,7 +161,7 @@ const AttachmentsPanel = ({
     handleDragLeave,
     handleDrop,
   } = useAttachmentDropzone({
-    disabled: isUploading,
+    disabled: isUploading || !canEdit,
     onFiles: handleUploadFiles,
   });
 
@@ -179,7 +184,8 @@ const AttachmentsPanel = ({
         className={cn(
           "relative mb-4 flex flex-col items-center justify-center gap-2 overflow-hidden rounded-md border border-dashed border-border/60 p-4 text-sm text-muted-foreground transition",
           isDraggingOver && "border-primary text-primary",
-          isUploading && "border-primary/70"
+          isUploading && "border-primary/70",
+          !canEdit && "opacity-70"
         )}
         onDragEnter={handleDragEnter}
         onDragOver={handleDragOver}
@@ -195,8 +201,10 @@ const AttachmentsPanel = ({
               ? `Uploading attachment ${uploadStatus.current} of ${uploadStatus.total}…`
               : "Uploading attachments…"}
           </span>
-        ) : (
+        ) : canEdit ? (
           <span>Drop files here to upload new attachments</span>
+        ) : (
+          <span>Attachments are read-only.</span>
         )}
         {uploadError ? (
           <span className="text-xs text-rose-500">{uploadError}</span>
@@ -223,6 +231,7 @@ const AttachmentsPanel = ({
                 url={url}
                 onDelete={onDelete}
                 onPreview={handlePreview}
+                canEdit={canEdit}
               />
             );
           })}
@@ -250,11 +259,13 @@ const AttachmentRow = ({
   url,
   onDelete,
   onPreview,
+  canEdit,
 }: {
   attachment: AttachmentMetadata;
   url: string;
   onDelete: (id: string) => Promise<void> | void;
   onPreview: (attachment: AttachmentMetadata, url: string) => void;
+  canEdit: boolean;
 }) => {
   const [copied, setCopied] = useState(false);
   const displayName = useMemo(
@@ -286,8 +297,11 @@ const AttachmentRow = ({
   }, [url]);
 
   const handleDelete = useCallback(() => {
+    if (!canEdit) {
+      return;
+    }
     void onDelete(attachment.id);
-  }, [attachment.id, onDelete]);
+  }, [attachment.id, canEdit, onDelete]);
 
   const handlePreview = useCallback(() => {
     if (!canPreview) return;
@@ -331,16 +345,18 @@ const AttachmentRow = ({
                 <Copy className="h-4 w-4" />
               )}
             </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7 text-rose-600 hover:text-rose-600"
-              onClick={handleDelete}
-              aria-label="Delete attachment"
-            >
-              <Trash2 className="h-4 w-4" />
-            </Button>
+            {canEdit ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 text-rose-600 hover:text-rose-600"
+                onClick={handleDelete}
+                aria-label="Delete attachment"
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            ) : null}
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">

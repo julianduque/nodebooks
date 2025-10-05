@@ -21,6 +21,9 @@ import type {
   Invitation,
   InvitationStore,
   CreateInvitationInput,
+  NotebookCollaborator,
+  NotebookCollaboratorStore,
+  NotebookRole,
 } from "../types.js";
 
 const nanoid = customAlphabet("1234567890abcdefghijklmnopqrstuvwxyz", 12);
@@ -298,6 +301,12 @@ const cloneInvitation = (invitation: Invitation): Invitation => ({
   ...invitation,
 });
 
+const cloneCollaborator = (
+  collaborator: NotebookCollaborator
+): NotebookCollaborator => ({
+  ...collaborator,
+});
+
 export class InMemoryAuthSessionStore implements AuthSessionStore {
   private readonly sessionsById = new Map<string, AuthSession>();
   private readonly sessionsByToken = new Map<string, string>();
@@ -362,12 +371,17 @@ export class InMemoryInvitationStore implements InvitationStore {
   private readonly invitationsByToken = new Map<string, string>();
   private readonly invitationsByEmail = new Map<string, string>();
 
+  private emailKey(email: string, notebookId: string): string {
+    return `${email.trim().toLowerCase()}::${notebookId}`;
+  }
+
   async create(input: CreateInvitationInput): Promise<Invitation> {
     const email = input.email.trim().toLowerCase();
     const now = new Date().toISOString();
     const invitation: Invitation = {
       id: userNanoid(),
       email,
+      notebookId: input.notebookId,
       role: input.role,
       tokenHash: input.tokenHash,
       invitedBy: input.invitedBy ?? null,
@@ -380,7 +394,10 @@ export class InMemoryInvitationStore implements InvitationStore {
 
     this.invitationsById.set(invitation.id, invitation);
     this.invitationsByToken.set(invitation.tokenHash, invitation.id);
-    this.invitationsByEmail.set(email, invitation.id);
+    this.invitationsByEmail.set(
+      this.emailKey(email, input.notebookId),
+      invitation.id
+    );
     return cloneInvitation(invitation);
   }
 
@@ -397,8 +414,11 @@ export class InMemoryInvitationStore implements InvitationStore {
     return this.get(id);
   }
 
-  async findActiveByEmail(email: string): Promise<Invitation | undefined> {
-    const id = this.invitationsByEmail.get(email.trim().toLowerCase());
+  async findActiveByEmail(
+    email: string,
+    notebookId: string
+  ): Promise<Invitation | undefined> {
+    const id = this.invitationsByEmail.get(this.emailKey(email, notebookId));
     if (!id) {
       return undefined;
     }
@@ -414,6 +434,13 @@ export class InMemoryInvitationStore implements InvitationStore {
 
   async list(): Promise<Invitation[]> {
     return Array.from(this.invitationsById.values())
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .map(cloneInvitation);
+  }
+
+  async listByNotebook(notebookId: string): Promise<Invitation[]> {
+    return Array.from(this.invitationsById.values())
+      .filter((invitation) => invitation.notebookId === notebookId)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
       .map(cloneInvitation);
   }
@@ -438,5 +465,135 @@ export class InMemoryInvitationStore implements InvitationStore {
     invitation.revokedAt = now;
     invitation.updatedAt = now;
     return cloneInvitation(invitation);
+  }
+}
+
+export class InMemoryNotebookCollaboratorStore
+  implements NotebookCollaboratorStore
+{
+  private readonly collaborators = new Map<string, NotebookCollaborator>();
+  private readonly collaboratorIdsByNotebook = new Map<string, Set<string>>();
+  private readonly collaboratorIdsByUser = new Map<string, Set<string>>();
+
+  private key(notebookId: string, userId: string): string {
+    return `${notebookId}::${userId}`;
+  }
+
+  async listByNotebook(notebookId: string): Promise<NotebookCollaborator[]> {
+    const ids = this.collaboratorIdsByNotebook.get(notebookId);
+    if (!ids) {
+      return [];
+    }
+    return Array.from(ids.values())
+      .map((id) => this.collaborators.get(id))
+      .filter((collaborator): collaborator is NotebookCollaborator =>
+        Boolean(collaborator)
+      )
+      .map((collaborator) => cloneCollaborator(collaborator));
+  }
+
+  async listNotebookIdsForUser(userId: string): Promise<string[]> {
+    const ids = this.collaboratorIdsByUser.get(userId);
+    if (!ids) {
+      return [];
+    }
+    return Array.from(ids.values()).map(
+      (compoundId) => compoundId.split("::", 1)[0] ?? ""
+    );
+  }
+
+  async listForUser(userId: string): Promise<NotebookCollaborator[]> {
+    const ids = this.collaboratorIdsByUser.get(userId);
+    if (!ids) {
+      return [];
+    }
+    return Array.from(ids.values())
+      .map((compoundId) => this.collaborators.get(compoundId))
+      .filter((collaborator): collaborator is NotebookCollaborator =>
+        Boolean(collaborator)
+      )
+      .map((collaborator) => cloneCollaborator(collaborator));
+  }
+
+  async get(
+    notebookId: string,
+    userId: string
+  ): Promise<NotebookCollaborator | undefined> {
+    const collaborator = this.collaborators.get(this.key(notebookId, userId));
+    return collaborator ? cloneCollaborator(collaborator) : undefined;
+  }
+
+  async upsert(input: {
+    notebookId: string;
+    userId: string;
+    role: NotebookRole;
+  }): Promise<NotebookCollaborator> {
+    const key = this.key(input.notebookId, input.userId);
+    const existing = this.collaborators.get(key);
+    const now = new Date().toISOString();
+    if (existing) {
+      existing.role = input.role;
+      existing.updatedAt = now;
+      return cloneCollaborator(existing);
+    }
+    const collaborator: NotebookCollaborator = {
+      id: userNanoid(),
+      notebookId: input.notebookId,
+      userId: input.userId,
+      role: input.role,
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.collaborators.set(key, collaborator);
+    const byNotebook = this.collaboratorIdsByNotebook.get(input.notebookId);
+    if (byNotebook) {
+      byNotebook.add(key);
+    } else {
+      this.collaboratorIdsByNotebook.set(input.notebookId, new Set([key]));
+    }
+    const byUser = this.collaboratorIdsByUser.get(input.userId);
+    if (byUser) {
+      byUser.add(key);
+    } else {
+      this.collaboratorIdsByUser.set(input.userId, new Set([key]));
+    }
+    return cloneCollaborator(collaborator);
+  }
+
+  async updateRole(
+    notebookId: string,
+    userId: string,
+    role: NotebookRole
+  ): Promise<NotebookCollaborator | undefined> {
+    const collaborator = this.collaborators.get(this.key(notebookId, userId));
+    if (!collaborator) {
+      return undefined;
+    }
+    collaborator.role = role;
+    collaborator.updatedAt = new Date().toISOString();
+    return cloneCollaborator(collaborator);
+  }
+
+  async remove(notebookId: string, userId: string): Promise<boolean> {
+    const key = this.key(notebookId, userId);
+    const removed = this.collaborators.delete(key);
+    if (!removed) {
+      return false;
+    }
+    const byNotebook = this.collaboratorIdsByNotebook.get(notebookId);
+    if (byNotebook) {
+      byNotebook.delete(key);
+      if (byNotebook.size === 0) {
+        this.collaboratorIdsByNotebook.delete(notebookId);
+      }
+    }
+    const byUser = this.collaboratorIdsByUser.get(userId);
+    if (byUser) {
+      byUser.delete(key);
+      if (byUser.size === 0) {
+        this.collaboratorIdsByUser.delete(userId);
+      }
+    }
+    return true;
   }
 }

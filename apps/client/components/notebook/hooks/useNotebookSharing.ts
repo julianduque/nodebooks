@@ -3,28 +3,31 @@ import type { FormEvent } from "react";
 
 import type {
   InvitationSummary,
-  SafeWorkspaceUser,
-  WorkspaceRole,
+  NotebookCollaboratorSummary,
+  NotebookRole,
 } from "@/components/notebook/types";
 
 export interface UseNotebookSharingOptions {
   isAdmin: boolean;
+  notebookId?: string;
 }
 
 export interface UseNotebookSharingResult {
   sharingOpen: boolean;
   invitationEmail: string;
-  invitationRole: WorkspaceRole;
+  invitationRole: NotebookRole;
   invitationError: string | null;
   shareFetchError: string | null;
   shareSubmitting: boolean;
   invitesLoading: boolean;
-  members: SafeWorkspaceUser[];
+  collaborators: NotebookCollaboratorSummary[];
   invitations: InvitationSummary[];
   newInviteLink: string | null;
   copySuccess: boolean;
   revokingInvitationId: string | null;
-  sortedMembers: SafeWorkspaceUser[];
+  updatingCollaboratorId: string | null;
+  removingCollaboratorId: string | null;
+  sortedCollaborators: NotebookCollaboratorSummary[];
   sortedInvitations: InvitationSummary[];
   refreshSharingData(): Promise<void>;
   handleOpenSharing(): void;
@@ -32,25 +35,44 @@ export interface UseNotebookSharingResult {
   handleSharingOpenChange(open: boolean): void;
   handleCopyInviteLink(): Promise<void>;
   handleRevokeInvitation(invitationId: string): Promise<void>;
+  handleUpdateCollaboratorRole(
+    userId: string,
+    role: NotebookRole
+  ): Promise<void>;
+  handleRemoveCollaborator(userId: string): Promise<void>;
   setInvitationEmail(value: string): void;
-  setInvitationRole(role: WorkspaceRole): void;
+  setInvitationRole(role: NotebookRole): void;
 }
+
+const roleOrder: Record<NotebookRole, number> = {
+  editor: 0,
+  viewer: 1,
+};
 
 export const useNotebookSharing = ({
   isAdmin,
+  notebookId,
 }: UseNotebookSharingOptions): UseNotebookSharingResult => {
   const [sharingOpen, setSharingOpen] = useState(false);
   const [invitationEmail, setInvitationEmail] = useState("");
-  const [invitationRole, setInvitationRole] = useState<WorkspaceRole>("editor");
+  const [invitationRole, setInvitationRole] = useState<NotebookRole>("editor");
   const [invitationError, setInvitationError] = useState<string | null>(null);
   const [shareFetchError, setShareFetchError] = useState<string | null>(null);
   const [shareSubmitting, setShareSubmitting] = useState(false);
   const [invitesLoading, setInvitesLoading] = useState(false);
-  const [members, setMembers] = useState<SafeWorkspaceUser[]>([]);
+  const [collaborators, setCollaborators] = useState<
+    NotebookCollaboratorSummary[]
+  >([]);
   const [invitations, setInvitations] = useState<InvitationSummary[]>([]);
   const [newInviteLink, setNewInviteLink] = useState<string | null>(null);
   const [copySuccess, setCopySuccess] = useState(false);
   const [revokingInvitationId, setRevokingInvitationId] = useState<
+    string | null
+  >(null);
+  const [updatingCollaboratorId, setUpdatingCollaboratorId] = useState<
+    string | null
+  >(null);
+  const [removingCollaboratorId, setRemovingCollaboratorId] = useState<
     string | null
   >(null);
   const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -65,42 +87,35 @@ export const useNotebookSharing = ({
   }, []);
 
   const refreshSharingData = useCallback(async () => {
-    if (!isAdmin) {
+    if (!isAdmin || !notebookId) {
       return;
     }
     setInvitesLoading(true);
     setShareFetchError(null);
     try {
-      const [usersResponse, invitationsResponse] = await Promise.all([
-        fetch("/auth/users", { headers: { Accept: "application/json" } }),
-        fetch("/auth/invitations", { headers: { Accept: "application/json" } }),
-      ]);
-
-      if (!usersResponse.ok) {
-        const payload = (await usersResponse.json().catch(() => ({}))) as {
-          error?: string;
+      const response = await fetch(
+        `/api/notebooks/${encodeURIComponent(notebookId)}/sharing`,
+        { headers: { Accept: "application/json" } }
+      );
+      const payload = (await response.json().catch(() => ({}))) as {
+        data?: {
+          collaborators?: NotebookCollaboratorSummary[];
+          invitations?: InvitationSummary[];
         };
-        throw new Error(payload?.error ?? "Failed to load members");
-      }
-      if (!invitationsResponse.ok) {
-        const payload = (await invitationsResponse
-          .json()
-          .catch(() => ({}))) as {
-          error?: string;
-        };
-        throw new Error(payload?.error ?? "Failed to load invitations");
-      }
-
-      const usersPayload = (await usersResponse.json()) as {
-        data?: SafeWorkspaceUser[];
+        error?: string;
       };
-      const invitationsPayload = (await invitationsResponse.json()) as {
-        data?: InvitationSummary[];
-      };
-
-      setMembers(Array.isArray(usersPayload?.data) ? usersPayload.data : []);
+      if (!response.ok) {
+        throw new Error(payload?.error ?? "Failed to load sharing data");
+      }
+      setCollaborators(
+        Array.isArray(payload?.data?.collaborators)
+          ? payload.data!.collaborators
+          : []
+      );
       setInvitations(
-        Array.isArray(invitationsPayload?.data) ? invitationsPayload.data : []
+        Array.isArray(payload?.data?.invitations)
+          ? payload.data!.invitations
+          : []
       );
     } catch (error) {
       setShareFetchError(
@@ -109,21 +124,18 @@ export const useNotebookSharing = ({
     } finally {
       setInvitesLoading(false);
     }
-  }, [isAdmin]);
+  }, [isAdmin, notebookId]);
 
-  const sortedMembers = useMemo(() => {
-    return [...members].sort((a, b) => {
+  const sortedCollaborators = useMemo(() => {
+    return [...collaborators].sort((a, b) => {
       if (a.role !== b.role) {
-        const roleOrder: Record<WorkspaceRole, number> = {
-          admin: 0,
-          editor: 1,
-          viewer: 2,
-        };
         return roleOrder[a.role] - roleOrder[b.role];
       }
-      return a.email.localeCompare(b.email);
+      const aLabel = a.user.name ?? a.user.email;
+      const bLabel = b.user.name ?? b.user.email;
+      return aLabel.localeCompare(bLabel);
     });
-  }, [members]);
+  }, [collaborators]);
 
   const sortedInvitations = useMemo(() => {
     return [...invitations].sort((a, b) =>
@@ -141,13 +153,13 @@ export const useNotebookSharing = ({
   }, []);
 
   const handleOpenSharing = useCallback(() => {
-    if (!isAdmin) {
+    if (!isAdmin || !notebookId) {
       return;
     }
     setSharingOpen(true);
     resetFormState();
     void refreshSharingData();
-  }, [isAdmin, refreshSharingData, resetFormState]);
+  }, [isAdmin, notebookId, refreshSharingData, resetFormState]);
 
   const handleSharingOpenChange = useCallback(
     (open: boolean) => {
@@ -162,7 +174,7 @@ export const useNotebookSharing = ({
   const handleInviteSubmit = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
-      if (!isAdmin || shareSubmitting) {
+      if (!isAdmin || shareSubmitting || !notebookId) {
         return;
       }
       const email = invitationEmail.trim();
@@ -174,25 +186,38 @@ export const useNotebookSharing = ({
       setShareFetchError(null);
       setShareSubmitting(true);
       try {
-        const response = await fetch("/auth/invitations", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email, role: invitationRole }),
-        });
+        const response = await fetch(
+          `/api/notebooks/${encodeURIComponent(notebookId)}/sharing/invitations`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email, role: invitationRole }),
+          }
+        );
         const payload = (await response.json().catch(() => ({}))) as {
+          data?:
+            | {
+                type: "invitation";
+                invitation: InvitationSummary;
+                token?: string;
+              }
+            | {
+                type: "collaborator";
+                collaborator: NotebookCollaboratorSummary;
+              };
           error?: string;
-          token?: string;
         };
-        if (!response.ok) {
+        if (!response.ok || !payload?.data) {
           setInvitationError(payload?.error ?? "Failed to send invitation");
           return;
         }
         setInvitationEmail("");
         if (
-          typeof payload?.token === "string" &&
+          payload.data.type === "invitation" &&
+          typeof payload.data.token === "string" &&
           typeof window !== "undefined"
         ) {
-          const link = `${window.location.origin}/signup?token=${encodeURIComponent(payload.token)}`;
+          const link = `${window.location.origin}/signup?token=${encodeURIComponent(payload.data.token)}`;
           setNewInviteLink(link);
           setCopySuccess(false);
         }
@@ -206,6 +231,7 @@ export const useNotebookSharing = ({
     [
       isAdmin,
       shareSubmitting,
+      notebookId,
       invitationEmail,
       invitationRole,
       refreshSharingData,
@@ -235,14 +261,16 @@ export const useNotebookSharing = ({
 
   const handleRevokeInvitation = useCallback(
     async (invitationId: string) => {
-      if (!isAdmin) {
+      if (!isAdmin || !notebookId) {
         return;
       }
       setShareFetchError(null);
       setRevokingInvitationId(invitationId);
       try {
         const response = await fetch(
-          `/auth/invitations/${encodeURIComponent(invitationId)}/revoke`,
+          `/api/notebooks/${encodeURIComponent(
+            notebookId
+          )}/sharing/invitations/${encodeURIComponent(invitationId)}/revoke`,
           {
             method: "POST",
             headers: { Accept: "application/json" },
@@ -262,7 +290,78 @@ export const useNotebookSharing = ({
         setRevokingInvitationId(null);
       }
     },
-    [isAdmin, refreshSharingData]
+    [isAdmin, notebookId, refreshSharingData]
+  );
+
+  const handleUpdateCollaboratorRole = useCallback(
+    async (userId: string, role: NotebookRole) => {
+      if (!isAdmin || !notebookId) {
+        return;
+      }
+      setShareFetchError(null);
+      setUpdatingCollaboratorId(userId);
+      try {
+        const response = await fetch(
+          `/api/notebooks/${encodeURIComponent(
+            notebookId
+          )}/sharing/collaborators/${encodeURIComponent(userId)}`,
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ role }),
+          }
+        );
+        if (!response.ok) {
+          const payload = (await response.json().catch(() => ({}))) as {
+            error?: string;
+          };
+          setShareFetchError(
+            payload?.error ?? "Failed to update collaborator role"
+          );
+          return;
+        }
+        await refreshSharingData();
+      } catch {
+        setShareFetchError("Failed to update collaborator role");
+      } finally {
+        setUpdatingCollaboratorId(null);
+      }
+    },
+    [isAdmin, notebookId, refreshSharingData]
+  );
+
+  const handleRemoveCollaborator = useCallback(
+    async (userId: string) => {
+      if (!isAdmin || !notebookId) {
+        return;
+      }
+      setShareFetchError(null);
+      setRemovingCollaboratorId(userId);
+      try {
+        const response = await fetch(
+          `/api/notebooks/${encodeURIComponent(
+            notebookId
+          )}/sharing/collaborators/${encodeURIComponent(userId)}`,
+          {
+            method: "DELETE",
+            headers: { Accept: "application/json" },
+          }
+        );
+        if (!response.ok && response.status !== 204) {
+          const payload = (await response.json().catch(() => ({}))) as {
+            error?: string;
+          };
+          setShareFetchError(payload?.error ?? "Failed to remove collaborator");
+          return;
+        }
+        await refreshSharingData();
+      } catch {
+        setShareFetchError("Failed to remove collaborator");
+      } finally {
+        setRemovingCollaboratorId(null);
+      }
+    },
+    [isAdmin, notebookId, refreshSharingData]
   );
 
   return {
@@ -273,12 +372,14 @@ export const useNotebookSharing = ({
     shareFetchError,
     shareSubmitting,
     invitesLoading,
-    members,
+    collaborators,
     invitations,
     newInviteLink,
     copySuccess,
     revokingInvitationId,
-    sortedMembers,
+    updatingCollaboratorId,
+    removingCollaboratorId,
+    sortedCollaborators,
     sortedInvitations,
     refreshSharingData,
     handleOpenSharing,
@@ -286,6 +387,8 @@ export const useNotebookSharing = ({
     handleSharingOpenChange,
     handleCopyInviteLink,
     handleRevokeInvitation,
+    handleUpdateCollaboratorRole,
+    handleRemoveCollaborator,
     setInvitationEmail,
     setInvitationRole,
   };

@@ -62,17 +62,16 @@ export default async function Image() {
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              height: 150,
-              width: 150,
+              height: 180,
+              width: 180,
               overflow: "hidden",
             }}
           >
             <img
               alt="NodeBooks"
-              height={140}
-              width={140}
-              src={`${origin}/icon.svg`}
-              style={{ objectFit: "cover" }}
+              height={180}
+              width={180}
+              src={`${origin}/assets/nodebooks-logo.png`}
             />
           </div>
           <div

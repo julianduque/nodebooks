@@ -66,6 +66,7 @@ interface CellCardProps {
   aiEnabled: boolean;
   dependencies?: Record<string, string>;
   pendingShellPersist?: boolean;
+  readOnly: boolean;
 }
 
 type CodeCellMetadata = Record<string, unknown> & {
@@ -103,9 +104,11 @@ const fontSizeSelectionForValue = (value: string): FontSizeSelection => {
 const AddCellMenu = ({
   onAdd,
   className,
+  disabled = false,
 }: {
   onAdd: (type: NotebookCell["type"]) => void | Promise<void>;
   className?: string;
+  disabled?: boolean;
 }) => {
   return (
     <div
@@ -118,7 +121,11 @@ const AddCellMenu = ({
         variant="outline"
         size="sm"
         className="h-7 px-2 text-xs gap-1"
-        onClick={() => onAdd("markdown")}
+        onClick={() => {
+          if (disabled) return;
+          onAdd("markdown");
+        }}
+        disabled={disabled}
       >
         <Plus className="h-4 w-4" />
         Markdown
@@ -127,7 +134,11 @@ const AddCellMenu = ({
         variant="outline"
         size="sm"
         className="h-7 px-2 text-xs gap-1"
-        onClick={() => onAdd("code")}
+        onClick={() => {
+          if (disabled) return;
+          onAdd("code");
+        }}
+        disabled={disabled}
       >
         <Plus className="h-4 w-4" />
         Code
@@ -136,7 +147,11 @@ const AddCellMenu = ({
         variant="outline"
         size="sm"
         className="h-7 px-2 text-xs gap-1"
-        onClick={() => onAdd("shell")}
+        onClick={() => {
+          if (disabled) return;
+          onAdd("shell");
+        }}
+        disabled={disabled}
       >
         <Terminal className="h-4 w-4" />
         Shell
@@ -169,12 +184,14 @@ const CellCard = ({
   aiEnabled,
   dependencies,
   pendingShellPersist = false,
+  readOnly,
 }: CellCardProps) => {
   void _active;
   const isCode = cell.type === "code";
   const isMarkdown = cell.type === "markdown";
   const isShell = cell.type === "shell";
-  const showAiActions = aiEnabled && !isShell;
+  const showAiActions = aiEnabled && !isShell && !readOnly;
+  const isReadOnly = readOnly;
   const codeLanguage = isCode ? cell.language : undefined;
   const cellContent = cell.type === "shell" ? cell.buffer : cell.source;
   const [showConfig, setShowConfig] = useState(false);
@@ -815,7 +832,7 @@ const CellCard = ({
             variant="ghost"
             size="icon"
             onClick={onRun}
-            disabled={isRunning || aiGenerating || !canRun}
+            disabled={isReadOnly || isRunning || aiGenerating || !canRun}
             aria-label="Run cell"
             title="Run cell (Shift+Enter)"
           >
@@ -825,7 +842,7 @@ const CellCard = ({
               <Play className="h-4 w-4" />
             )}
           </Button>
-          {isRunning && (
+          {isRunning && !isReadOnly && (
             <Button
               variant="ghost"
               size="icon"
@@ -849,6 +866,7 @@ const CellCard = ({
             }
             aria-label="Clear outputs"
             title="Clear outputs"
+            disabled={isReadOnly}
           >
             <Eraser className="h-4 w-4" />
           </Button>
@@ -858,6 +876,7 @@ const CellCard = ({
             onClick={openConfig}
             aria-label="Configure cell"
             title="Cell settings"
+            disabled={isReadOnly}
           >
             <SettingsIcon className="h-4 w-4" />
           </Button>
@@ -886,6 +905,7 @@ const CellCard = ({
             }
             aria-label="Toggle edit markdown"
             title="Toggle edit markdown"
+            disabled={isReadOnly}
           >
             {mdEditing ? (
               <Check className="h-4 w-4" />
@@ -899,6 +919,7 @@ const CellCard = ({
             onClick={openConfig}
             aria-label="Configure cell"
             title="Cell settings"
+            disabled={isReadOnly}
           >
             <SettingsIcon className="h-4 w-4" />
           </Button>
@@ -910,6 +931,7 @@ const CellCard = ({
           onClick={openConfig}
           aria-label="Configure cell"
           title="Cell settings"
+          disabled={isReadOnly}
         >
           <SettingsIcon className="h-4 w-4" />
         </Button>
@@ -921,6 +943,7 @@ const CellCard = ({
           onClick={() => onMove("up")}
           aria-label="Move cell up"
           title="Move cell up"
+          disabled={isReadOnly}
         >
           <ArrowUp className="h-4 w-4" />
         </Button>
@@ -932,6 +955,7 @@ const CellCard = ({
           onClick={() => onMove("down")}
           aria-label="Move cell down"
           title="Move cell down"
+          disabled={isReadOnly}
         >
           <ArrowDown className="h-4 w-4" />
         </Button>
@@ -943,6 +967,7 @@ const CellCard = ({
         onClick={onDelete}
         aria-label="Delete cell"
         title="Delete cell"
+        disabled={isReadOnly}
       >
         <Trash2 className="h-4 w-4" />
       </Button>
@@ -1037,6 +1062,7 @@ const CellCard = ({
           isRunning={isRunning}
           queued={queued}
           isGenerating={aiGenerating}
+          readOnly={readOnly}
         />
       ) : cell.type === "markdown" ? (
         <MarkdownCellView
@@ -1046,6 +1072,7 @@ const CellCard = ({
           notebookId={notebookId}
           onChange={onChange}
           onAttachmentUploaded={onAttachmentUploaded}
+          readOnly={readOnly}
         />
       ) : (
         <ShellCellView
@@ -1053,6 +1080,7 @@ const CellCard = ({
           notebookId={notebookId}
           onChange={onChange}
           pendingPersist={pendingShellPersist}
+          readOnly={readOnly}
         />
       )}
 
@@ -1070,6 +1098,7 @@ const CellCard = ({
           <AddCellMenu
             onAdd={onAddBelow}
             className="ml-auto flex flex-wrap items-center gap-1 text-[11px] [&>button]:h-8 [&>button]:w-auto [&>button]:rounded-lg sm:border-l sm:border-border/60 sm:pl-2 sm:[&>button]:min-w-[6.5rem]"
+            disabled={readOnly}
           />
         </div>
       </div>

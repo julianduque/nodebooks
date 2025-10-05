@@ -16,6 +16,7 @@ import {
   InMemoryUserStore,
   InMemoryAuthSessionStore,
   InMemoryInvitationStore,
+  InMemoryNotebookCollaboratorStore,
 } from "./store/memory.js";
 import {
   SqliteNotebookStore,
@@ -23,6 +24,7 @@ import {
   SqliteUserStore,
   SqliteAuthSessionStore,
   SqliteInvitationStore,
+  SqliteNotebookCollaboratorStore,
 } from "./store/sqlite.js";
 import {
   PostgresNotebookStore,
@@ -30,6 +32,7 @@ import {
   PostgresUserStore,
   PostgresAuthSessionStore,
   PostgresInvitationStore,
+  PostgresNotebookCollaboratorStore,
 } from "./store/postgres.js";
 import type {
   NotebookStore,
@@ -39,6 +42,7 @@ import type {
   SafeUser,
   AuthSession,
   InvitationStore,
+  NotebookCollaboratorStore,
 } from "./types.js";
 import { registerNotebookRoutes } from "./routes/notebooks.js";
 import { registerDependencyRoutes } from "./routes/dependencies.js";
@@ -47,6 +51,7 @@ import { registerTemplateRoutes } from "./routes/templates.js";
 import { registerTypesRoutes } from "./routes/types.js";
 import { registerAiRoutes } from "./routes/ai.js";
 import { registerAttachmentRoutes } from "./routes/attachments.js";
+import { registerNotebookSharingRoutes } from "./routes/notebook-sharing.js";
 import { createKernelUpgradeHandler } from "./kernel/router.js";
 import { createShellUpgradeHandler } from "./shell/router.js";
 import { NotebookCollaborationService } from "./notebooks/collaboration.js";
@@ -77,8 +82,15 @@ export const createServer = async ({
   logger = true,
 }: CreateServerOptions = {}) => {
   const baseConfig = loadServerConfig();
-  const { store, settings, driver, users, authSessions, invitations } =
-    createNotebookStore({}, baseConfig);
+  const {
+    store,
+    settings,
+    driver,
+    users,
+    authSessions,
+    invitations,
+    collaborators,
+  } = createNotebookStore({}, baseConfig);
   const settingsService = new SettingsService(settings);
   await settingsService.whenReady();
   setSettingsService(settingsService);
@@ -95,7 +107,12 @@ export const createServer = async ({
   });
   // Do not register @fastify/websocket to avoid conflicting with Next HMR
 
-  const authService = new AuthService(users, authSessions, invitations);
+  const authService = new AuthService(
+    users,
+    authSessions,
+    invitations,
+    collaborators
+  );
 
   const cookieOptions: FastifyCookieNamespace.CookieSerializeOptions = {
     path: "/",
@@ -205,11 +222,6 @@ export const createServer = async ({
     token: z.string().min(1),
     password: z.string().min(8),
     name: z.string().trim().min(1).max(120),
-  });
-
-  const inviteSchema = z.object({
-    email: z.string().email(),
-    role: z.enum(["admin", "editor", "viewer"]).default("editor"),
   });
 
   const invitationInspectSchema = z.object({
@@ -337,62 +349,6 @@ export const createServer = async ({
     return true;
   };
 
-  app.post("/auth/invitations", async (request, reply) => {
-    if (!ensureAdmin(request, reply)) {
-      return;
-    }
-    const body = inviteSchema.safeParse(request.body);
-    if (!body.success) {
-      void reply.code(400).send({ error: "Invalid invitation payload" });
-      return;
-    }
-    try {
-      const result = await authService.inviteUser({
-        email: body.data.email,
-        role: body.data.role,
-        invitedBy: request.user.id,
-      });
-      void reply
-        .code(201)
-        .send({ data: result.invitation, token: result.token });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown error";
-      if (message.includes("already exists")) {
-        void reply.code(409).send({ error: "User already exists" });
-        return;
-      }
-      request.log.error({ err: error }, "Failed to create invitation");
-      void reply.code(500).send({ error: "Failed to create invitation" });
-    }
-  });
-
-  app.get("/auth/invitations", async (request, reply) => {
-    if (!ensureAdmin(request, reply)) {
-      return;
-    }
-    const invitationsList = await authService.listInvitations();
-    void reply.send({ data: invitationsList });
-  });
-
-  app.post("/auth/invitations/:id/revoke", async (request, reply) => {
-    if (!ensureAdmin(request, reply)) {
-      return;
-    }
-    const params = z
-      .object({ id: z.string().min(1) })
-      .safeParse(request.params);
-    if (!params.success) {
-      void reply.code(400).send({ error: "Invalid invitation id" });
-      return;
-    }
-    const revoked = await authService.revokeInvitation(params.data.id);
-    if (!revoked) {
-      void reply.code(404).send({ error: "Invitation not found" });
-      return;
-    }
-    void reply.send({ data: revoked });
-  });
-
   app.post("/auth/invitations/inspect", async (request, reply) => {
     const body = invitationInspectSchema.safeParse(request.body);
     if (!body.success) {
@@ -508,10 +464,11 @@ export const createServer = async ({
         settings: settingsService,
       });
       await registerAiRoutes(api, { settings: settingsService });
-      registerAttachmentRoutes(api, store);
-      registerNotebookRoutes(api, store);
-      registerDependencyRoutes(api, store);
-      registerSessionRoutes(api, kernelSessions);
+      registerAttachmentRoutes(api, store, collaborators);
+      registerNotebookRoutes(api, store, collaborators);
+      registerNotebookSharingRoutes(api, { auth: authService });
+      registerDependencyRoutes(api, store, collaborators);
+      registerSessionRoutes(api, kernelSessions, store, collaborators);
       registerTemplateRoutes(api);
       registerTypesRoutes(api);
     },
@@ -599,6 +556,7 @@ interface NotebookStoreResult {
   users: UserStore;
   authSessions: AuthSessionStore;
   invitations: InvitationStore;
+  collaborators: NotebookCollaboratorStore;
   driver: PersistenceDriver;
 }
 
@@ -635,6 +593,7 @@ export const createNotebookStore = (
         users: new InMemoryUserStore(),
         authSessions: new InMemoryAuthSessionStore(),
         invitations: new InMemoryInvitationStore(),
+        collaborators: new InMemoryNotebookCollaboratorStore(),
         driver,
       };
     case "sqlite": {
@@ -647,6 +606,7 @@ export const createNotebookStore = (
         users: new SqliteUserStore(sqliteStore),
         authSessions: new SqliteAuthSessionStore(sqliteStore),
         invitations: new SqliteInvitationStore(sqliteStore),
+        collaborators: new SqliteNotebookCollaboratorStore(sqliteStore),
         driver,
       };
     }
@@ -660,6 +620,7 @@ export const createNotebookStore = (
         users: new PostgresUserStore(postgresStore),
         authSessions: new PostgresAuthSessionStore(postgresStore),
         invitations: new PostgresInvitationStore(postgresStore),
+        collaborators: new PostgresNotebookCollaboratorStore(postgresStore),
         driver,
       };
     }

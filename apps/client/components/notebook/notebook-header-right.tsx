@@ -22,7 +22,9 @@ export interface NotebookHeaderRightProps {
   socketReady: boolean;
   hasSession: boolean;
   dirty: boolean;
-  isAdmin: boolean;
+  canEdit: boolean;
+  canShare: boolean;
+  canDelete: boolean;
   currentUserLoading: boolean;
   exporting: boolean;
   onSave(): void;
@@ -40,7 +42,9 @@ const NotebookHeaderRight = ({
   socketReady,
   hasSession,
   dirty,
-  isAdmin,
+  canEdit,
+  canShare,
+  canDelete,
   currentUserLoading,
   exporting,
   onSave,
@@ -102,7 +106,7 @@ const NotebookHeaderRight = ({
           variant={dirty ? "secondary" : "ghost"}
           size="icon"
           onClick={onSave}
-          disabled={!dirty}
+          disabled={!dirty || !canEdit}
           aria-label="Save notebook"
           title={dirty ? "Save notebook" : "Saved"}
         >
@@ -116,7 +120,7 @@ const NotebookHeaderRight = ({
           variant="default"
           size="icon"
           onClick={onRunAll}
-          disabled={!socketReady}
+          disabled={!socketReady || !canEdit}
           aria-label="Run all cells"
           title="Run all cells"
         >
@@ -128,6 +132,7 @@ const NotebookHeaderRight = ({
           onClick={onClearOutputs}
           aria-label="Clear all outputs"
           title="Clear all outputs"
+          disabled={!canEdit}
         >
           <Eraser className="h-4 w-4" />
         </Button>
@@ -137,7 +142,7 @@ const NotebookHeaderRight = ({
           onClick={onReconnect}
           aria-label="Reconnect kernel"
           title="Reconnect kernel"
-          disabled={!hasSession}
+          disabled={!hasSession || !canEdit}
         >
           <RefreshCw className="h-4 w-4" />
         </Button>
@@ -147,6 +152,7 @@ const NotebookHeaderRight = ({
           onClick={onRestart}
           aria-label="Restart kernel"
           title="Restart kernel"
+          disabled={!canEdit}
         >
           <RotateCcw className="h-4 w-4" />
         </Button>
@@ -155,18 +161,18 @@ const NotebookHeaderRight = ({
           size="icon"
           onClick={onOpenSharing}
           aria-label={
-            isAdmin
+            canShare
               ? "Invite collaborators"
               : "Only admins can invite collaborators"
           }
           title={
-            isAdmin
+            canShare
               ? "Invite collaborators"
               : "Only admins can invite collaborators"
           }
-          disabled={!isAdmin || currentUserLoading}
+          disabled={!canShare || currentUserLoading}
         >
-          {isAdmin ? (
+          {canShare ? (
             <Share2 className="h-4 w-4" />
           ) : (
             <ShieldCheck className="h-4 w-4" />
@@ -186,16 +192,18 @@ const NotebookHeaderRight = ({
             <Download className="h-4 w-4" />
           )}
         </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="text-rose-600 hover:text-rose-700"
-          onClick={onDelete}
-          aria-label="Delete notebook"
-          title="Delete notebook"
-        >
-          <Trash2 className="h-4 w-4" />
-        </Button>
+        {canDelete ? (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="text-rose-600 hover:text-rose-700"
+            onClick={onDelete}
+            aria-label="Delete notebook"
+            title="Delete notebook"
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        ) : null}
       </div>
     </div>
   );
