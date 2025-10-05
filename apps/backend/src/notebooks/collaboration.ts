@@ -9,7 +9,13 @@ import {
   ensureNotebookRuntimeVersion,
   type Notebook,
 } from "@nodebooks/notebook-schema";
-import type { NotebookStore, SafeUser, AuthSession } from "../types.js";
+import type {
+  NotebookCollaboratorStore,
+  NotebookRole,
+  NotebookStore,
+  SafeUser,
+  AuthSession,
+} from "../types.js";
 
 const nanoid = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", 12);
 
@@ -65,6 +71,7 @@ interface CollaborationClient {
   id: string;
   socket: WebSocket;
   user: SafeUser;
+  role: NotebookRole;
 }
 
 interface CollaborationState {
@@ -106,7 +113,10 @@ export type AuthenticateFn = (
 export class NotebookCollaborationService {
   private readonly states = new Map<string, CollaborationState>();
 
-  constructor(private readonly store: NotebookStore) {}
+  constructor(
+    private readonly store: NotebookStore,
+    private readonly collaborators: NotebookCollaboratorStore
+  ) {}
 
   getUpgradeHandler(prefix: string, authenticate: AuthenticateFn) {
     const wss = new WebSocketServer({ noServer: true });
@@ -139,12 +149,29 @@ export class NotebookCollaborationService {
         }
 
         const notebookId = decodeURIComponent(match[1]!);
+        const accessRole = await this.getAccessRole(notebookId, auth.user);
+        if (!accessRole) {
+          try {
+            socket.write(
+              "HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n"
+            );
+          } catch (err) {
+            void err;
+          }
+          try {
+            socket.destroy();
+          } catch (err) {
+            void err;
+          }
+          return;
+        }
         try {
           wss.handleUpgrade(req, socket, head, (ws) => {
             void this.handleConnection(
               ws as unknown as WebSocket,
               notebookId,
-              auth.user
+              auth.user,
+              accessRole
             );
           });
         } catch (err) {
@@ -188,11 +215,12 @@ export class NotebookCollaborationService {
   private async handleConnection(
     socket: WebSocket,
     notebookId: string,
-    user: SafeUser
+    user: SafeUser,
+    role: NotebookRole
   ) {
     const state = await this.ensureState(notebookId);
     const clientId = nanoid();
-    const client: CollaborationClient = { id: clientId, socket, user };
+    const client: CollaborationClient = { id: clientId, socket, user, role };
     state.clients.set(clientId, client);
 
     const currentNotebook =
@@ -240,6 +268,13 @@ export class NotebookCollaborationService {
       }
 
       if (parsed.type === "update") {
+        if (client.role !== "editor") {
+          this.send(client, {
+            type: "error",
+            message: "Notebook access denied",
+          });
+          return;
+        }
         void this.applyUpdate(state, client, parsed.notebook);
         return;
       }
@@ -322,5 +357,21 @@ export class NotebookCollaborationService {
       });
     }
     this.broadcast(state, { type: "presence", participants });
+  }
+
+  private async getAccessRole(
+    notebookId: string,
+    user: SafeUser
+  ): Promise<NotebookRole | null> {
+    if (user.role === "admin") {
+      return "editor";
+    }
+
+    const collaborator = await this.collaborators.get(notebookId, user.id);
+    if (!collaborator) {
+      return null;
+    }
+
+    return collaborator.role;
   }
 }
