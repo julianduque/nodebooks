@@ -51,6 +51,27 @@ const toSafeUser = (user: User): SafeUser => ({
 
 const normalizeEmail = (email: string) => email.trim().toLowerCase();
 
+export class InvalidCurrentPasswordError extends Error {
+  constructor() {
+    super("Invalid current password");
+    this.name = "InvalidCurrentPasswordError";
+  }
+}
+
+export class CannotRemoveSelfError extends Error {
+  constructor() {
+    super("Cannot remove the current user");
+    this.name = "CannotRemoveSelfError";
+  }
+}
+
+export class CannotRemoveLastAdminError extends Error {
+  constructor() {
+    super("Cannot remove the last admin user");
+    this.name = "CannotRemoveLastAdminError";
+  }
+}
+
 export class AuthService {
   constructor(
     private readonly users: UserStore,
@@ -588,6 +609,74 @@ export class AuthService {
       throw new Error("Invalid credentials");
     }
     return this.startSession(user.id);
+  }
+
+  async updatePassword(input: {
+    userId: string;
+    currentPassword: string;
+    newPassword: string;
+  }): Promise<AuthenticatedSession> {
+    const user = await this.users.get(input.userId);
+    if (!user) {
+      throw new Error("User not found");
+    }
+
+    const valid = await verifyPassword(
+      user.passwordHash,
+      input.currentPassword
+    );
+    if (!valid) {
+      throw new InvalidCurrentPasswordError();
+    }
+    if (input.currentPassword === input.newPassword) {
+      throw new Error("New password must be different from current password");
+    }
+
+    const passwordHash = await hashPassword(input.newPassword);
+    await this.users.update(user.id, { passwordHash });
+    await this.logoutAll(user.id);
+    return this.startSession(user.id);
+  }
+
+  async removeUser(requesterId: string, targetUserId: string): Promise<void> {
+    if (requesterId === targetUserId) {
+      throw new CannotRemoveSelfError();
+    }
+
+    const user = await this.users.get(targetUserId);
+    if (!user) {
+      throw new Error("User not found");
+    }
+
+    if (user.role === "admin") {
+      const users = await this.users.list();
+      const adminCount = users.filter((entry) => entry.role === "admin").length;
+      if (adminCount <= 1) {
+        throw new CannotRemoveLastAdminError();
+      }
+    }
+
+    const notebookCollaborators =
+      await this.collaborators.listForUser(targetUserId);
+    await Promise.all(
+      notebookCollaborators.map((collaborator) =>
+        this.collaborators.remove(collaborator.notebookId, targetUserId)
+      )
+    );
+
+    const projectIds =
+      await this.projectCollaborators.listProjectIdsForUser(targetUserId);
+    await Promise.all(
+      projectIds.map((projectId) =>
+        this.projectCollaborators.remove(projectId, targetUserId)
+      )
+    );
+
+    await this.logoutAll(targetUserId);
+    const removed = await this.users.remove(targetUserId);
+    if (!removed) {
+      throw new Error("User not found");
+    }
   }
 
   async startSession(userId: string): Promise<AuthenticatedSession> {

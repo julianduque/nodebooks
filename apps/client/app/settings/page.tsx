@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
+import Image from "next/image";
 
 import AppShell from "@/components/app-shell";
 import ProfileMenu from "@/components/profile/profile-menu";
@@ -10,7 +17,10 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import LoadingOverlay from "@/components/ui/loading-overlay";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import ConfirmDialog from "@/components/ui/confirm";
 import { useCurrentUser } from "@/components/notebook/hooks/use-current-user";
+import type { SafeWorkspaceUser } from "@/components/notebook/types";
 import { gravatarUrlForEmail } from "@/lib/avatar";
 
 import { clientConfig } from "@nodebooks/config/client";
@@ -35,8 +45,26 @@ interface SettingsPayload {
   ai: AiSettingsPayload;
 }
 
-type SavingSection = "theme" | "kernel" | "ai" | "aiEnabled" | null;
-type FeedbackState = { type: "success" | "error"; message: string } | null;
+type SavingSection =
+  | "theme"
+  | "kernel"
+  | "ai"
+  | "aiEnabled"
+  | "password"
+  | null;
+type SettingsTab = "profile" | "runtime" | "ai" | "users";
+type FeedbackState = {
+  type: "success" | "error";
+  message: string;
+  scope: SettingsTab;
+} | null;
+
+const TAB_LABELS: Record<SettingsTab, string> = {
+  profile: "Profile",
+  runtime: "Runtime",
+  ai: "AI",
+  users: "Users",
+};
 
 const isTheme = (value: unknown): value is ThemeMode => {
   return value === "light" || value === "dark";
@@ -401,8 +429,86 @@ const AiSection = ({
   );
 };
 
+const PasswordSection = ({
+  currentPassword,
+  onCurrentPasswordChange,
+  newPassword,
+  onNewPasswordChange,
+  confirmPassword,
+  onConfirmPasswordChange,
+  onSubmit,
+  saving,
+}: {
+  currentPassword: string;
+  onCurrentPasswordChange: (value: string) => void;
+  newPassword: string;
+  onNewPasswordChange: (value: string) => void;
+  confirmPassword: string;
+  onConfirmPasswordChange: (value: string) => void;
+  onSubmit: () => void;
+  saving: boolean;
+}) => {
+  return (
+    <div className="space-y-3">
+      <div>
+        <h3 className="text-sm font-semibold text-foreground">Password</h3>
+        <p className="text-sm text-muted-foreground">
+          Update your password to keep your account secure.
+        </p>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2 sm:gap-4">
+        <label className="block text-xs font-medium text-muted-foreground">
+          Current password
+          <input
+            type="password"
+            value={currentPassword}
+            onChange={(event) => onCurrentPasswordChange(event.target.value)}
+            autoComplete="current-password"
+            className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm font-medium text-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            disabled={saving}
+            placeholder="••••••••"
+          />
+        </label>
+        <label className="block text-xs font-medium text-muted-foreground">
+          New password
+          <input
+            type="password"
+            value={newPassword}
+            onChange={(event) => onNewPasswordChange(event.target.value)}
+            autoComplete="new-password"
+            className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm font-medium text-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            disabled={saving}
+            placeholder="At least 8 characters"
+          />
+        </label>
+        <label className="block text-xs font-medium text-muted-foreground sm:col-span-2">
+          Confirm new password
+          <input
+            type="password"
+            value={confirmPassword}
+            onChange={(event) => onConfirmPasswordChange(event.target.value)}
+            autoComplete="new-password"
+            className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm font-medium text-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            disabled={saving}
+            placeholder="Re-enter the new password"
+          />
+        </label>
+      </div>
+      <div className="flex justify-end">
+        <Button type="button" onClick={onSubmit} disabled={saving}>
+          {saving ? "Updating…" : "Update password"}
+        </Button>
+      </div>
+    </div>
+  );
+};
+
 const SettingsPage = () => {
-  const { currentUser, loading: currentUserLoading } = useCurrentUser();
+  const {
+    currentUser,
+    loading: currentUserLoading,
+    isAdmin,
+  } = useCurrentUser();
   const profileUser = useMemo(() => {
     if (!currentUser) {
       return null;
@@ -429,12 +535,59 @@ const SettingsPage = () => {
   const [herokuInferenceKey, setHerokuInferenceKey] = useState("");
   const [herokuInferenceUrl, setHerokuInferenceUrl] = useState("");
   const [herokuKeyConfigured, setHerokuKeyConfigured] = useState(false);
+  const [currentPasswordValue, setCurrentPasswordValue] = useState("");
+  const [newPasswordValue, setNewPasswordValue] = useState("");
+  const [confirmPasswordValue, setConfirmPasswordValue] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [savingSection, setSavingSection] = useState<SavingSection>(null);
   const [feedback, setFeedback] = useState<FeedbackState>(null);
+  const [activeTab, setActiveTab] = useState<SettingsTab>("profile");
+  const [users, setUsers] = useState<SafeWorkspaceUser[]>([]);
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [usersError, setUsersError] = useState<string | null>(null);
+  const [removingUserId, setRemovingUserId] = useState<string | null>(null);
+  const [confirmUser, setConfirmUser] = useState<SafeWorkspaceUser | null>(
+    null
+  );
+
+  const availableTabs = useMemo(() => {
+    const tabs: SettingsTab[] = ["profile"];
+    if (isAdmin) {
+      tabs.push("runtime", "ai", "users");
+    }
+    return tabs;
+  }, [isAdmin]);
+
+  const userInitial = useCallback((entry: SafeWorkspaceUser) => {
+    const source = entry.name?.trim() || entry.email?.trim() || "";
+    return source.slice(0, 1).toUpperCase() || "?";
+  }, []);
+
+  useEffect(() => {
+    if (!availableTabs.includes(activeTab)) {
+      setActiveTab(availableTabs[0] ?? "profile");
+    }
+  }, [availableTabs, activeTab]);
+
+  const resetFeedback = useCallback(() => {
+    setFeedback(null);
+  }, []);
+
+  const pushFeedback = useCallback(
+    (scope: SettingsTab, type: "success" | "error", message: string) => {
+      setFeedback({ scope, type, message });
+    },
+    []
+  );
 
   const refresh = useCallback(async () => {
+    if (!isAdmin) {
+      setLoading(false);
+      setError(null);
+      resetFeedback();
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -461,7 +614,10 @@ const SettingsPage = () => {
       setHerokuKeyConfigured(parsed.ai.heroku.inferenceKeyConfigured);
       setHerokuInferenceKey("");
       setHerokuInferenceUrl(parsed.ai.heroku.inferenceUrl ?? "");
-      setFeedback(null);
+      setCurrentPasswordValue("");
+      setNewPasswordValue("");
+      setConfirmPasswordValue("");
+      resetFeedback();
     } catch (err) {
       const message =
         err instanceof Error
@@ -471,11 +627,46 @@ const SettingsPage = () => {
     } finally {
       setLoading(false);
     }
-  }, [setTheme]);
+  }, [isAdmin, resetFeedback, setTheme]);
+
+  const fetchUsers = useCallback(async () => {
+    if (!isAdmin) {
+      return;
+    }
+    setUsersLoading(true);
+    setUsersError(null);
+    try {
+      const response = await fetch("/auth/users", {
+        headers: { Accept: "application/json" },
+      });
+      if (!response.ok) {
+        throw new Error(`Request failed with status ${response.status}`);
+      }
+      const payload = (await response.json().catch(() => null)) as {
+        data?: SafeWorkspaceUser[];
+      } | null;
+      setUsers(Array.isArray(payload?.data) ? payload.data : []);
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Unable to load users.";
+      setUsersError(message);
+    } finally {
+      setUsersLoading(false);
+    }
+  }, [isAdmin]);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    if (isAdmin) {
+      void fetchUsers();
+    } else {
+      setUsers([]);
+      setUsersError(null);
+    }
+  }, [fetchUsers, isAdmin]);
 
   useEffect(() => {
     if (!feedback) {
@@ -484,7 +675,9 @@ const SettingsPage = () => {
     if (typeof window === "undefined") {
       return;
     }
-    const timer = window.setTimeout(() => setFeedback(null), 4000);
+    const timer = window.setTimeout(() => {
+      setFeedback(null);
+    }, 4000);
     return () => window.clearTimeout(timer);
   }, [feedback]);
 
@@ -512,7 +705,7 @@ const SettingsPage = () => {
         return;
       }
       setSavingSection("theme");
-      setFeedback(null);
+      resetFeedback();
       try {
         const response = await fetch(`${API_BASE_URL}/settings`, {
           method: "PUT",
@@ -528,21 +721,15 @@ const SettingsPage = () => {
           throw new Error("Received malformed settings payload");
         }
         applyResponse(parsed);
-        setFeedback({
-          type: "success",
-          message: `Switched to ${parsed.theme} mode.`,
-        });
+        pushFeedback("profile", "success", `Switched to ${parsed.theme} mode.`);
       } catch (err) {
         console.error(err);
-        setFeedback({
-          type: "error",
-          message: "Unable to update the theme.",
-        });
+        pushFeedback("profile", "error", "Unable to update the theme.");
       } finally {
         setSavingSection(null);
       }
     },
-    [applyResponse, savingSection, themeValue]
+    [applyResponse, pushFeedback, resetFeedback, savingSection, themeValue]
   );
 
   const handleKernelSubmit = useCallback(async () => {
@@ -551,21 +738,23 @@ const SettingsPage = () => {
     }
     const parsed = Number.parseInt(kernelTimeout, 10);
     if (!Number.isFinite(parsed)) {
-      setFeedback({
-        type: "error",
-        message: "Kernel timeout must be a number in milliseconds.",
-      });
+      pushFeedback(
+        "runtime",
+        "error",
+        "Kernel timeout must be a number in milliseconds."
+      );
       return;
     }
     if (parsed < 1000 || parsed > 600_000) {
-      setFeedback({
-        type: "error",
-        message: "Choose a timeout between 1,000 and 600,000 milliseconds.",
-      });
+      pushFeedback(
+        "runtime",
+        "error",
+        "Choose a timeout between 1,000 and 600,000 milliseconds."
+      );
       return;
     }
     setSavingSection("kernel");
-    setFeedback(null);
+    resetFeedback();
     try {
       const response = await fetch(`${API_BASE_URL}/settings`, {
         method: "PUT",
@@ -581,20 +770,20 @@ const SettingsPage = () => {
         throw new Error("Received malformed settings payload");
       }
       applyResponse(parsedSettings);
-      setFeedback({
-        type: "success",
-        message: "Kernel timeout updated.",
-      });
+      pushFeedback("runtime", "success", "Kernel timeout updated.");
     } catch (err) {
       console.error(err);
-      setFeedback({
-        type: "error",
-        message: "Unable to update the kernel timeout.",
-      });
+      pushFeedback("runtime", "error", "Unable to update the kernel timeout.");
     } finally {
       setSavingSection(null);
     }
-  }, [applyResponse, kernelTimeout, savingSection]);
+  }, [
+    applyResponse,
+    kernelTimeout,
+    pushFeedback,
+    resetFeedback,
+    savingSection,
+  ]);
 
   const handleAiSave = useCallback(async () => {
     if (savingSection === "ai") {
@@ -605,19 +794,17 @@ const SettingsPage = () => {
       const model = openaiModel.trim();
       const apiKey = openaiApiKey.trim();
       if (!model) {
-        setFeedback({
-          type: "error",
-          message: "Enter an OpenAI model before saving.",
-        });
+        pushFeedback("ai", "error", "Enter an OpenAI model before saving.");
         return;
       }
       if (!apiKey) {
-        setFeedback({
-          type: "error",
-          message: openaiKeyConfigured
+        pushFeedback(
+          "ai",
+          "error",
+          openaiKeyConfigured
             ? "Re-enter your OpenAI API key before saving."
-            : "Enter your OpenAI API key before saving.",
-        });
+            : "Enter your OpenAI API key before saving."
+        );
         return;
       }
     } else {
@@ -625,28 +812,26 @@ const SettingsPage = () => {
       const inferenceKey = herokuInferenceKey.trim();
       const inferenceUrl = herokuInferenceUrl.trim();
       if (!modelId || !inferenceKey || !inferenceUrl) {
-        setFeedback({
-          type: "error",
-          message: herokuKeyConfigured
+        pushFeedback(
+          "ai",
+          "error",
+          herokuKeyConfigured
             ? "Re-enter your Heroku inference key, model ID, and URL before saving."
-            : "Fill out the Heroku model, key, and URL before saving.",
-        });
+            : "Fill out the Heroku model, key, and URL before saving."
+        );
         return;
       }
       try {
         const testUrl = new URL(inferenceUrl);
         void testUrl;
       } catch {
-        setFeedback({
-          type: "error",
-          message: "Enter a valid Heroku inference URL.",
-        });
+        pushFeedback("ai", "error", "Enter a valid Heroku inference URL.");
         return;
       }
     }
 
     setSavingSection("ai");
-    setFeedback(null);
+    resetFeedback();
     const payload: Record<string, unknown> = {
       ai:
         provider === "openai"
@@ -682,16 +867,10 @@ const SettingsPage = () => {
         throw new Error("Received malformed settings payload");
       }
       applyResponse(parsed);
-      setFeedback({
-        type: "success",
-        message: "AI settings updated.",
-      });
+      pushFeedback("ai", "success", "AI settings updated.");
     } catch (err) {
       console.error(err);
-      setFeedback({
-        type: "error",
-        message: "Unable to update the AI settings.",
-      });
+      pushFeedback("ai", "error", "Unable to update the AI settings.");
     } finally {
       setSavingSection(null);
     }
@@ -705,6 +884,8 @@ const SettingsPage = () => {
     openaiApiKey,
     openaiKeyConfigured,
     openaiModel,
+    pushFeedback,
+    resetFeedback,
     savingSection,
   ]);
 
@@ -714,7 +895,7 @@ const SettingsPage = () => {
         return;
       }
       setSavingSection("aiEnabled");
-      setFeedback(null);
+      resetFeedback();
       try {
         const response = await fetch(`${API_BASE_URL}/settings`, {
           method: "PUT",
@@ -730,136 +911,387 @@ const SettingsPage = () => {
           throw new Error("Received malformed settings payload");
         }
         applyResponse(parsed);
-        setFeedback({
-          type: "success",
-          message: next ? "AI assistant enabled." : "AI assistant disabled.",
-        });
+        pushFeedback(
+          "ai",
+          "success",
+          next ? "AI assistant enabled." : "AI assistant disabled."
+        );
       } catch (err) {
         console.error(err);
-        setFeedback({
-          type: "error",
-          message: "Unable to update AI availability.",
-        });
+        pushFeedback("ai", "error", "Unable to update AI availability.");
       } finally {
         setSavingSection(null);
       }
     },
-    [aiEnabled, applyResponse, savingSection]
+    [aiEnabled, applyResponse, pushFeedback, resetFeedback, savingSection]
   );
 
-  const cardContent = useMemo(() => {
-    if (loading) {
-      return <LoadingOverlay label="Loading settings…" />;
+  const handlePasswordUpdate = useCallback(async () => {
+    if (savingSection === "password") {
+      return;
     }
-
-    if (error) {
-      return (
-        <Card className="mt-8 max-w-xl border-amber-300 bg-amber-50/80 dark:border-amber-500/60 dark:bg-amber-500/10">
-          <CardContent className="space-y-4 px-6 py-6">
-            <p className="text-sm text-amber-800 dark:text-amber-200">
-              {error}
-            </p>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => {
-                void refresh();
-              }}
-            >
-              Try again
-            </Button>
-          </CardContent>
-        </Card>
+    if (currentPasswordValue.length < 8) {
+      pushFeedback(
+        "profile",
+        "error",
+        "Enter your current password to continue."
       );
+      return;
+    }
+    if (newPasswordValue.length < 8) {
+      pushFeedback(
+        "profile",
+        "error",
+        "New password must be at least 8 characters."
+      );
+      return;
+    }
+    if (newPasswordValue === currentPasswordValue) {
+      pushFeedback(
+        "profile",
+        "error",
+        "Choose a password that differs from the current one."
+      );
+      return;
+    }
+    if (newPasswordValue !== confirmPasswordValue) {
+      pushFeedback("profile", "error", "New passwords do not match.");
+      return;
     }
 
+    setSavingSection("password");
+    resetFeedback();
+    try {
+      const response = await fetch("/auth/password", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          currentPassword: currentPasswordValue,
+          newPassword: newPasswordValue,
+        }),
+      });
+
+      const payload = (await response.json().catch(() => null)) as {
+        error?: string;
+      } | null;
+
+      if (!response.ok) {
+        pushFeedback(
+          "profile",
+          "error",
+          payload?.error ?? "Unable to update the password."
+        );
+        return;
+      }
+
+      pushFeedback("profile", "success", "Password updated.");
+      setCurrentPasswordValue("");
+      setNewPasswordValue("");
+      setConfirmPasswordValue("");
+    } catch {
+      pushFeedback("profile", "error", "Unable to update the password.");
+    } finally {
+      setSavingSection(null);
+    }
+  }, [
+    confirmPasswordValue,
+    currentPasswordValue,
+    newPasswordValue,
+    pushFeedback,
+    resetFeedback,
+    savingSection,
+  ]);
+
+  const handleRemoveUser = useCallback(
+    (user: SafeWorkspaceUser) => {
+      if (!isAdmin) {
+        return;
+      }
+      if (user.id === currentUser?.id) {
+        pushFeedback("users", "error", "You cannot remove your own account.");
+        return;
+      }
+      setConfirmUser(user);
+    },
+    [currentUser?.id, isAdmin, pushFeedback]
+  );
+
+  const confirmRemoval = useCallback(async () => {
+    if (!confirmUser || removingUserId) {
+      return;
+    }
+    const user = confirmUser;
+    setRemovingUserId(user.id);
+    resetFeedback();
+    try {
+      const response = await fetch(`/auth/users/${user.id}`, {
+        method: "DELETE",
+        headers: { Accept: "application/json" },
+      });
+      const payload = (await response.json().catch(() => null)) as {
+        error?: string;
+      } | null;
+      if (!response.ok) {
+        pushFeedback(
+          "users",
+          "error",
+          payload?.error ?? "Unable to remove the user."
+        );
+        return;
+      }
+      setUsers((existing) => existing.filter((entry) => entry.id !== user.id));
+      pushFeedback("users", "success", `${user.email} was removed.`);
+      setConfirmUser(null);
+    } catch {
+      pushFeedback("users", "error", "Unable to remove the user.");
+    } finally {
+      setRemovingUserId(null);
+    }
+  }, [confirmUser, pushFeedback, removingUserId, resetFeedback]);
+
+  const FeedbackBanner = ({ scope }: { scope: SettingsTab }) => {
+    if (!feedback || feedback.scope !== scope) {
+      return null;
+    }
     return (
-      <Card className="mt-8 w-full max-w-2xl">
-        <CardContent className="space-y-6 px-6 py-6">
-          {feedback && (
-            <div
-              className={cn(
-                "rounded-md border px-3 py-2 text-sm",
-                feedback.type === "success"
-                  ? "border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-500/60 dark:bg-emerald-950/40 dark:text-emerald-200"
-                  : "border-rose-300 bg-rose-50 text-rose-700 dark:border-rose-500/60 dark:bg-rose-950/40 dark:text-rose-200"
-              )}
-              role="status"
-            >
-              {feedback.message}
-            </div>
-          )}
-          <ThemeSection
-            value={themeValue}
-            onChange={handleThemeChange}
-            disabled={savingSection === "theme"}
-          />
-          <Separator />
-          <KernelSection
-            value={kernelTimeout}
-            onChange={setKernelTimeout}
-            onSubmit={handleKernelSubmit}
-            saving={savingSection === "kernel"}
-          />
-          <Separator />
-          <AiEnabledSection
-            enabled={aiEnabled}
-            onToggle={(next) => {
-              void handleAiEnabledToggle(next);
+      <div
+        className={cn(
+          "rounded-md border px-3 py-2 text-sm",
+          feedback.type === "success"
+            ? "border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-500/60 dark:bg-emerald-950/40 dark:text-emerald-200"
+            : "border-rose-300 bg-rose-50 text-rose-700 dark:border-rose-500/60 dark:bg-rose-950/40 dark:text-rose-200"
+        )}
+        role="status"
+      >
+        {feedback.message}
+      </div>
+    );
+  };
+
+  let content: ReactNode;
+
+  if (loading) {
+    content = <LoadingOverlay label="Loading settings…" />;
+  } else if (error) {
+    content = (
+      <Card className="mt-8 max-w-xl border-amber-300 bg-amber-50/80 dark:border-amber-500/60 dark:bg-amber-500/10">
+        <CardContent className="space-y-4 px-6 py-6">
+          <p className="text-sm text-amber-800 dark:text-amber-200">{error}</p>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              void refresh();
             }}
-            saving={savingSection === "aiEnabled"}
-          />
-          {aiEnabled ? (
-            <>
-              <Separator />
-              <AiSection
-                provider={aiProvider}
-                onProviderChange={setAiProvider}
-                openaiModel={openaiModel}
-                onOpenaiModelChange={setOpenaiModel}
-                openaiApiKey={openaiApiKey}
-                onOpenaiApiKeyChange={setOpenaiApiKey}
-                openaiKeyConfigured={openaiKeyConfigured}
-                herokuModelId={herokuModelId}
-                onHerokuModelIdChange={setHerokuModelId}
-                herokuInferenceKey={herokuInferenceKey}
-                onHerokuInferenceKeyChange={setHerokuInferenceKey}
-                herokuInferenceUrl={herokuInferenceUrl}
-                onHerokuInferenceUrlChange={setHerokuInferenceUrl}
-                herokuKeyConfigured={herokuKeyConfigured}
-                onSave={handleAiSave}
-                saving={savingSection === "ai"}
-              />
-              <Separator />
-            </>
-          ) : (
-            <Separator />
-          )}
+          >
+            Try again
+          </Button>
         </CardContent>
       </Card>
     );
-  }, [
-    error,
-    feedback,
-    handleKernelSubmit,
-    handleThemeChange,
-    kernelTimeout,
-    loading,
-    refresh,
-    savingSection,
-    themeValue,
-    aiEnabled,
-    aiProvider,
-    openaiModel,
-    openaiApiKey,
-    openaiKeyConfigured,
-    herokuModelId,
-    herokuInferenceKey,
-    herokuInferenceUrl,
-    herokuKeyConfigured,
-    handleAiSave,
-    handleAiEnabledToggle,
-  ]);
+  } else {
+    content = (
+      <Tabs
+        value={activeTab}
+        onValueChange={(value) => setActiveTab(value as SettingsTab)}
+        className="mt-8 w-full max-w-2xl"
+      >
+        <TabsList className="flex w-full flex-wrap gap-2 bg-muted/40 p-1">
+          {availableTabs.map((tab) => (
+            <TabsTrigger
+              key={tab}
+              value={tab}
+              className="px-3 py-1.5 text-sm capitalize"
+            >
+              {TAB_LABELS[tab]}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+        {availableTabs.includes("profile") ? (
+          <TabsContent value="profile" className="focus-visible:outline-none">
+            <Card className="mt-4">
+              <CardContent className="space-y-6 px-6 py-6">
+                <FeedbackBanner scope="profile" />
+                <ThemeSection
+                  value={themeValue}
+                  onChange={handleThemeChange}
+                  disabled={savingSection === "theme" || loading}
+                />
+                <Separator />
+                <PasswordSection
+                  currentPassword={currentPasswordValue}
+                  onCurrentPasswordChange={setCurrentPasswordValue}
+                  newPassword={newPasswordValue}
+                  onNewPasswordChange={setNewPasswordValue}
+                  confirmPassword={confirmPasswordValue}
+                  onConfirmPasswordChange={setConfirmPasswordValue}
+                  onSubmit={handlePasswordUpdate}
+                  saving={savingSection === "password" || loading}
+                />
+              </CardContent>
+            </Card>
+          </TabsContent>
+        ) : null}
+        {availableTabs.includes("runtime") ? (
+          <TabsContent value="runtime" className="focus-visible:outline-none">
+            <Card className="mt-4">
+              <CardContent className="space-y-6 px-6 py-6">
+                <FeedbackBanner scope="runtime" />
+                <KernelSection
+                  value={kernelTimeout}
+                  onChange={setKernelTimeout}
+                  onSubmit={handleKernelSubmit}
+                  saving={savingSection === "kernel" || loading}
+                />
+              </CardContent>
+            </Card>
+          </TabsContent>
+        ) : null}
+        {availableTabs.includes("ai") ? (
+          <TabsContent value="ai" className="focus-visible:outline-none">
+            <Card className="mt-4">
+              <CardContent className="space-y-6 px-6 py-6">
+                <FeedbackBanner scope="ai" />
+                <AiEnabledSection
+                  enabled={aiEnabled}
+                  onToggle={(next) => {
+                    void handleAiEnabledToggle(next);
+                  }}
+                  saving={savingSection === "aiEnabled" || loading}
+                />
+                <Separator />
+                {aiEnabled ? (
+                  <AiSection
+                    provider={aiProvider}
+                    onProviderChange={setAiProvider}
+                    openaiModel={openaiModel}
+                    onOpenaiModelChange={setOpenaiModel}
+                    openaiApiKey={openaiApiKey}
+                    onOpenaiApiKeyChange={setOpenaiApiKey}
+                    openaiKeyConfigured={openaiKeyConfigured}
+                    herokuModelId={herokuModelId}
+                    onHerokuModelIdChange={setHerokuModelId}
+                    herokuInferenceKey={herokuInferenceKey}
+                    onHerokuInferenceKeyChange={setHerokuInferenceKey}
+                    herokuInferenceUrl={herokuInferenceUrl}
+                    onHerokuInferenceUrlChange={setHerokuInferenceUrl}
+                    herokuKeyConfigured={herokuKeyConfigured}
+                    onSave={handleAiSave}
+                    saving={savingSection === "ai" || loading}
+                  />
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    Enable the AI assistant to configure provider credentials.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+        ) : null}
+        {availableTabs.includes("users") ? (
+          <TabsContent value="users" className="focus-visible:outline-none">
+            <Card className="mt-4">
+              <CardContent className="space-y-6 px-6 py-6">
+                <FeedbackBanner scope="users" />
+                <p className="text-sm text-muted-foreground">
+                  Remove workspace members to revoke access to notebooks and
+                  projects.
+                </p>
+                {usersError ? (
+                  <div className="flex flex-col gap-3 rounded-md border border-amber-300 bg-amber-50/80 px-3 py-3 text-sm text-amber-800 dark:border-amber-500/60 dark:bg-amber-500/10 dark:text-amber-200 sm:flex-row sm:items-center sm:justify-between">
+                    <span>{usersError}</span>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        void fetchUsers();
+                      }}
+                    >
+                      Try again
+                    </Button>
+                  </div>
+                ) : null}
+                {usersLoading ? (
+                  <p className="text-sm text-muted-foreground">
+                    Loading users…
+                  </p>
+                ) : users.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    No workspace members found.
+                  </p>
+                ) : (
+                  <div className="space-y-3">
+                    {users.map((user) => {
+                      const avatarUrl = user.email
+                        ? gravatarUrlForEmail(user.email, 64)
+                        : null;
+                      return (
+                        <div
+                          key={user.id}
+                          className="flex flex-col gap-3 rounded-md border border-border px-3 py-3 sm:flex-row sm:items-center sm:justify-between"
+                        >
+                          <div className="flex items-center gap-3">
+                            {avatarUrl ? (
+                              <Image
+                                src={avatarUrl}
+                                alt={`Avatar for ${user.email}`}
+                                width={40}
+                                height={40}
+                                className="h-10 w-10 rounded-full border border-border"
+                              />
+                            ) : (
+                              <div className="flex h-10 w-10 items-center justify-center rounded-full border border-border bg-muted text-sm font-semibold uppercase">
+                                {userInitial(user)}
+                              </div>
+                            )}
+                            <div>
+                              <p className="text-sm font-medium text-foreground">
+                                {user.name ?? user.email}
+                                {user.id === currentUser?.id ? " (You)" : ""}
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                {user.email}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <span
+                              className={cn(
+                                "text-xs font-medium capitalize",
+                                user.role === "admin"
+                                  ? "text-amber-600 dark:text-amber-400"
+                                  : "text-muted-foreground"
+                              )}
+                            >
+                              {user.role}
+                            </span>
+                            {user.id === currentUser?.id ? null : (
+                              <Button
+                                variant="destructive"
+                                size="sm"
+                                onClick={() => {
+                                  void handleRemoveUser(user);
+                                }}
+                                disabled={removingUserId === user.id}
+                              >
+                                {removingUserId === user.id
+                                  ? "Removing…"
+                                  : "Remove"}
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+        ) : null}
+      </Tabs>
+    );
+  }
 
   return (
     <AppShell
@@ -878,7 +1310,26 @@ const SettingsPage = () => {
           showMenu={false}
         />
       </div>
-      {cardContent}
+      {content}
+      <ConfirmDialog
+        open={Boolean(confirmUser)}
+        onCancel={() => {
+          if (removingUserId) {
+            return;
+          }
+          setConfirmUser(null);
+        }}
+        onConfirm={confirmRemoval}
+        title="Remove workspace member?"
+        description={
+          confirmUser
+            ? `Remove ${confirmUser.email}? They will immediately lose access to all shared notebooks and projects.`
+            : undefined
+        }
+        confirmLabel={removingUserId ? "Removing…" : "Remove"}
+        cancelLabel="Cancel"
+        danger
+      />
     </AppShell>
   );
 };

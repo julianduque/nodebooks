@@ -911,6 +911,21 @@ export class SqliteUserStore implements UserStore {
     return users;
   }
 
+  async remove(id: string): Promise<boolean> {
+    const db = await this.getDb();
+    const statement = db.prepare(`DELETE FROM users WHERE id = ?1`);
+    try {
+      statement.run([id]);
+    } finally {
+      statement.free();
+    }
+    const removed = db.getRowsModified() > 0;
+    if (removed) {
+      await this.notebooks.flush();
+    }
+    return removed;
+  }
+
   async count(): Promise<number> {
     const db = await this.getDb();
     const statement = db.prepare(`SELECT COUNT(1) as count FROM users`);
