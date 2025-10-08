@@ -69,6 +69,12 @@ const parsePackageSpec = (raw: string): ParsedSpec => {
 const normalizeRelativePath = (path: string) =>
   path.replace(/^\.\/+/, "").replace(/^\//, "");
 
+const stripVersion = (name: string) => {
+  const atIndex = name.lastIndexOf("@");
+  if (atIndex <= 0) return name;
+  return name.slice(0, atIndex);
+};
+
 const addCandidatePath = (set: Set<string>, rawPath: unknown) => {
   if (typeof rawPath !== "string") return;
   const trimmed = normalizeRelativePath(rawPath.trim());
@@ -254,9 +260,10 @@ export const registerTypesRoutes = (app: FastifyInstance) => {
 
     if (!dtsText) {
       // Try DefinitelyTyped
-      const basePkgName = packageName.startsWith("@types/")
+      const strippedPackageName = stripVersion(packageName);
+      const basePkgName = strippedPackageName.startsWith("@types/")
         ? null
-        : toTypesPackage(packageName);
+        : toTypesPackage(strippedPackageName);
       if (basePkgName) {
         dtsText = await resolveTypesFromPackage(basePkgName, subpath);
       }
