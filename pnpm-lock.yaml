@@ -177,12 +177,18 @@ importers:
       highlight.js:
         specifier: ^11.11.1
         version: 11.11.1
+      katex:
+        specifier: ^0.16.11
+        version: 0.16.11
       lucide-react:
         specifier: ^0.544.0
         version: 0.544.0(react@19.1.1)
       marked:
         specifier: ^16.3.0
         version: 16.3.0
+      marked-katex-extension:
+        specifier: ^5.1.2
+        version: 5.1.2(katex@0.16.11)(marked@16.3.0)
       mermaid:
         specifier: ^11.4.1
         version: 11.12.0
@@ -1822,6 +1828,9 @@ packages:
   '@types/json5@0.0.29':
     resolution: {integrity: sha512-dRLjCWHYg4oaA77cxO64oO+7JwCwnIzkZPdrrC71jQmQtlhM556pwKo5bUzqvZndkVbeFLIIi+9TC40JNF5hNQ==}
 
+  '@types/katex@0.16.7':
+    resolution: {integrity: sha512-HMwFiRujE5PjrgwHQ25+bsLJgowjGjm5Z8FVSf0N6PwgJrwxH0QxzHYDcKsTfV3wva0vzrpqMTJS2jXPr5BMEQ==}
+
   '@types/node@24.5.2':
     resolution: {integrity: sha512-FYxk1I7wPv3K2XBaoyH2cTnocQEu8AOZ60hPbsyukMPLv5/5qr7V1i8PLHdl6Zf87I+xZXFvPCXYjiTFq+YSDQ==}
 
@@ -3349,6 +3358,10 @@ packages:
     resolution: {integrity: sha512-ZZow9HBI5O6EPgSJLUb8n2NKgmVWTwCvHGwFuJlMjvLFqlGG6pjirPhtdsseaLZjSibD8eegzmYpUZwoIlj2cQ==}
     engines: {node: '>=4.0'}
 
+  katex@0.16.11:
+    resolution: {integrity: sha512-RQrI8rlHY92OLf3rho/Ts8i/XvjgguEjOkO1BEXcU3N8BqPpSzBNwV/G0Ukr+P/l3ivvJUE/Fa/CwbS6HesGNQ==}
+    hasBin: true
+
   katex@0.16.22:
     resolution: {integrity: sha512-XCHRdUw4lf3SKBaJe4EvgqIuWwkPSo9XoeO8GjQW94Bp7TWv9hNhzZjZ+OH9yf1UmLygb7DIT5GSFQiyt16zYg==}
     hasBin: true
@@ -3568,6 +3581,12 @@ packages:
   maplibre-gl@5.7.3:
     resolution: {integrity: sha512-T6XsjwcSfOr0vtAt4GTzx4m/vD6nrbR0+61MgMzZ9REQwILSEnhqwNpFuFbDedX6LC3ZWjZWnxN7fN/I66WoDQ==}
     engines: {node: '>=16.14.0', npm: '>=8.1.0'}
+
+  marked-katex-extension@5.1.2:
+    resolution: {integrity: sha512-jRtacvDAPULKBWArDno0IGpzzpUw12yb8OaEsv3dTlvcIr21+mF9kD+Bxo2m/ErX/2ZIml6zFVMnpxCpqx3stw==}
+    peerDependencies:
+      katex: '>=0.16 <0.17'
+      marked: '>=4 <15'
 
   marked@16.3.0:
     resolution: {integrity: sha512-K3UxuKu6l6bmA5FUwYho8CfJBlsUWAooKtdGgMcERSpF7gcBUrCGsLH7wDaaNOzwq18JzSUDyoEb/YsrqMac3w==}
@@ -6124,6 +6143,8 @@ snapshots:
 
   '@types/json5@0.0.29': {}
 
+  '@types/katex@0.16.7': {}
+
   '@types/node@24.5.2':
     dependencies:
       undici-types: 7.12.0
@@ -7958,6 +7979,10 @@ snapshots:
       object.assign: 4.1.7
       object.values: 1.2.1
 
+  katex@0.16.11:
+    dependencies:
+      commander: 8.3.0
+
   katex@0.16.22:
     dependencies:
       commander: 8.3.0
@@ -8140,6 +8165,12 @@ snapshots:
       quickselect: 3.0.0
       supercluster: 8.0.1
       tinyqueue: 3.0.0
+
+  marked-katex-extension@5.1.2(katex@0.16.11)(marked@16.3.0):
+    dependencies:
+      '@types/katex': 0.16.7
+      katex: 0.16.11
+      marked: 16.3.0
 
   marked@16.3.0: {}
 

@@ -10,6 +10,7 @@ import { uiHelpersModuleDts as nodebooksUiDts } from "@nodebooks/notebook-ui/run
 let globalsLib: IDisposable | null = null;
 const moduleLibs = new Map<string, IDisposable>();
 const fetchedTypesCache = new Map<string, string>();
+const failedTypeFetches = new Set<string>();
 let nbUiTypesLoaded = false;
 
 export function setGlobalsDts(src: string) {
@@ -65,17 +66,27 @@ export async function ensurePackageTypes(pkg: string) {
     return;
   }
 
+  if (failedTypeFetches.has(key)) {
+    addModuleShim(pkg);
+    return;
+  }
+
   try {
     const apiBase = clientConfig().apiBaseUrl;
     const res = await fetch(`${apiBase}/types/${encodeURIComponent(pkg)}`);
     if (res.ok) {
       const text = await res.text();
       fetchedTypesCache.set(key, text);
+      failedTypeFetches.delete(key);
       registerTypesLib(pkg, text);
       return;
     }
+    if (res.status === 404) {
+      failedTypeFetches.add(key);
+    }
   } catch {
     // ignore and fall back to shim
+    failedTypeFetches.add(key);
   }
 
   addModuleShim(pkg);

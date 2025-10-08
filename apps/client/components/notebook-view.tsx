@@ -324,11 +324,11 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
 
   useEffect(() => {
     setActionError(null);
-  }, [notebook?.id]);
+  }, [notebook?.id, currentUser?.id]);
 
   useEffect(() => {
     setPendingTerminalIds(new Set());
-  }, [notebook?.id]);
+  }, [notebook?.id, currentUser?.id]);
 
   const refreshAiAvailability = useCallback(async () => {
     try {
@@ -438,7 +438,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
       runCounterRef.current = 0;
       runPendingRef.current.clear();
     }
-  }, [notebook?.id]);
+  }, [notebook?.id, currentUser?.id]);
 
   useEffect(() => {
     if (isRenaming) {
@@ -905,6 +905,25 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         if (!nextNotebook) {
           return;
         }
+        if (kind === "update") {
+          const actorId =
+            typeof (payload as { actorId?: unknown }).actorId === "string"
+              ? ((payload as { actorId: string }).actorId as string)
+              : undefined;
+          if (actorId && currentUser?.id && actorId === currentUser.id) {
+            setDirty(false);
+            setNotebook((prev) => {
+              if (!prev || prev.id !== nextNotebook.id) {
+                notebookRef.current = nextNotebook;
+                return nextNotebook;
+              }
+              const merged = { ...prev, ...nextNotebook, cells: prev.cells };
+              notebookRef.current = { ...merged, cells: prev.cells };
+              return merged;
+            });
+            return;
+          }
+        }
         suppressCollabBroadcastRef.current = true;
         notebookRef.current = nextNotebook;
         setNotebook(nextNotebook);
@@ -933,7 +952,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         // ignore
       }
     };
-  }, [notebook?.id]);
+  }, [notebook?.id, currentUser?.id]);
 
   useEffect(() => {
     activeCellIdRef.current = activeCellId ?? null;
