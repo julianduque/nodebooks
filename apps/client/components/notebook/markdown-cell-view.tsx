@@ -5,6 +5,7 @@ import type { BeforeMount, OnMount } from "@monaco-editor/react";
 import DOMPurify from "dompurify";
 import hljs from "highlight.js";
 import { Marked, Renderer, type Tokens } from "marked";
+import markedKatex from "marked-katex-extension";
 import MonacoEditor from "@/components/notebook/monaco-editor-client";
 import { initMonaco } from "@/components/notebook/monaco-setup";
 import type { NotebookCell } from "@nodebooks/notebook-schema";
@@ -41,6 +42,57 @@ interface MarkdownCellViewProps {
 
 const stripMarkdownUnsafeChars = (value: string) =>
   value.replace(/[\[\]\(\)]/g, "\\$&");
+
+const isElementWithClassList = (
+  value: unknown
+): value is Element & { closest?: (selector: string) => Element | null } => {
+  if (typeof Element !== "undefined" && value instanceof Element) {
+    return true;
+  }
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const maybeClassList = (value as { classList?: unknown }).classList;
+  if (
+    !maybeClassList ||
+    typeof maybeClassList !== "object" ||
+    !("contains" in maybeClassList) ||
+    typeof (maybeClassList as DOMTokenList).contains !== "function"
+  ) {
+    return false;
+  }
+  const maybeClosest = (value as { closest?: unknown }).closest;
+  if (maybeClosest && typeof maybeClosest !== "function") {
+    return false;
+  }
+  return true;
+};
+
+const ensureKatexStyleRetention = (() => {
+  let applied = false;
+  return () => {
+    if (applied) return;
+    if (typeof window === "undefined") {
+      return;
+    }
+    if (typeof DOMPurify.addHook !== "function") {
+      return;
+    }
+    DOMPurify.addHook("uponSanitizeAttribute", (node, data) => {
+      if (data.attrName !== "style") return;
+      if (!isElementWithClassList(node)) return;
+      const hasKatexAncestor =
+        node.classList.contains("katex") ||
+        (typeof node.closest === "function" && node.closest(".katex") !== null);
+      if (hasKatexAncestor) {
+        data.keepAttr = true;
+      }
+    });
+    applied = true;
+  };
+})();
+
+ensureKatexStyleRetention();
 
 const markdownRenderer = new Marked({
   gfm: true,
@@ -86,6 +138,13 @@ renderer.code = ({ text, lang }: Tokens.Code) => {
 };
 
 markdownRenderer.use({ renderer });
+
+markdownRenderer.use(
+  markedKatex({
+    throwOnError: false,
+    output: "htmlAndMathml",
+  })
+);
 
 const loadMermaid = (() => {
   let mermaidPromise: Promise<typeof import("mermaid")> | null = null;

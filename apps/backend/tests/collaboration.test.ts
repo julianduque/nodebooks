@@ -193,43 +193,57 @@ describe("NotebookCollaborationService authorization", () => {
   });
 
   it("allows editors to persist updates", async () => {
-    const store = createStore();
-    const collaborators = createCollaborators({ "nb-1:user-editor": "editor" });
-    const service = new NotebookCollaborationService(store, collaborators);
+    vi.useFakeTimers();
+    try {
+      const store = createStore();
+      const collaborators = createCollaborators({
+        "nb-1:user-editor": "editor",
+      });
+      const service = new NotebookCollaborationService(store, collaborators);
 
-    const socket = new FakeSocket();
-    await (
-      service as unknown as {
-        handleConnection(
-          socket: FakeSocket,
-          notebookId: string,
-          user: SafeUser,
-          role: NotebookRole
-        ): Promise<void>;
-      }
-    ).handleConnection(socket, "nb-1", editorUser, "editor");
+      const socket = new FakeSocket();
+      await (
+        service as unknown as {
+          handleConnection(
+            socket: FakeSocket,
+            notebookId: string,
+            user: SafeUser,
+            role: NotebookRole
+          ): Promise<void>;
+        }
+      ).handleConnection(socket, "nb-1", editorUser, "editor");
 
-    const updateNotebook = {
-      ...baseNotebook,
-      name: "Updated",
-    } satisfies Notebook;
-
-    socket.emit(
-      "message",
-      Buffer.from(JSON.stringify({ type: "update", notebook: updateNotebook }))
-    );
-
-    await new Promise((resolve) => setImmediate(resolve));
-
-    expect(store.save).toHaveBeenCalledWith(
-      expect.objectContaining({
-        id: "nb-1",
+      const updateNotebook = {
+        ...baseNotebook,
         name: "Updated",
-      })
-    );
-    const parsedMessages = socket.sent.map((payload) => JSON.parse(payload));
-    const updateMessage = parsedMessages.find((msg) => msg.type === "update");
-    expect(updateMessage?.notebook?.name).toBe("Updated");
-    expect(updateMessage?.actorId).toBe(editorUser.id);
+      } satisfies Notebook;
+
+      socket.emit(
+        "message",
+        Buffer.from(
+          JSON.stringify({ type: "update", notebook: updateNotebook })
+        )
+      );
+
+      await Promise.resolve();
+
+      expect(store.save).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(800);
+      await Promise.resolve();
+
+      expect(store.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: "nb-1",
+          name: "Updated",
+        })
+      );
+      const parsedMessages = socket.sent.map((payload) => JSON.parse(payload));
+      const updateMessage = parsedMessages.find((msg) => msg.type === "update");
+      expect(updateMessage?.notebook?.name).toBe("Updated");
+      expect(updateMessage?.actorId).toBe(editorUser.id);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

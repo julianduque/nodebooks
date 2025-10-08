@@ -38,6 +38,8 @@ notebook:
         - TypeScript execution with npm dependencies (`chalk`, `date-fns`)
         - Environment variables: `SAMPLE_NAME`, `FAV_NUMBER`
         - UI components rendered from code outputs to summarize results
+        - LaTeX rendering for mathematical notation
+        - Mermaid diagrams for visualizing flows and architecture
     - type: code
       language: ts
       source: |-
@@ -61,3 +63,30 @@ notebook:
         };
 
         console.log("Starter template components ready:", checklist);
+    - type: markdown
+      source: |-
+        ## Math with LaTeX
+
+        Inline math like $E = mc^2$ renders alongside your narrative, and block
+        expressions stay centered:
+
+        $$
+        \nabla \cdot \vec{E} = \frac{\rho}{\varepsilon_0}
+        $$
+
+        Combine LaTeX with text to explain formulas, derivations, or proofs.
+    - type: markdown
+      source: |-
+        ## Visualize with Mermaid
+
+        Capture flows, architecture, or dependencies with Mermaid diagrams defined
+        inline inside Markdown fences:
+
+        ```mermaid
+        graph TD
+          Start[Notebook Idea] --> Draft
+          Draft --> Review
+          Review --> Launch
+        ```
+
+        Modify the diagram text, and the preview updates instantly to match.

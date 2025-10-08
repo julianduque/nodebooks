@@ -79,7 +79,12 @@ interface CollaborationState {
   notebook: Notebook | null;
   clients: Map<string, CollaborationClient>;
   presence: Map<string, PresencePayload | null>;
+  pendingPersist: Notebook | null;
+  persistTimer: NodeJS.Timeout | null;
 }
+
+const PERSIST_DEBOUNCE_MS = 750;
+const PERSIST_RETRY_MS = 2000;
 
 const colorPalette = [
   "#FF6B6B",
@@ -204,6 +209,8 @@ export class NotebookCollaborationService {
         notebook: notebook ?? null,
         clients: new Map(),
         presence: new Map(),
+        pendingPersist: null,
+        persistTimer: null,
       };
       this.states.set(notebookId, state);
     }
@@ -308,7 +315,8 @@ export class NotebookCollaborationService {
       });
       state.version += 1;
       state.notebook = sanitized;
-      await this.store.save(sanitized);
+      state.pendingPersist = sanitized;
+      this.schedulePersist(state);
       this.broadcast(state, {
         type: "update",
         version: state.version,
@@ -355,6 +363,33 @@ export class NotebookCollaborationService {
       });
     }
     this.broadcast(state, { type: "presence", participants });
+  }
+
+  private schedulePersist(state: CollaborationState) {
+    if (state.persistTimer) {
+      clearTimeout(state.persistTimer);
+    }
+    state.persistTimer = setTimeout(() => {
+      void this.flushPersist(state);
+    }, PERSIST_DEBOUNCE_MS);
+  }
+
+  private async flushPersist(state: CollaborationState) {
+    const pending = state.pendingPersist;
+    if (!pending) {
+      state.persistTimer = null;
+      return;
+    }
+    try {
+      await this.store.save(pending);
+      state.pendingPersist = null;
+      state.persistTimer = null;
+    } catch (error) {
+      void error;
+      state.persistTimer = setTimeout(() => {
+        void this.flushPersist(state);
+      }, PERSIST_RETRY_MS);
+    }
   }
 
   private async getAccessRole(

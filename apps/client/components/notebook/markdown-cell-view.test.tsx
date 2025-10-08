@@ -25,6 +25,7 @@ vi.mock("mermaid", () => ({
 vi.mock("dompurify", () => ({
   default: {
     sanitize: (value: string) => value,
+    addHook: vi.fn(),
   },
 }));
 
@@ -57,7 +58,7 @@ import MarkdownCellView from "./markdown-cell-view";
 
 const noop = () => undefined;
 
-describe("MarkdownCellView mermaid rendering", () => {
+describe("MarkdownCellView", () => {
   let container: HTMLDivElement;
 
   beforeAll(() => {
@@ -168,5 +169,38 @@ describe("MarkdownCellView mermaid rendering", () => {
       true
     );
     expect(options).toBeUndefined();
+  });
+
+  it("renders LaTeX expressions in the preview", async () => {
+    const cell: Extract<NotebookCell, { type: "markdown" }> = {
+      id: "cell-3",
+      type: "markdown",
+      source: ["Euler inline $e^{i\\pi} + 1 = 0$.", "", "$$E = mc^2$$"].join(
+        "\n"
+      ),
+      metadata: { ui: { edit: false } },
+    };
+
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        <MarkdownCellView
+          cell={cell}
+          notebookId="notebook-1"
+          onChange={noop as never}
+          editorKey="key"
+        />
+      );
+    });
+
+    const preview =
+      container.querySelector<HTMLDivElement>(".markdown-preview");
+    expect(preview).not.toBeNull();
+
+    const katexNodes = preview?.querySelectorAll(".katex");
+    expect(katexNodes?.length ?? 0).toBeGreaterThanOrEqual(2);
+    expect(preview?.querySelector(".katex-display")).not.toBeNull();
+    expect(preview?.innerHTML ?? "").not.toContain("$$E = mc^2$$");
   });
 });
