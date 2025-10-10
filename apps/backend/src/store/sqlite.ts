@@ -8,6 +8,8 @@ import initSqlJs, {
 import { customAlphabet } from "nanoid";
 import {
   ensureNotebookRuntimeVersion,
+  normalizeSlug,
+  suggestSlug,
   NotebookSchema,
   type Notebook,
 } from "@nodebooks/notebook-schema";
@@ -104,6 +106,30 @@ export class SqliteNotebookStore implements NotebookStore {
     return notebook;
   }
 
+  async getByPublicSlug(slug: string): Promise<Notebook | undefined> {
+    await this.ready;
+    const normalized = normalizeSlug(slug);
+    if (!normalized) {
+      return undefined;
+    }
+
+    const statement = this.db.prepare(
+      "SELECT data FROM notebooks WHERE public_slug = ?1 LIMIT 1"
+    );
+    statement.bind([normalized]);
+
+    let notebook: Notebook | undefined;
+    if (statement.step()) {
+      const row = statement.getAsObject() as { data?: string };
+      if (row.data) {
+        notebook = this.deserialize(row.data);
+      }
+    }
+    statement.free();
+
+    return notebook;
+  }
+
   async save(notebook: Notebook): Promise<Notebook> {
     await this.ready;
     const parsed = ensureNotebookRuntimeVersion(
@@ -113,26 +139,43 @@ export class SqliteNotebookStore implements NotebookStore {
       })
     );
 
+    const sanitized: Notebook = {
+      ...parsed,
+      publicSlug: (() => {
+        const slug = parsed.publicSlug ?? null;
+        if (!slug) {
+          return null;
+        }
+        const normalized = normalizeSlug(slug);
+        return normalized || null;
+      })(),
+      published: Boolean(parsed.published),
+    };
+
     const statement = this.db.prepare(
-      `INSERT INTO notebooks (id, name, data, created_at, updated_at)
-       VALUES (?1, ?2, ?3, ?4, ?5)
+      `INSERT INTO notebooks (id, name, data, created_at, updated_at, published, public_slug)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
        ON CONFLICT(id) DO UPDATE SET
          name = excluded.name,
          data = excluded.data,
-         updated_at = excluded.updated_at`
+         updated_at = excluded.updated_at,
+         published = excluded.published,
+         public_slug = excluded.public_slug`
     );
 
     statement.run([
-      parsed.id,
-      parsed.name,
-      JSON.stringify(parsed),
-      parsed.createdAt,
-      parsed.updatedAt,
+      sanitized.id,
+      sanitized.name,
+      JSON.stringify(sanitized),
+      sanitized.createdAt,
+      sanitized.updatedAt,
+      sanitized.published ? 1 : 0,
+      sanitized.publicSlug ?? null,
     ]);
     statement.free();
 
     await this.persistToDisk();
-    return parsed;
+    return sanitized;
   }
 
   async remove(id: string): Promise<Notebook | undefined> {
@@ -340,13 +383,34 @@ export class SqliteNotebookStore implements NotebookStore {
         name TEXT NOT NULL,
         data TEXT NOT NULL,
         created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
+        updated_at TEXT NOT NULL,
+        published INTEGER NOT NULL DEFAULT 0,
+        public_slug TEXT UNIQUE
       )`
     );
 
     this.db.run(
       `CREATE INDEX IF NOT EXISTS idx_notebooks_updated_at
         ON notebooks (updated_at DESC)`
+    );
+
+    try {
+      this.db.run(
+        `ALTER TABLE notebooks ADD COLUMN published INTEGER NOT NULL DEFAULT 0`
+      );
+    } catch (error) {
+      void error;
+    }
+
+    try {
+      this.db.run(`ALTER TABLE notebooks ADD COLUMN public_slug TEXT`);
+    } catch (error) {
+      void error;
+    }
+
+    this.db.run(
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_notebooks_public_slug
+        ON notebooks (public_slug)`
     );
 
     this.db.run(
@@ -397,9 +461,30 @@ export class SqliteNotebookStore implements NotebookStore {
       `CREATE TABLE IF NOT EXISTS projects (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
+        slug TEXT UNIQUE,
+        published INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       )`
+    );
+
+    try {
+      this.db.run(`ALTER TABLE projects ADD COLUMN slug TEXT`);
+    } catch (error) {
+      void error;
+    }
+
+    try {
+      this.db.run(
+        `ALTER TABLE projects ADD COLUMN published INTEGER NOT NULL DEFAULT 0`
+      );
+    } catch (error) {
+      void error;
+    }
+
+    this.db.run(
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_slug
+        ON projects (slug)`
     );
 
     this.db.run(
@@ -695,11 +780,18 @@ const mapCollaboratorRow = (row: {
 const mapProjectRow = (row: {
   id: string;
   name: string;
+  slug: string | null;
+  published: number | null;
   created_at: string;
   updated_at: string;
 }): Project => ({
   id: row.id,
   name: row.name,
+  slug:
+    row.slug && row.slug.trim().length > 0
+      ? normalizeSlug(row.slug)
+      : normalizeSlug(row.name) || normalizeSlug(row.id) || row.id,
+  published: Boolean(row.published),
   createdAt: row.created_at,
   updatedAt: row.updated_at,
 });
@@ -1495,15 +1587,171 @@ export class SqliteNotebookCollaboratorStore
 export class SqliteProjectStore implements ProjectStore {
   constructor(private readonly notebooks: SqliteNotebookStore) {}
 
+  private projectMigrations: Promise<void> | null = null;
+
   private async getDb(): Promise<SqlDatabase> {
     await this.notebooks.ensureReady();
-    return this.notebooks.getDatabase();
+    const db = this.notebooks.getDatabase();
+    if (!this.projectMigrations) {
+      this.projectMigrations = this.ensureProjectMigrations(db);
+    }
+    await this.projectMigrations;
+    return db;
+  }
+
+  private async ensureProjectMigrations(db: SqlDatabase): Promise<void> {
+    db.run(
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_slug
+        ON projects (slug)`
+    );
+
+    const selectMissing = db.prepare(
+      `SELECT id, name FROM projects WHERE slug IS NULL OR trim(slug) = ''`
+    );
+    const update = db.prepare(`UPDATE projects SET slug = ?1 WHERE id = ?2`);
+
+    let updated = false;
+    try {
+      while (selectMissing.step()) {
+        const row = selectMissing.getAsObject() as { id: string; name: string };
+        const slug = this.generateUniqueProjectSlug(db, row.name, row.id);
+        update.run([slug, row.id]);
+        updated = true;
+      }
+
+      const selectSanitize = db.prepare(
+        `SELECT id, name, slug FROM projects WHERE slug IS NOT NULL`
+      );
+      try {
+        while (selectSanitize.step()) {
+          const row = selectSanitize.getAsObject() as {
+            id: string;
+            name: string;
+            slug: string;
+          };
+          const desired = this.generateUniqueProjectSlug(
+            db,
+            row.name,
+            row.id,
+            row.slug,
+            row.id
+          );
+          if (desired !== row.slug) {
+            update.run([desired, row.id]);
+            updated = true;
+          }
+        }
+      } finally {
+        selectSanitize.free();
+      }
+    } finally {
+      selectMissing.free();
+      update.free();
+    }
+
+    if (updated) {
+      await this.notebooks.flush();
+    }
+  }
+
+  private projectSlugExists(
+    db: SqlDatabase,
+    slug: string,
+    excludeId?: string
+  ): boolean {
+    const statement = excludeId
+      ? db.prepare(
+          `SELECT 1 FROM projects WHERE slug = ?1 AND id != ?2 LIMIT 1`
+        )
+      : db.prepare(`SELECT 1 FROM projects WHERE slug = ?1 LIMIT 1`);
+    try {
+      if (excludeId) {
+        statement.bind([slug, excludeId]);
+      } else {
+        statement.bind([slug]);
+      }
+      return statement.step();
+    } finally {
+      statement.free();
+    }
+  }
+
+  private generateUniqueProjectSlug(
+    db: SqlDatabase,
+    name: string,
+    fallbackId: string,
+    requested?: string | null,
+    excludeId?: string
+  ): string {
+    const fallbackSlug =
+      normalizeSlug(fallbackId) ||
+      normalizeSlug(`project-${fallbackId}`) ||
+      fallbackId.toLowerCase();
+
+    let base =
+      (typeof requested === "string" && requested.trim().length > 0
+        ? normalizeSlug(requested)
+        : null) ||
+      suggestSlug(name, fallbackSlug) ||
+      fallbackSlug;
+
+    if (!base) {
+      base = this.randomProjectSlug();
+    }
+
+    let candidate = base;
+    let suffix = 2;
+
+    while (candidate && this.projectSlugExists(db, candidate, excludeId)) {
+      const next = normalizeSlug(`${base}-${suffix++}`);
+      if (next) {
+        candidate = next;
+        continue;
+      }
+
+      const randomId = userNanoid().slice(0, 6);
+      const random = normalizeSlug(`${fallbackSlug}-${randomId}`);
+      if (random && !this.projectSlugExists(db, random, excludeId)) {
+        candidate = random;
+        break;
+      }
+
+      candidate = this.randomProjectSlug();
+    }
+
+    if (!candidate) {
+      candidate = this.randomProjectSlug();
+    }
+
+    if (this.projectSlugExists(db, candidate, excludeId)) {
+      let attempt = 0;
+      while (attempt < 5) {
+        const random = this.randomProjectSlug();
+        if (!this.projectSlugExists(db, random, excludeId)) {
+          candidate = random;
+          break;
+        }
+        attempt += 1;
+      }
+      if (attempt >= 5) {
+        candidate = `${fallbackSlug}-${Date.now()}`.slice(0, 120);
+        candidate = normalizeSlug(candidate) || candidate.toLowerCase();
+      }
+    }
+
+    return candidate;
+  }
+
+  private randomProjectSlug(): string {
+    const randomId = userNanoid();
+    const slug = normalizeSlug(`project-${randomId}`);
+    return slug || `project-${randomId}`.toLowerCase();
   }
 
   async list(): Promise<Project[]> {
     const db = await this.getDb();
     const statement = db.prepare(
-      `SELECT id, name, created_at, updated_at FROM projects ORDER BY created_at ASC, id ASC`
+      `SELECT id, name, slug, published, created_at, updated_at FROM projects ORDER BY created_at ASC, id ASC`
     );
     const projects: Project[] = [];
     try {
@@ -1511,6 +1759,8 @@ export class SqliteProjectStore implements ProjectStore {
         const row = statement.getAsObject() as {
           id: string;
           name: string;
+          slug: string | null;
+          published: number | null;
           created_at: string;
           updated_at: string;
         };
@@ -1525,7 +1775,7 @@ export class SqliteProjectStore implements ProjectStore {
   async get(id: string): Promise<Project | undefined> {
     const db = await this.getDb();
     const statement = db.prepare(
-      `SELECT id, name, created_at, updated_at FROM projects WHERE id = ?1 LIMIT 1`
+      `SELECT id, name, slug, published, created_at, updated_at FROM projects WHERE id = ?1 LIMIT 1`
     );
     statement.bind([id]);
     try {
@@ -1535,6 +1785,36 @@ export class SqliteProjectStore implements ProjectStore {
       const row = statement.getAsObject() as {
         id: string;
         name: string;
+        slug: string | null;
+        published: number | null;
+        created_at: string;
+        updated_at: string;
+      };
+      return mapProjectRow(row);
+    } finally {
+      statement.free();
+    }
+  }
+
+  async getBySlug(slug: string): Promise<Project | undefined> {
+    const db = await this.getDb();
+    const normalized = normalizeSlug(slug);
+    if (!normalized) {
+      return undefined;
+    }
+    const statement = db.prepare(
+      `SELECT id, name, slug, published, created_at, updated_at FROM projects WHERE slug = ?1 LIMIT 1`
+    );
+    statement.bind([normalized]);
+    try {
+      if (!statement.step()) {
+        return undefined;
+      }
+      const row = statement.getAsObject() as {
+        id: string;
+        name: string;
+        slug: string | null;
+        published: number | null;
         created_at: string;
         updated_at: string;
       };
@@ -1548,12 +1828,20 @@ export class SqliteProjectStore implements ProjectStore {
     const db = await this.getDb();
     const now = new Date().toISOString();
     const id = userNanoid();
+    const name = input.name.trim();
+    const slug = this.generateUniqueProjectSlug(
+      db,
+      name,
+      id,
+      input.slug ?? null
+    );
+    const published = Boolean(input.published);
     const statement = db.prepare(
-      `INSERT INTO projects (id, name, created_at, updated_at)
-       VALUES (?1, ?2, ?3, ?4)`
+      `INSERT INTO projects (id, name, slug, published, created_at, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6)`
     );
     try {
-      statement.run([id, input.name.trim(), now, now]);
+      statement.run([id, name, slug, published ? 1 : 0, now, now]);
     } finally {
       statement.free();
     }
@@ -1567,23 +1855,48 @@ export class SqliteProjectStore implements ProjectStore {
 
   async update(id: string, updates: UpdateProjectInput): Promise<Project> {
     const db = await this.getDb();
-    const fragments: string[] = [];
-    const values: (string | null)[] = [];
-    if (typeof updates.name === "string") {
-      fragments.push("name = ?");
-      values.push(updates.name.trim());
+    const current = await this.get(id);
+    if (!current) {
+      throw new Error("Project not found");
     }
+
+    let effectiveName = current.name;
+    const fragments: string[] = [];
+    const values: (string | number | null)[] = [];
+
+    if (typeof updates.name === "string") {
+      effectiveName = updates.name.trim();
+      fragments.push("name = ?");
+      values.push(effectiveName);
+    }
+
+    if (updates.slug !== undefined) {
+      const preferred = updates.slug ?? null;
+      const slug = this.generateUniqueProjectSlug(
+        db,
+        effectiveName,
+        id,
+        preferred,
+        id
+      );
+      fragments.push("slug = ?");
+      values.push(slug);
+    }
+
+    if (typeof updates.published === "boolean") {
+      fragments.push("published = ?");
+      values.push(updates.published ? 1 : 0);
+    }
+
     if (fragments.length === 0) {
-      const current = await this.get(id);
-      if (!current) {
-        throw new Error("Project not found");
-      }
       return current;
     }
+
     const now = new Date().toISOString();
     fragments.push("updated_at = ?");
     values.push(now);
     values.push(id);
+
     const statement = db.prepare(
       `UPDATE projects SET ${fragments.join(", ")} WHERE id = ?`
     );
@@ -1592,9 +1905,11 @@ export class SqliteProjectStore implements ProjectStore {
     } finally {
       statement.free();
     }
+
     if (db.getRowsModified() === 0) {
       throw new Error("Project not found");
     }
+
     await this.notebooks.flush();
     const updated = await this.get(id);
     if (!updated) {

@@ -46,11 +46,18 @@ import NotebookHeaderMain from "@/components/notebook/notebook-header-main";
 import NotebookHeaderRight from "@/components/notebook/notebook-header-right";
 import NotebookSecondaryHeader from "@/components/notebook/notebook-secondary-header";
 import NotebookSharingDialog from "@/components/notebook/notebook-sharing-dialog";
-import { API_BASE_URL } from "@/components/notebook/api";
+import PublishDialog from "@/components/notebook/publish-dialog";
+import {
+  API_BASE_URL,
+  publishNotebook,
+  unpublishNotebook,
+} from "@/components/notebook/api";
+import { Badge } from "@/components/ui/badge";
 import { useCurrentUser } from "@/components/notebook/hooks/use-current-user";
 import { useNotebookAttachments } from "@/components/notebook/hooks/use-notebook-attachments";
 import { useNotebookSharing } from "@/components/notebook/hooks/use-notebook-sharing";
 import { gravatarUrlForEmail } from "@/lib/avatar";
+import { suggestSlug } from "@nodebooks/notebook-schema";
 
 const normalizeNotebookState = (
   raw: Notebook | NotebookWithAccess | null | undefined
@@ -106,10 +113,19 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
   const [projectNav, setProjectNav] = useState<{
     id: string;
     name: string;
+    slug: string | null;
+    published: boolean;
     notebooks: NotebookWithAccess[];
   } | null>(null);
   const [projectNavLoading, setProjectNavLoading] = useState(false);
   const [projectNavError, setProjectNavError] = useState<string | null>(null);
+  const [publishDialogOpen, setPublishDialogOpen] = useState(false);
+  const [publishSubmitting, setPublishSubmitting] = useState(false);
+  const [publishDialogError, setPublishDialogError] = useState<string | null>(
+    null
+  );
+  const [unpublishConfirmOpen, setUnpublishConfirmOpen] = useState(false);
+  const [unpublishSubmitting, setUnpublishSubmitting] = useState(false);
   const collabSocketRef = useRef<WebSocket | null>(null);
   const suppressCollabBroadcastRef = useRef(false);
   const activeCellIdRef = useRef<string | null>(null);
@@ -166,6 +182,31 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     return true;
   }, [canEditNotebook, readOnlyMessage]);
 
+  const publishSlugSuggestion = useMemo(() => {
+    if (!notebook) {
+      return null;
+    }
+    const suggestion = suggestSlug(notebook.name, notebook.id);
+    return suggestion ?? null;
+  }, [notebook]);
+
+  const publishHref = useMemo(() => {
+    if (!notebook || !notebook.published) {
+      return null;
+    }
+    if (
+      notebook.projectId &&
+      projectNav &&
+      projectNav.id === notebook.projectId &&
+      projectNav.slug
+    ) {
+      const slugPart = notebook.publicSlug ?? notebook.id;
+      return `/v/${encodeURIComponent(projectNav.slug)}/${encodeURIComponent(slugPart)}`;
+    }
+    const identifier = notebook.publicSlug ?? notebook.id;
+    return `/v/${encodeURIComponent(identifier)}`;
+  }, [notebook, projectNav]);
+
   const safeDeleteAttachment = useCallback(
     async (attachmentId: string) => {
       if (!ensureEditable()) {
@@ -197,6 +238,111 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     },
     [isViewer]
   );
+
+  const handleOpenPublishDialog = useCallback(() => {
+    if (!isAdmin) {
+      setActionError("Only workspace admins can publish notebooks.");
+      return;
+    }
+    setPublishDialogError(null);
+    setPublishDialogOpen(true);
+  }, [isAdmin]);
+
+  const handlePublishNotebookSubmit = useCallback(
+    async (slug: string | null) => {
+      if (!notebook) {
+        return;
+      }
+      setPublishSubmitting(true);
+      setPublishDialogError(null);
+      try {
+        const updated = await publishNotebook(notebook.id, slug ?? undefined);
+        setNotebook((prev) => {
+          if (!prev || prev.id !== updated.id) {
+            notebookRef.current = updated;
+            return updated;
+          }
+          const merged: Notebook = {
+            ...prev,
+            ...updated,
+            cells: prev.cells,
+          };
+          notebookRef.current = merged;
+          return merged;
+        });
+        setProjectNav((prev) => {
+          if (!prev || !notebook.projectId || prev.id !== notebook.projectId) {
+            return prev;
+          }
+          return {
+            ...prev,
+            notebooks: prev.notebooks.map((item) =>
+              item.id === updated.id ? { ...item, ...updated } : item
+            ),
+          };
+        });
+        setPublishDialogOpen(false);
+        setActionError(null);
+      } catch (error) {
+        setPublishDialogError(
+          error instanceof Error ? error.message : "Failed to publish notebook"
+        );
+      } finally {
+        setPublishSubmitting(false);
+      }
+    },
+    [notebook]
+  );
+
+  const handleOpenUnpublishDialog = useCallback(() => {
+    if (!isAdmin) {
+      setActionError("Only workspace admins can unpublish notebooks.");
+      return;
+    }
+    setUnpublishConfirmOpen(true);
+  }, [isAdmin]);
+
+  const handleConfirmUnpublish = useCallback(async () => {
+    if (!notebook) {
+      return;
+    }
+    setUnpublishSubmitting(true);
+    setActionError(null);
+    try {
+      const updated = await unpublishNotebook(notebook.id);
+      setNotebook((prev) => {
+        if (!prev || prev.id !== updated.id) {
+          notebookRef.current = updated;
+          return updated;
+        }
+        const merged: Notebook = {
+          ...prev,
+          ...updated,
+          cells: prev.cells,
+        };
+        notebookRef.current = merged;
+        return merged;
+      });
+      setProjectNav((prev) => {
+        if (!prev || !notebook.projectId || prev.id !== notebook.projectId) {
+          return prev;
+        }
+        return {
+          ...prev,
+          notebooks: prev.notebooks.map((item) =>
+            item.id === updated.id ? { ...item, ...updated } : item
+          ),
+        };
+      });
+      setUnpublishConfirmOpen(false);
+    } catch (error) {
+      setActionError(
+        error instanceof Error ? error.message : "Failed to unpublish notebook"
+      );
+    } finally {
+      setUnpublishSubmitting(false);
+    }
+  }, [notebook]);
 
   const notebookId = notebook?.id;
   const sessionId = session?.id;
@@ -1109,7 +1255,12 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         });
         const payload = (await response.json().catch(() => ({}))) as {
           data?: {
-            project?: { id: string; name: string };
+            project?: {
+              id: string;
+              name: string;
+              slug?: string | null;
+              published?: boolean;
+            };
             notebooks?: NotebookWithAccess[];
           };
           error?: string;
@@ -1135,6 +1286,13 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
           setProjectNav({
             id: payload.data.project.id,
             name: payload.data.project.name,
+            slug:
+              typeof payload.data.project.slug === "string"
+                ? payload.data.project.slug
+                : payload.data.project.slug === null
+                  ? null
+                  : null,
+            published: Boolean(payload.data.project.published),
             notebooks: list,
           });
         }
@@ -2012,8 +2170,13 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         canEdit={canEditNotebook}
         canShare={isAdmin}
         canDelete={isAdmin}
+        canPublish={isAdmin}
         currentUserLoading={currentUserLoading}
         exporting={exporting}
+        published={Boolean(notebook.published)}
+        publishHref={publishHref}
+        publishPending={publishSubmitting}
+        unpublishPending={unpublishSubmitting}
         onSave={handleSaveNow}
         onRunAll={handleRunAll}
         onClearOutputs={() => setConfirmClearOutputsOpen(true)}
@@ -2022,6 +2185,8 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         onOpenSharing={handleOpenSharing}
         onExport={handleExportNotebook}
         onDelete={() => setConfirmDeleteOpen(true)}
+        onPublish={handleOpenPublishDialog}
+        onUnpublish={handleOpenUnpublishDialog}
       />
     );
   }, [
@@ -2038,6 +2203,11 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     handleReconnectKernel,
     handleOpenSharing,
     handleExportNotebook,
+    publishHref,
+    publishSubmitting,
+    unpublishSubmitting,
+    handleOpenPublishDialog,
+    handleOpenUnpublishDialog,
   ]);
 
   const secondaryHeader = useMemo(() => {
@@ -2084,9 +2254,17 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
                   <p className="text-xs uppercase tracking-wide text-muted-foreground">
                     Project
                   </p>
-                  <p className="text-sm font-semibold text-foreground">
-                    {projectNav?.name ?? (projectNavLoading ? "Loading…" : "")}
-                  </p>
+                  <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                    <span>
+                      {projectNav?.name ??
+                        (projectNavLoading ? "Loading…" : "")}
+                    </span>
+                    {projectNav?.published ? (
+                      <Badge variant="secondary" className="text-[10px]">
+                        Published
+                      </Badge>
+                    ) : null}
+                  </div>
                 </div>
                 {projectNavLoading ? (
                   <p className="text-xs text-muted-foreground">
@@ -2232,6 +2410,36 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         onAttachmentUploaded={handleAttachmentUploaded}
         onClearDepOutputs={handleClearDepOutputs}
         onAbortInstall={handleAbortInstall}
+      />
+      <PublishDialog
+        open={publishDialogOpen}
+        kind="notebook"
+        defaultSlug={notebook?.publicSlug ?? null}
+        suggestedSlug={publishSlugSuggestion ?? undefined}
+        submitting={publishSubmitting}
+        error={publishDialogError}
+        onOpenChange={(open) => {
+          setPublishDialogOpen(open);
+          if (!open) {
+            setPublishDialogError(null);
+          }
+        }}
+        onSubmit={async (slug) => {
+          await handlePublishNotebookSubmit(slug);
+        }}
+      />
+      <ConfirmDialog
+        open={unpublishConfirmOpen}
+        title="Unpublish notebook?"
+        description="The notebook will no longer be publicly accessible."
+        confirmLabel="Unpublish"
+        onCancel={() => setUnpublishConfirmOpen(false)}
+        onConfirm={async () => {
+          if (unpublishSubmitting) {
+            return;
+          }
+          await handleConfirmUnpublish();
+        }}
       />
       <NotebookSharingDialog
         open={sharingOpen}

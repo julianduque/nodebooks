@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
-import DOMPurify from "dompurify";
 import type { Notebook, NotebookCell } from "@nodebooks/notebook-schema";
 import type { NotebookWithAccess } from "@/components/notebook/types";
 import { buildOutlineItems } from "@/components/notebook/utils";
@@ -12,16 +11,17 @@ import { cn } from "@/components/lib/utils";
 import {
   loadMermaid,
   renderMarkdownToHtml,
+  sanitizeSvg,
   waitNextTick,
 } from "@/components/notebook/markdown-preview-utils";
 
-interface PublishProject {
+interface PublicProject {
   id: string;
   name: string;
-  notebooks: (Notebook | NotebookWithAccess | PublishNotebookExtras)[];
+  notebooks: (Notebook | NotebookWithAccess | PublicNotebookExtras)[];
 }
 
-type PublishNotebookExtras = Notebook & {
+type PublicNotebookExtras = Notebook & {
   published?: boolean | null;
   publishedAt?: string | null;
   isPublished?: boolean | null;
@@ -30,19 +30,19 @@ type PublishNotebookExtras = Notebook & {
   metadata?: Record<string, unknown> | null;
 };
 
-interface NotebookPublishViewProps {
+interface NotebookPublicViewProps {
   notebook: Notebook | null;
-  project?: PublishProject | null;
-  getNotebookHref?: (notebookId: string) => string | null | undefined;
+  project?: PublicProject | null;
+  notebookHrefById?: Record<string, string | null | undefined>;
   className?: string;
 }
 
 const STRIP_ANSI = /\u001B\[[0-?]*[ -\/]*[@-~]/g;
 
 const isNotebookPublished = (
-  entry: Notebook | NotebookWithAccess | PublishNotebookExtras
+  entry: Notebook | NotebookWithAccess | PublicNotebookExtras
 ) => {
-  const candidate = entry as PublishNotebookExtras;
+  const candidate = entry as PublicNotebookExtras;
   if (typeof candidate.published === "boolean") {
     return candidate.published;
   }
@@ -96,12 +96,12 @@ const normalizeBuffer = (value: string | null | undefined) => {
   return value.replace(STRIP_ANSI, "").replace(/\r/g, "");
 };
 
-const NotebookPublishView = ({
+const NotebookPublicView = ({
   notebook,
   project,
-  getNotebookHref,
+  notebookHrefById,
   className,
-}: NotebookPublishViewProps) => {
+}: NotebookPublicViewProps) => {
   const outlineItems = useMemo(() => buildOutlineItems(notebook), [notebook]);
 
   const handleOutlineSelect = useCallback((cellId: string) => {
@@ -114,7 +114,7 @@ const NotebookPublishView = ({
 
   const publishedProjectNotebooks = useMemo(() => {
     if (!project)
-      return [] as (Notebook | NotebookWithAccess | PublishNotebookExtras)[];
+      return [] as (Notebook | NotebookWithAccess | PublicNotebookExtras)[];
     const list = Array.isArray(project.notebooks) ? [...project.notebooks] : [];
     return list.filter((entry) =>
       notebook
@@ -130,7 +130,7 @@ const NotebookPublishView = ({
         className
       )}
     >
-      <aside className="hidden w-72 flex-shrink-0 flex-col border-r border-border/60 bg-muted/40 lg:flex">
+      <aside className="flex w-72 flex-shrink-0 flex-col border-r border-border/60 bg-muted/40">
         {project ? (
           <div className="border-b border-border/60 px-4 py-5">
             <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -143,7 +143,7 @@ const NotebookPublishView = ({
               <nav className="mt-3 space-y-1">
                 {publishedProjectNotebooks.map((entry) => {
                   const isActive = notebook?.id === entry.id;
-                  const href = getNotebookHref?.(entry.id ?? "");
+                  const href = notebookHrefById?.[entry.id ?? ""] ?? null;
                   const itemClass = cn(
                     "block rounded-md px-2 py-1 text-sm transition-colors",
                     isActive
@@ -154,7 +154,7 @@ const NotebookPublishView = ({
                     return (
                       <Link
                         key={entry.id}
-                        href={href}
+                        href={{ pathname: href }}
                         className={itemClass}
                         aria-current={isActive ? "page" : undefined}
                       >
@@ -289,11 +289,7 @@ const PublishMarkdownCell = ({
             definition
           );
           if (cancelled || !container.contains(block)) continue;
-          const sanitized = DOMPurify.sanitize(svg, {
-            USE_PROFILES: { svg: true, svgFilters: true },
-            ADD_TAGS: ["style", "foreignObject"],
-            ADD_ATTR: ["style", "class"],
-          });
+          const sanitized = sanitizeSvg(svg);
           cacheRef.current.set(cacheKey, sanitized);
           block.innerHTML = sanitized;
           block.setAttribute("data-processed", "1");
@@ -419,4 +415,4 @@ const PublishCommandCell = ({
   );
 };
 
-export default NotebookPublishView;
+export default NotebookPublicView;

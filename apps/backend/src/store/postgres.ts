@@ -2,6 +2,8 @@ import { Pool } from "pg";
 import { customAlphabet } from "nanoid";
 import {
   ensureNotebookRuntimeVersion,
+  normalizeSlug,
+  suggestSlug,
   NotebookSchema,
   type Notebook,
 } from "@nodebooks/notebook-schema";
@@ -49,11 +51,18 @@ type NotebookRow = {
 const mapProjectRow = (row: {
   id: string;
   name: string;
+  slug: string | null;
+  published: boolean | null;
   created_at: Date;
   updated_at: Date;
 }): Project => ({
   id: row.id,
   name: row.name,
+  slug:
+    row.slug && row.slug.trim().length > 0
+      ? normalizeSlug(row.slug)
+      : normalizeSlug(row.name) || normalizeSlug(row.id) || row.id,
+  published: Boolean(row.published),
   createdAt: row.created_at.toISOString(),
   updatedAt: row.updated_at.toISOString(),
 });
@@ -195,6 +204,20 @@ export class PostgresNotebookStore implements NotebookStore {
     return row ? this.deserialize(row.data) : undefined;
   }
 
+  async getByPublicSlug(slug: string): Promise<Notebook | undefined> {
+    await this.ready;
+    const normalized = normalizeSlug(slug);
+    if (!normalized) {
+      return undefined;
+    }
+    const result = await this.pool.query<NotebookRow>(
+      "SELECT data FROM notebooks WHERE public_slug = $1 LIMIT 1",
+      [normalized]
+    );
+    const row = result.rows[0];
+    return row ? this.deserialize(row.data) : undefined;
+  }
+
   async save(notebook: Notebook): Promise<Notebook> {
     await this.ready;
     const parsed = ensureNotebookRuntimeVersion(
@@ -203,18 +226,40 @@ export class PostgresNotebookStore implements NotebookStore {
         updatedAt: new Date().toISOString(),
       })
     );
+    const sanitized: Notebook = {
+      ...parsed,
+      publicSlug: (() => {
+        const slug = parsed.publicSlug ?? null;
+        if (!slug) {
+          return null;
+        }
+        const normalized = normalizeSlug(slug);
+        return normalized || null;
+      })(),
+      published: Boolean(parsed.published),
+    };
 
     await this.pool.query(
-      `INSERT INTO notebooks (id, name, data, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5)
+      `INSERT INTO notebooks (id, name, data, created_at, updated_at, published, public_slug)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        ON CONFLICT (id) DO UPDATE SET
          name = EXCLUDED.name,
          data = EXCLUDED.data,
-         updated_at = EXCLUDED.updated_at`,
-      [parsed.id, parsed.name, parsed, parsed.createdAt, parsed.updatedAt]
+         updated_at = EXCLUDED.updated_at,
+         published = EXCLUDED.published,
+         public_slug = EXCLUDED.public_slug`,
+      [
+        sanitized.id,
+        sanitized.name,
+        sanitized,
+        sanitized.createdAt,
+        sanitized.updatedAt,
+        sanitized.published,
+        sanitized.publicSlug,
+      ]
     );
 
-    return parsed;
+    return sanitized;
   }
 
   async remove(id: string): Promise<Notebook | undefined> {
@@ -366,13 +411,30 @@ export class PostgresNotebookStore implements NotebookStore {
         name TEXT NOT NULL,
         data JSONB NOT NULL,
         created_at TIMESTAMPTZ NOT NULL,
-        updated_at TIMESTAMPTZ NOT NULL
+        updated_at TIMESTAMPTZ NOT NULL,
+        published BOOLEAN NOT NULL DEFAULT FALSE,
+        public_slug TEXT UNIQUE
       )
     `);
 
     await this.pool.query(`
       CREATE INDEX IF NOT EXISTS idx_notebooks_updated_at
         ON notebooks (updated_at DESC, id ASC)
+    `);
+
+    await this.pool.query(`
+      ALTER TABLE notebooks
+        ADD COLUMN IF NOT EXISTS published BOOLEAN NOT NULL DEFAULT FALSE
+    `);
+
+    await this.pool.query(`
+      ALTER TABLE notebooks
+        ADD COLUMN IF NOT EXISTS public_slug TEXT
+    `);
+
+    await this.pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_notebooks_public_slug
+        ON notebooks (public_slug) WHERE public_slug IS NOT NULL
     `);
 
     await this.pool.query(`
@@ -422,6 +484,8 @@ export class PostgresNotebookStore implements NotebookStore {
       CREATE TABLE IF NOT EXISTS projects (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
+        slug TEXT UNIQUE,
+        published BOOLEAN NOT NULL DEFAULT FALSE,
         created_at TIMESTAMPTZ NOT NULL,
         updated_at TIMESTAMPTZ NOT NULL
       )
@@ -430,6 +494,21 @@ export class PostgresNotebookStore implements NotebookStore {
     await this.pool.query(`
       CREATE INDEX IF NOT EXISTS idx_projects_created_at
         ON projects (created_at ASC, id ASC)
+    `);
+
+    await this.pool.query(`
+      ALTER TABLE projects
+        ADD COLUMN IF NOT EXISTS slug TEXT
+    `);
+
+    await this.pool.query(`
+      ALTER TABLE projects
+        ADD COLUMN IF NOT EXISTS published BOOLEAN NOT NULL DEFAULT FALSE
+    `);
+
+    await this.pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_slug
+        ON projects (slug) WHERE slug IS NOT NULL
     `);
 
     await this.pool.query(`
@@ -1120,15 +1199,156 @@ export class PostgresNotebookCollaboratorStore
 export class PostgresProjectStore implements ProjectStore {
   constructor(private readonly notebooks: PostgresNotebookStore) {}
 
+  private projectMigrations: Promise<void> | null = null;
+
   private async getPool(): Promise<Pool> {
     await this.notebooks.ensureReady();
-    return this.notebooks.getPool();
+    const pool = this.notebooks.getPool();
+    if (!this.projectMigrations) {
+      this.projectMigrations = this.ensureProjectMigrations(pool);
+    }
+    await this.projectMigrations;
+    return pool;
+  }
+
+  private async ensureProjectMigrations(pool: Pool): Promise<void> {
+    await pool.query(
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_slug
+        ON projects (slug) WHERE slug IS NOT NULL`
+    );
+
+    const result = await pool.query<{ id: string; name: string }>(
+      `SELECT id, name FROM projects WHERE slug IS NULL OR length(trim(slug)) = 0`
+    );
+
+    for (const row of result.rows) {
+      const slug = await this.generateUniqueProjectSlug(pool, row.name, row.id);
+      await pool.query(`UPDATE projects SET slug = $1 WHERE id = $2`, [
+        slug,
+        row.id,
+      ]);
+    }
+
+    const sanitize = await pool.query<{
+      id: string;
+      name: string;
+      slug: string;
+    }>(`SELECT id, name, slug FROM projects WHERE slug IS NOT NULL`);
+
+    for (const row of sanitize.rows) {
+      const desired = await this.generateUniqueProjectSlug(
+        pool,
+        row.name,
+        row.id,
+        row.slug,
+        row.id
+      );
+      if (desired !== row.slug) {
+        await pool.query(`UPDATE projects SET slug = $1 WHERE id = $2`, [
+          desired,
+          row.id,
+        ]);
+      }
+    }
+  }
+
+  private async projectSlugExists(
+    pool: Pool,
+    slug: string,
+    excludeId?: string
+  ): Promise<boolean> {
+    if (!slug) {
+      return false;
+    }
+    const query = excludeId
+      ? `SELECT 1 FROM projects WHERE slug = $1 AND id <> $2 LIMIT 1`
+      : `SELECT 1 FROM projects WHERE slug = $1 LIMIT 1`;
+    const params = excludeId ? [slug, excludeId] : [slug];
+    const result = await pool.query(query, params);
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  private randomProjectSlug(): string {
+    const randomId = userNanoid();
+    const slug = normalizeSlug(`project-${randomId}`);
+    return slug || `project-${randomId}`.toLowerCase();
+  }
+
+  private async generateUniqueProjectSlug(
+    pool: Pool,
+    name: string,
+    fallbackId: string,
+    requested?: string | null,
+    excludeId?: string
+  ): Promise<string> {
+    const fallbackSlug =
+      normalizeSlug(fallbackId) ||
+      normalizeSlug(`project-${fallbackId}`) ||
+      fallbackId.toLowerCase();
+
+    let base =
+      (typeof requested === "string" && requested.trim().length > 0
+        ? normalizeSlug(requested)
+        : null) ||
+      suggestSlug(name, fallbackSlug) ||
+      fallbackSlug;
+
+    if (!base) {
+      base = this.randomProjectSlug();
+    }
+
+    let candidate = base;
+    let suffix = 2;
+
+    while (
+      candidate &&
+      (await this.projectSlugExists(pool, candidate, excludeId))
+    ) {
+      const next = normalizeSlug(`${base}-${suffix++}`);
+      if (next) {
+        candidate = next;
+        continue;
+      }
+
+      const randomId = userNanoid().slice(0, 6);
+      const random = normalizeSlug(`${fallbackSlug}-${randomId}`);
+      if (random && !(await this.projectSlugExists(pool, random, excludeId))) {
+        candidate = random;
+        break;
+      }
+
+      candidate = this.randomProjectSlug();
+    }
+
+    if (!candidate) {
+      candidate = this.randomProjectSlug();
+    }
+
+    if (await this.projectSlugExists(pool, candidate, excludeId)) {
+      let attempt = 0;
+      while (attempt < 5) {
+        const random = this.randomProjectSlug();
+        if (!(await this.projectSlugExists(pool, random, excludeId))) {
+          candidate = random;
+          break;
+        }
+        attempt += 1;
+      }
+      if (attempt >= 5) {
+        const fallback =
+          normalizeSlug(`${fallbackSlug}-${Date.now()}`) ||
+          `${fallbackSlug}-${Date.now()}`.toLowerCase();
+        candidate = fallback;
+      }
+    }
+
+    return candidate;
   }
 
   async list(): Promise<Project[]> {
     const pool = await this.getPool();
     const result = await pool.query(
-      `SELECT id, name, created_at, updated_at
+      `SELECT id, name, slug, published, created_at, updated_at
        FROM projects
        ORDER BY created_at ASC, id ASC`
     );
@@ -1138,7 +1358,7 @@ export class PostgresProjectStore implements ProjectStore {
   async get(id: string): Promise<Project | undefined> {
     const pool = await this.getPool();
     const result = await pool.query(
-      `SELECT id, name, created_at, updated_at
+      `SELECT id, name, slug, published, created_at, updated_at
        FROM projects
        WHERE id = $1
        LIMIT 1`,
@@ -1148,14 +1368,40 @@ export class PostgresProjectStore implements ProjectStore {
     return row ? mapProjectRow(row) : undefined;
   }
 
+  async getBySlug(slug: string): Promise<Project | undefined> {
+    const pool = await this.getPool();
+    const normalized = normalizeSlug(slug);
+    if (!normalized) {
+      return undefined;
+    }
+    const result = await pool.query(
+      `SELECT id, name, slug, published, created_at, updated_at
+         FROM projects
+         WHERE slug = $1
+         LIMIT 1`,
+      [normalized]
+    );
+    const row = result.rows[0];
+    return row ? mapProjectRow(row) : undefined;
+  }
+
   async create(input: CreateProjectInput): Promise<Project> {
     const pool = await this.getPool();
     const now = new Date();
+    const id = userNanoid();
+    const name = input.name.trim();
+    const slug = await this.generateUniqueProjectSlug(
+      pool,
+      name,
+      id,
+      input.slug ?? null
+    );
+    const published = Boolean(input.published);
     const result = await pool.query(
-      `INSERT INTO projects (id, name, created_at, updated_at)
-       VALUES ($1, $2, $3, $4)
-       RETURNING id, name, created_at, updated_at`,
-      [userNanoid(), input.name.trim(), now, now]
+      `INSERT INTO projects (id, name, slug, published, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING id, name, slug, published, created_at, updated_at`,
+      [id, name, slug, published, now, now]
     );
     const row = result.rows[0];
     if (!row) {
@@ -1166,27 +1412,56 @@ export class PostgresProjectStore implements ProjectStore {
 
   async update(id: string, updates: UpdateProjectInput): Promise<Project> {
     const pool = await this.getPool();
+    const current = await this.get(id);
+    if (!current) {
+      throw new Error("Project not found");
+    }
+
+    let effectiveName = current.name;
     const fields: string[] = [];
     const values: unknown[] = [];
+
     if (typeof updates.name === "string") {
-      fields.push(`name = $${fields.length + 2}`);
-      values.push(updates.name.trim());
+      effectiveName = updates.name.trim();
+      const nextIndex = values.length + 2;
+      fields.push(`name = $${nextIndex}`);
+      values.push(effectiveName);
     }
+
+    if (updates.slug !== undefined) {
+      const preferred = updates.slug ?? null;
+      const slug = await this.generateUniqueProjectSlug(
+        pool,
+        effectiveName,
+        id,
+        preferred,
+        id
+      );
+      const nextIndex = values.length + 2;
+      fields.push(`slug = $${nextIndex}`);
+      values.push(slug);
+    }
+
+    if (typeof updates.published === "boolean") {
+      const nextIndex = values.length + 2;
+      fields.push(`published = $${nextIndex}`);
+      values.push(updates.published);
+    }
+
     if (fields.length === 0) {
-      const current = await this.get(id);
-      if (!current) {
-        throw new Error("Project not found");
-      }
       return current;
     }
+
     const updatedAt = new Date();
-    fields.push(`updated_at = $${fields.length + 2}`);
+    const nextIndex = values.length + 2;
+    fields.push(`updated_at = $${nextIndex}`);
     values.push(updatedAt);
+
     const result = await pool.query(
       `UPDATE projects
          SET ${fields.join(", ")}
        WHERE id = $1
-       RETURNING id, name, created_at, updated_at`,
+       RETURNING id, name, slug, published, created_at, updated_at`,
       [id, ...values]
     );
     const row = result.rows[0];

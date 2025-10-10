@@ -54,6 +54,45 @@ export const NODEBOOKS_UI_MIME = "application/vnd.nodebooks.ui+json" as const;
 const FALLBACK_NODE_VERSION = "20.x" as const;
 const FALLBACK_GENERIC_RUNTIME_VERSION = "latest" as const;
 
+export const SLUG_MAX_LENGTH = 120 as const;
+
+export const SlugSchema = z
+  .string()
+  .min(1)
+  .max(SLUG_MAX_LENGTH)
+  .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
+
+export const normalizeSlug = (value: string): string => {
+  if (typeof value !== "string") {
+    return "";
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return "";
+  }
+  const normalized = trimmed
+    .normalize("NFKD")
+    .replace(/\p{M}+/gu, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/-{2,}/g, "-")
+    .replace(/^-+|-+$/g, "");
+  const sliced = normalized.slice(0, SLUG_MAX_LENGTH).replace(/^-+|-+$/g, "");
+  return sliced;
+};
+
+export const suggestSlug = (
+  input: string | null | undefined,
+  fallback?: string | null
+): string | null => {
+  const primary = normalizeSlug(input ?? "");
+  if (primary) {
+    return primary;
+  }
+  const alternate = normalizeSlug(fallback ?? "");
+  return alternate || null;
+};
+
 /**
  * Best-effort detection of the local Node.js runtime version. When executed in
  * a non-Node environment (e.g. the browser), the fallback semantic version is
@@ -710,6 +749,8 @@ export const NotebookSchema = z.object({
   updatedAt: z.string(),
   projectId: z.string().optional().nullable(),
   projectOrder: z.number().int().nonnegative().optional().nullable(),
+  published: z.boolean().default(false),
+  publicSlug: SlugSchema.nullish(),
 });
 
 export type Notebook = z.infer<typeof NotebookSchema>;
@@ -750,6 +791,8 @@ export type ProjectRole = z.infer<typeof ProjectRoleSchema>;
 export const ProjectSchema = z.object({
   id: z.string(),
   name: z.string(),
+  slug: SlugSchema,
+  published: z.boolean().default(false),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
@@ -781,6 +824,15 @@ export const ensureNotebookRuntimeVersion = (notebook: Notebook): Notebook => {
     projectId: notebook.projectId ?? null,
     projectOrder:
       notebook.projectOrder === undefined ? null : notebook.projectOrder,
+    publicSlug: (() => {
+      const candidate = notebook.publicSlug ?? null;
+      if (!candidate) {
+        return null;
+      }
+      const normalized = normalizeSlug(candidate);
+      return normalized || null;
+    })(),
+    published: Boolean(notebook.published),
   };
 };
 
@@ -796,6 +848,8 @@ export const createEmptyNotebook = (partial?: Partial<Notebook>): Notebook => {
     projectId: partial?.projectId ?? null,
     projectOrder:
       partial?.projectOrder === undefined ? null : partial.projectOrder,
+    published: partial?.published ?? false,
+    publicSlug: partial?.publicSlug ?? null,
   };
   const parsed = NotebookSchema.parse({ ...base, ...partial });
   return ensureNotebookRuntimeVersion(parsed);

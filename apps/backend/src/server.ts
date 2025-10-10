@@ -65,6 +65,7 @@ import { registerAiRoutes } from "./routes/ai.js";
 import { registerAttachmentRoutes } from "./routes/attachments.js";
 import { registerNotebookSharingRoutes } from "./routes/notebook-sharing.js";
 import { registerProjectRoutes } from "./routes/projects.js";
+import { registerPublicViewRoutes } from "./routes/publish.js";
 import { registerProjectSharingRoutes } from "./routes/project-sharing.js";
 import { createKernelUpgradeHandler } from "./kernel/router.js";
 import { createTerminalUpgradeHandler } from "./terminal/router.js";
@@ -172,6 +173,9 @@ export const createServer = async ({
     if (url.startsWith("/auth/invitations/inspect")) {
       return true;
     }
+    if (url === "/api/public" || url.startsWith("/api/public/")) {
+      return true;
+    }
     if (url.startsWith("/login")) {
       return true;
     }
@@ -197,6 +201,12 @@ export const createServer = async ({
       return true;
     }
     if (url.startsWith("/assets/")) {
+      return true;
+    }
+    if (url === "/v" || url.startsWith("/v/")) {
+      return true;
+    }
+    if (url.startsWith("/_next/data") && url.includes("/v/")) {
       return true;
     }
     if (request.headers.upgrade === "websocket") {
@@ -582,6 +592,7 @@ export const createServer = async ({
         projectInvitations,
         collaborators,
       });
+      registerPublicViewRoutes(api, { store, projects });
       registerNotebookSharingRoutes(api, { auth: authService });
       registerProjectSharingRoutes(api, { auth: authService });
       registerDependencyRoutes(api, store, collaborators);

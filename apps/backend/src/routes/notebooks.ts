@@ -7,6 +7,7 @@ import {
   NotebookEnvSchema,
   NotebookSchema,
   NotebookFileSchema,
+  SLUG_MAX_LENGTH,
   type NotebookEnv,
 } from "@nodebooks/notebook-schema";
 import type { Notebook } from "@nodebooks/notebook-schema";
@@ -23,6 +24,7 @@ import {
   createNotebookFromFileDefinition,
   serializeNotebookToFileDefinition,
 } from "../notebooks/file.js";
+import { generateUniqueNotebookSlug } from "../notebooks/slug.js";
 
 const NotebookMutationSchema = z.object({
   name: z.string().min(1).optional(),
@@ -39,6 +41,32 @@ const NotebookCreateSchema = NotebookMutationSchema.extend({
 const NotebookImportSchema = z.object({
   contents: z.string().min(1),
 });
+
+const NotebookPublishSchema = z
+  .object({
+    slug: z.string().min(1).max(SLUG_MAX_LENGTH).optional().nullable(),
+  })
+  .partial();
+
+const isUniqueConstraintViolation = (error: unknown): boolean => {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+  const code = (error as { code?: string | number }).code;
+  if (
+    code === "SQLITE_CONSTRAINT" ||
+    code === "SQLITE_CONSTRAINT_UNIQUE" ||
+    code === "23505"
+  ) {
+    return true;
+  }
+  const message = String((error as { message?: unknown }).message ?? "");
+  return (
+    message.includes("UNIQUE constraint failed") ||
+    message.includes("duplicate key") ||
+    message.includes("UNIQUE violation")
+  );
+};
 
 const formatNotebook = (notebook: Notebook) => {
   return ensureNotebookRuntimeVersion(notebook);
@@ -218,6 +246,143 @@ export const registerNotebookRoutes = (
     void reply.send({
       data: { ...formatNotebook(updated), accessRole: role },
     });
+  });
+
+  app.post("/notebooks/:id/publish", async (request, reply) => {
+    const params = z
+      .object({ id: z.string().min(1) })
+      .safeParse(request.params);
+    if (!params.success) {
+      void reply.code(400).send({ error: "Invalid notebook id" });
+      return;
+    }
+    const { id } = params.data;
+    const notebook = await store.get(id);
+    if (!notebook) {
+      reply.code(404);
+      return { error: "Notebook not found" };
+    }
+
+    const accessRole = await ensureNotebookAccess(
+      request,
+      reply,
+      collaborators,
+      id,
+      "editor"
+    );
+    if (!accessRole && request.user?.role !== "admin") {
+      return;
+    }
+
+    const body = NotebookPublishSchema.parse(request.body ?? {});
+    const requestedSlug = body.slug ?? notebook.publicSlug ?? null;
+
+    let slug: string | null = notebook.publicSlug ?? null;
+    try {
+      slug = await generateUniqueNotebookSlug(store, notebook, requestedSlug);
+    } catch (error) {
+      if (isUniqueConstraintViolation(error)) {
+        reply.code(409);
+        return { error: "Slug already in use" };
+      }
+      throw error;
+    }
+
+    try {
+      const updated = await store.save(
+        formatNotebook({
+          ...notebook,
+          published: true,
+          publicSlug: slug,
+        })
+      );
+
+      const role = toNotebookAccessRole(
+        accessRole,
+        request.user?.role === "admin"
+      );
+
+      void reply.send({
+        data: { ...formatNotebook(updated), accessRole: role },
+      });
+    } catch (error) {
+      if (isUniqueConstraintViolation(error)) {
+        reply.code(409);
+        return { error: "Slug already in use" };
+      }
+      throw error;
+    }
+  });
+
+  app.post("/notebooks/:id/unpublish", async (request, reply) => {
+    const params = z
+      .object({ id: z.string().min(1) })
+      .safeParse(request.params);
+    if (!params.success) {
+      void reply.code(400).send({ error: "Invalid notebook id" });
+      return;
+    }
+    const { id } = params.data;
+    const notebook = await store.get(id);
+    if (!notebook) {
+      reply.code(404);
+      return { error: "Notebook not found" };
+    }
+
+    const accessRole = await ensureNotebookAccess(
+      request,
+      reply,
+      collaborators,
+      id,
+      "editor"
+    );
+    if (!accessRole && request.user?.role !== "admin") {
+      return;
+    }
+
+    const body = NotebookPublishSchema.parse(request.body ?? {});
+    let slug: string | null = notebook.publicSlug ?? null;
+
+    if (body.slug !== undefined) {
+      if (body.slug === null) {
+        slug = null;
+      } else {
+        try {
+          slug = await generateUniqueNotebookSlug(store, notebook, body.slug);
+        } catch (error) {
+          if (isUniqueConstraintViolation(error)) {
+            reply.code(409);
+            return { error: "Slug already in use" };
+          }
+          throw error;
+        }
+      }
+    }
+
+    try {
+      const updated = await store.save(
+        formatNotebook({
+          ...notebook,
+          published: false,
+          publicSlug: slug,
+        })
+      );
+
+      const role = toNotebookAccessRole(
+        accessRole,
+        request.user?.role === "admin"
+      );
+
+      void reply.send({
+        data: { ...formatNotebook(updated), accessRole: role },
+      });
+    } catch (error) {
+      if (isUniqueConstraintViolation(error)) {
+        reply.code(409);
+        return { error: "Slug already in use" };
+      }
+      throw error;
+    }
   });
 
   app.delete("/notebooks/:id", async (request, reply) => {
