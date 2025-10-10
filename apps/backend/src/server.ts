@@ -65,7 +65,7 @@ import { registerAiRoutes } from "./routes/ai.js";
 import { registerAttachmentRoutes } from "./routes/attachments.js";
 import { registerNotebookSharingRoutes } from "./routes/notebook-sharing.js";
 import { registerProjectRoutes } from "./routes/projects.js";
-import { registerPublicViewRoutes } from "./routes/publish.js";
+import { registerPublicViewRoutes } from "./routes/public.js";
 import { registerProjectSharingRoutes } from "./routes/project-sharing.js";
 import { createKernelUpgradeHandler } from "./kernel/router.js";
 import { createTerminalUpgradeHandler } from "./terminal/router.js";
