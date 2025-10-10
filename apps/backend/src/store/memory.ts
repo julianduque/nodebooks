@@ -1,6 +1,8 @@
 import {
   createEmptyNotebook,
   ensureNotebookRuntimeVersion,
+  normalizeSlug,
+  suggestSlug,
   NotebookSchema,
   type Notebook,
 } from "@nodebooks/notebook-schema";
@@ -44,6 +46,7 @@ export class InMemoryNotebookStore implements NotebookStore {
     string,
     Map<string, NotebookAttachmentContent>
   >();
+  private slugIndex = new Map<string, string>();
 
   constructor(initialNotebooks: Notebook[] = []) {
     initialNotebooks.forEach((notebook) => {
@@ -53,6 +56,12 @@ export class InMemoryNotebookStore implements NotebookStore {
       this.notebooks.set(parsed.id, parsed);
       if (!this.attachments.has(parsed.id)) {
         this.attachments.set(parsed.id, new Map());
+      }
+      if (parsed.publicSlug) {
+        const slug = normalizeSlug(parsed.publicSlug);
+        if (slug) {
+          this.slugIndex.set(slug, parsed.id);
+        }
       }
     });
 
@@ -65,6 +74,12 @@ export class InMemoryNotebookStore implements NotebookStore {
       );
       this.notebooks.set(sample.id, sample);
       this.attachments.set(sample.id, new Map());
+      if (sample.publicSlug) {
+        const slug = normalizeSlug(sample.publicSlug);
+        if (slug) {
+          this.slugIndex.set(slug, sample.id);
+        }
+      }
     }
   }
 
@@ -83,18 +98,63 @@ export class InMemoryNotebookStore implements NotebookStore {
         updatedAt: new Date().toISOString(),
       })
     );
-    this.notebooks.set(parsed.id, parsed);
+    const sanitizedSlug = (() => {
+      const slug = parsed.publicSlug ?? null;
+      if (!slug) {
+        return null;
+      }
+      const normalized = normalizeSlug(slug);
+      return normalized || null;
+    })();
+
+    const sanitized: Notebook = {
+      ...parsed,
+      publicSlug: sanitizedSlug,
+      published: Boolean(parsed.published),
+    };
+
+    const previous = this.notebooks.get(sanitized.id);
+    if (previous?.publicSlug) {
+      const prevSlug = normalizeSlug(previous.publicSlug);
+      if (prevSlug) {
+        this.slugIndex.delete(prevSlug);
+      }
+    }
+
+    if (sanitized.publicSlug) {
+      this.slugIndex.set(sanitized.publicSlug, sanitized.id);
+    }
+
+    this.notebooks.set(sanitized.id, sanitized);
     if (!this.attachments.has(parsed.id)) {
       this.attachments.set(parsed.id, new Map());
     }
-    return parsed;
+    return sanitized;
   }
 
   async remove(id: string): Promise<Notebook | undefined> {
     const notebook = this.notebooks.get(id);
     this.notebooks.delete(id);
     this.attachments.delete(id);
+    if (notebook?.publicSlug) {
+      const slug = normalizeSlug(notebook.publicSlug);
+      if (slug) {
+        this.slugIndex.delete(slug);
+      }
+    }
     return notebook;
+  }
+
+  async getByPublicSlug(slug: string): Promise<Notebook | undefined> {
+    const normalized = normalizeSlug(slug);
+    if (!normalized) {
+      return undefined;
+    }
+    const id = this.slugIndex.get(normalized);
+    if (!id) {
+      return undefined;
+    }
+    return this.notebooks.get(id);
   }
 
   async listAttachments(notebookId: string): Promise<NotebookAttachment[]> {
@@ -636,27 +696,142 @@ export class InMemoryNotebookCollaboratorStore
 
 export class InMemoryProjectStore implements ProjectStore {
   private readonly projectsById = new Map<string, Project>();
+  private readonly slugIndex = new Map<string, string>();
+
+  private slugTaken(slug: string, excludeId?: string): boolean {
+    const owner = this.slugIndex.get(slug);
+    if (!owner) {
+      return false;
+    }
+    if (excludeId && owner === excludeId) {
+      return false;
+    }
+    return true;
+  }
+
+  private randomSlug(): string {
+    const randomId = userNanoid();
+    const slug = normalizeSlug(`project-${randomId}`);
+    return slug || `project-${randomId}`.toLowerCase();
+  }
+
+  private generateUniqueSlug(
+    name: string,
+    fallbackId: string,
+    requested?: string | null,
+    excludeId?: string
+  ): string {
+    const fallbackSlug =
+      normalizeSlug(fallbackId) ||
+      normalizeSlug(`project-${fallbackId}`) ||
+      fallbackId.toLowerCase();
+
+    let base =
+      (typeof requested === "string" && requested.trim().length > 0
+        ? normalizeSlug(requested)
+        : null) ||
+      suggestSlug(name, fallbackSlug) ||
+      fallbackSlug;
+
+    if (!base) {
+      base = this.randomSlug();
+    }
+
+    let candidate = base;
+    let suffix = 2;
+
+    while (candidate && this.slugTaken(candidate, excludeId)) {
+      const next = normalizeSlug(`${base}-${suffix++}`);
+      candidate = next || this.randomSlug();
+    }
+
+    if (!candidate) {
+      candidate = this.randomSlug();
+    }
+
+    if (this.slugTaken(candidate, excludeId)) {
+      let attempt = 0;
+      while (attempt < 5) {
+        const random = this.randomSlug();
+        if (!this.slugTaken(random, excludeId)) {
+          candidate = random;
+          break;
+        }
+        attempt += 1;
+      }
+      if (attempt >= 5) {
+        const fallback =
+          normalizeSlug(`${fallbackSlug}-${Date.now()}`) ||
+          `${fallbackSlug}-${Date.now()}`.toLowerCase();
+        candidate = fallback;
+      }
+    }
+
+    return candidate;
+  }
+
+  private assignSlug(projectId: string, slug: string): void {
+    for (const [existingSlug, owner] of this.slugIndex.entries()) {
+      if (owner === projectId && existingSlug !== slug) {
+        this.slugIndex.delete(existingSlug);
+      }
+    }
+    this.slugIndex.set(slug, projectId);
+  }
+
+  private ensureSlug(project: Project): void {
+    const sanitized = project.slug ? normalizeSlug(project.slug) : "";
+    if (!sanitized) {
+      const slug = this.generateUniqueSlug(
+        project.name,
+        project.id,
+        null,
+        project.id
+      );
+      project.slug = slug;
+      this.assignSlug(project.id, slug);
+      return;
+    }
+    if (sanitized !== project.slug) {
+      project.slug = sanitized;
+    }
+    if (!this.slugIndex.has(project.slug)) {
+      this.assignSlug(project.id, project.slug);
+    }
+  }
 
   async list(): Promise<Project[]> {
-    return Array.from(this.projectsById.values())
-      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
-      .map(cloneProject);
+    const projects = Array.from(this.projectsById.values()).sort((a, b) =>
+      a.createdAt.localeCompare(b.createdAt)
+    );
+    projects.forEach((project) => this.ensureSlug(project));
+    return projects.map(cloneProject);
   }
 
   async get(id: string): Promise<Project | undefined> {
     const project = this.projectsById.get(id);
-    return project ? cloneProject(project) : undefined;
+    if (!project) {
+      return undefined;
+    }
+    this.ensureSlug(project);
+    return cloneProject(project);
   }
 
   async create(input: CreateProjectInput): Promise<Project> {
     const now = new Date().toISOString();
+    const id = userNanoid();
+    const name = input.name.trim();
+    const slug = this.generateUniqueSlug(name, id, input.slug ?? null);
     const project: Project = {
-      id: userNanoid(),
-      name: input.name.trim(),
+      id,
+      name,
+      slug,
+      published: Boolean(input.published),
       createdAt: now,
       updatedAt: now,
     };
     this.projectsById.set(project.id, project);
+    this.assignSlug(project.id, project.slug);
     return cloneProject(project);
   }
 
@@ -668,12 +843,52 @@ export class InMemoryProjectStore implements ProjectStore {
     if (typeof updates.name === "string") {
       existing.name = updates.name.trim();
     }
+    if (updates.slug !== undefined) {
+      const slug = this.generateUniqueSlug(
+        existing.name,
+        existing.id,
+        updates.slug ?? null,
+        existing.id
+      );
+      existing.slug = slug;
+      this.assignSlug(existing.id, slug);
+    }
+    if (typeof updates.published === "boolean") {
+      existing.published = updates.published;
+    }
     existing.updatedAt = new Date().toISOString();
     return cloneProject(existing);
   }
 
   async remove(id: string): Promise<boolean> {
+    const existing = this.projectsById.get(id);
+    if (!existing) {
+      return false;
+    }
+    if (existing.slug) {
+      const slug = normalizeSlug(existing.slug);
+      if (slug) {
+        this.slugIndex.delete(slug);
+      }
+    }
     return this.projectsById.delete(id);
+  }
+
+  async getBySlug(slug: string): Promise<Project | undefined> {
+    const normalized = normalizeSlug(slug);
+    if (!normalized) {
+      return undefined;
+    }
+    const id = this.slugIndex.get(normalized);
+    if (!id) {
+      return undefined;
+    }
+    const project = this.projectsById.get(id);
+    if (!project) {
+      return undefined;
+    }
+    this.ensureSlug(project);
+    return cloneProject(project);
   }
 }
 

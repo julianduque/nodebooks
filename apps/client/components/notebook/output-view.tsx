@@ -6,7 +6,7 @@ import { UiDisplaySchema, NODEBOOKS_UI_MIME } from "@nodebooks/notebook-schema";
 import { UiRenderer } from "@nodebooks/notebook-ui";
 import type { UiJson } from "@nodebooks/notebook-schema";
 import AnsiToHtml from "ansi-to-html";
-import DOMPurify from "dompurify";
+import { sanitizeHtmlSnippet } from "@/components/notebook/markdown-preview-utils";
 
 const OutputView = ({ output }: { output: NotebookOutput }) => {
   const ansiConverter = useMemo(
@@ -41,13 +41,13 @@ const OutputView = ({ output }: { output: NotebookOutput }) => {
       const raw = ansiConverter.toHtml(isBlank ? text : normalized);
       // When newline:false, converter no longer injects <br/>. Keep as-is.
       return {
-        html: DOMPurify.sanitize(raw, { ADD_ATTR: ["style"] }),
+        html: sanitizeHtmlSnippet(raw),
         blank: isBlank,
       };
     } catch {
       const fallback = (isBlank ? text : normalized).replace(/^[\r\n]+/, "");
       return {
-        html: DOMPurify.sanitize(fallback, { ADD_ATTR: ["style"] }),
+        html: sanitizeHtmlSnippet(fallback),
         blank: isBlank,
       };
     }
@@ -55,7 +55,7 @@ const OutputView = ({ output }: { output: NotebookOutput }) => {
 
   if (output.type === "stream") {
     return (
-      <pre className="whitespace-pre-wrap font-mono text-slate-100">
+      <pre className="whitespace-pre-wrap rounded-md border border-slate-900/60 bg-slate-950 px-3 py-2 font-mono text-sm text-slate-100 shadow-sm">
         {blank ? null : (
           <>
             <span className="text-slate-400">[{output.name}]</span>{" "}

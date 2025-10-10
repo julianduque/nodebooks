@@ -7,6 +7,7 @@ import {
 } from "../notebooks/permissions.js";
 import {
   ensureNotebookRuntimeVersion,
+  SLUG_MAX_LENGTH,
   type Notebook,
 } from "@nodebooks/notebook-schema";
 import type {
@@ -17,6 +18,10 @@ import type {
   ProjectInvitationStore,
   NotebookRole,
 } from "../types.js";
+import {
+  generateUniqueNotebookSlug,
+  normalizeRequestedSlug,
+} from "../notebooks/slug.js";
 
 const CREATE_PROJECT_SCHEMA = z.object({
   name: z.string().min(1).max(200),
@@ -36,6 +41,32 @@ const ASSIGN_SCHEMA = z.object({
 });
 
 const UNASSIGNED_SLUG = "unassigned";
+
+const ProjectPublishSchema = z
+  .object({
+    slug: z.string().min(1).max(SLUG_MAX_LENGTH).optional().nullable(),
+  })
+  .partial();
+
+const isUniqueConstraintViolation = (error: unknown): boolean => {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+  const code = (error as { code?: string | number }).code;
+  if (
+    code === "SQLITE_CONSTRAINT" ||
+    code === "SQLITE_CONSTRAINT_UNIQUE" ||
+    code === "23505"
+  ) {
+    return true;
+  }
+  const message = String((error as { message?: unknown }).message ?? "");
+  return (
+    message.includes("UNIQUE constraint failed") ||
+    message.includes("duplicate key") ||
+    message.includes("UNIQUE violation")
+  );
+};
 
 type NotebookWithAccess = Notebook & { accessRole: NotebookRole };
 
@@ -252,6 +283,185 @@ export const registerProjectRoutes = (
       }
       throw error;
     }
+  });
+
+  app.post("/projects/:projectId/publish", async (request, reply) => {
+    if (!ensureAdmin(request, reply)) {
+      return;
+    }
+
+    const params = z
+      .object({ projectId: z.string().min(1) })
+      .safeParse(request.params);
+    if (!params.success) {
+      void reply.code(400).send({ error: "Invalid project id" });
+      return;
+    }
+
+    const body = ProjectPublishSchema.parse(request.body ?? {});
+    const project = await options.projects.get(params.data.projectId);
+    if (!project) {
+      void reply.code(404).send({ error: "Project not found" });
+      return;
+    }
+
+    let slugUpdate: string | null | undefined;
+    if (body.slug !== undefined) {
+      if (body.slug === null) {
+        slugUpdate = null;
+      } else {
+        slugUpdate = normalizeRequestedSlug(body.slug) ?? null;
+      }
+    } else if (!project.slug) {
+      slugUpdate = null;
+    }
+
+    if (typeof slugUpdate === "string") {
+      const conflict = await options.projects.getBySlug(slugUpdate);
+      if (conflict && conflict.id !== project.id) {
+        void reply.code(409).send({ error: "Project slug already in use" });
+        return;
+      }
+    }
+
+    const notebooks = (await options.store.all()).filter(
+      (nb) => nb.projectId === project.id
+    );
+
+    const reservedSlugs = new Set<string>();
+    const updatedNotebooks: Notebook[] = [];
+
+    try {
+      for (const notebook of notebooks) {
+        const slug = await generateUniqueNotebookSlug(
+          options.store,
+          notebook,
+          notebook.publicSlug ?? null,
+          reservedSlugs
+        );
+        const updated = await options.store.save({
+          ...ensureNotebookRuntimeVersion(notebook),
+          published: true,
+          publicSlug: slug,
+        });
+        updatedNotebooks.push(updated);
+      }
+    } catch (error) {
+      if (isUniqueConstraintViolation(error)) {
+        void reply.code(409).send({ error: "Notebook slug already in use" });
+        return;
+      }
+      throw error;
+    }
+
+    let updatedProject;
+    try {
+      updatedProject = await options.projects.update(project.id, {
+        published: true,
+        ...(slugUpdate !== undefined ? { slug: slugUpdate } : {}),
+      });
+    } catch (error) {
+      if (isUniqueConstraintViolation(error)) {
+        void reply.code(409).send({ error: "Project slug already in use" });
+        return;
+      }
+      throw error;
+    }
+
+    const notebooksWithAccess = updatedNotebooks
+      .map((nb) => withAccess(nb, "editor"))
+      .sort(compareByProjectOrder);
+
+    void reply.send({
+      data: {
+        project: updatedProject,
+        notebooks: notebooksWithAccess,
+      },
+    });
+  });
+
+  app.post("/projects/:projectId/unpublish", async (request, reply) => {
+    if (!ensureAdmin(request, reply)) {
+      return;
+    }
+
+    const params = z
+      .object({ projectId: z.string().min(1) })
+      .safeParse(request.params);
+    if (!params.success) {
+      void reply.code(400).send({ error: "Invalid project id" });
+      return;
+    }
+
+    const body = ProjectPublishSchema.parse(request.body ?? {});
+    const project = await options.projects.get(params.data.projectId);
+    if (!project) {
+      void reply.code(404).send({ error: "Project not found" });
+      return;
+    }
+
+    let slugUpdate: string | null | undefined;
+    if (body.slug !== undefined) {
+      if (body.slug === null) {
+        slugUpdate = null;
+      } else {
+        slugUpdate = normalizeRequestedSlug(body.slug) ?? null;
+      }
+    }
+
+    if (typeof slugUpdate === "string") {
+      const conflict = await options.projects.getBySlug(slugUpdate);
+      if (conflict && conflict.id !== project.id) {
+        void reply.code(409).send({ error: "Project slug already in use" });
+        return;
+      }
+    }
+
+    const notebooks = (await options.store.all()).filter(
+      (nb) => nb.projectId === project.id
+    );
+
+    const updatedNotebooks: Notebook[] = [];
+    try {
+      for (const notebook of notebooks) {
+        const updated = await options.store.save({
+          ...ensureNotebookRuntimeVersion(notebook),
+          published: false,
+        });
+        updatedNotebooks.push(updated);
+      }
+    } catch (error) {
+      if (isUniqueConstraintViolation(error)) {
+        void reply.code(409).send({ error: "Notebook slug already in use" });
+        return;
+      }
+      throw error;
+    }
+
+    let updatedProject;
+    try {
+      updatedProject = await options.projects.update(project.id, {
+        published: false,
+        ...(slugUpdate !== undefined ? { slug: slugUpdate } : {}),
+      });
+    } catch (error) {
+      if (isUniqueConstraintViolation(error)) {
+        void reply.code(409).send({ error: "Project slug already in use" });
+        return;
+      }
+      throw error;
+    }
+
+    const notebooksWithAccess = updatedNotebooks
+      .map((nb) => withAccess(nb, "editor"))
+      .sort(compareByProjectOrder);
+
+    void reply.send({
+      data: {
+        project: updatedProject,
+        notebooks: notebooksWithAccess,
+      },
+    });
   });
 
   app.delete("/projects/:projectId", async (request, reply) => {

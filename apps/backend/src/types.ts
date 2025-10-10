@@ -133,21 +133,28 @@ export interface NotebookCollaboratorStore {
 export interface Project {
   id: string;
   name: string;
+  slug: string;
+  published: boolean;
   createdAt: string;
   updatedAt: string;
 }
 
 export interface CreateProjectInput {
   name: string;
+  slug?: string | null;
+  published?: boolean;
 }
 
 export interface UpdateProjectInput {
   name?: string;
+  slug?: string | null;
+  published?: boolean;
 }
 
 export interface ProjectStore {
   list(): Promise<Project[]>;
   get(id: string): Promise<Project | undefined>;
+  getBySlug(slug: string): Promise<Project | undefined>;
   create(input: CreateProjectInput): Promise<Project>;
   update(id: string, updates: UpdateProjectInput): Promise<Project>;
   remove(id: string): Promise<boolean>;
@@ -252,6 +259,7 @@ export interface SessionManager {
 export interface NotebookStore {
   all(): Promise<Notebook[]>;
   get(id: string): Promise<Notebook | undefined>;
+  getByPublicSlug(slug: string): Promise<Notebook | undefined>;
   save(notebook: Notebook): Promise<Notebook>;
   remove(id: string): Promise<Notebook | undefined>;
   listAttachments(notebookId: string): Promise<NotebookAttachment[]>;

@@ -43,6 +43,10 @@ import {
   Plus,
   Edit2,
   GripVertical,
+  Megaphone,
+  EyeOff,
+  ExternalLink,
+  Globe2,
 } from "lucide-react";
 import { useCurrentUser } from "@/components/notebook/hooks/use-current-user";
 import type {
@@ -52,6 +56,14 @@ import type {
 import { useProjectSharing } from "@/components/notebook/hooks/use-project-sharing";
 import ProjectSharingDialog from "@/components/notebook/project-sharing-dialog";
 import { useTheme } from "@/components/theme-context";
+import PublishDialog from "@/components/notebook/publish-dialog";
+import {
+  publishNotebook,
+  unpublishNotebook,
+  publishProject,
+  unpublishProject,
+} from "@/components/notebook/api";
+import { suggestSlug } from "@nodebooks/notebook-schema";
 
 import { clientConfig } from "@nodebooks/config/client";
 
@@ -100,6 +112,11 @@ interface NotebookCardProps {
     targetIndex: number
   ) => void;
   onRename: (notebook: NotebookWithAccess) => void;
+  onPublish: (notebook: NotebookWithAccess) => void;
+  onUnpublish: (notebook: NotebookWithAccess) => void;
+  onViewPublished?: (notebook: NotebookWithAccess) => void;
+  publishingId: string | null;
+  unpublishingId: string | null;
 }
 
 const NotebookCard = ({
@@ -113,6 +130,11 @@ const NotebookCard = ({
   exporting,
   onMove,
   onRename,
+  onPublish,
+  onUnpublish,
+  onViewPublished,
+  publishingId,
+  unpublishingId,
 }: NotebookCardProps) => {
   const ref = useRef<HTMLDivElement | null>(null);
   const [{ isDragging }, drag, preview] = useDrag(
@@ -151,6 +173,10 @@ const NotebookCard = ({
     drag(ref);
   }
 
+  const isPublishing = publishingId === notebook.id;
+  const isUnpublishing = unpublishingId === notebook.id;
+  const publishBusy = isPublishing || isUnpublishing;
+
   return (
     <Card
       ref={ref}
@@ -163,9 +189,17 @@ const NotebookCard = ({
           </span>
         ) : null}
         <div className="min-w-0">
-          <h3 className="truncate text-lg font-semibold text-card-foreground">
-            {notebook.name}
-          </h3>
+          <div className="flex items-center gap-2">
+            <h3 className="truncate text-lg font-semibold text-card-foreground">
+              {notebook.name}
+            </h3>
+            {notebook.published ? (
+              <Badge className="flex items-center gap-1 bg-emerald-600 text-xs font-semibold text-white">
+                <Globe2 className="h-3 w-3" />
+                Published
+              </Badge>
+            ) : null}
+          </div>
           <p className="text-sm text-muted-foreground">
             Updated {formatTimestamp(notebook.updatedAt)}
           </p>
@@ -190,6 +224,43 @@ const NotebookCard = ({
             title="Rename notebook"
           >
             <Edit2 className="h-4 w-4" />
+          </Button>
+        ) : null}
+        {isAdmin ? (
+          <Button
+            variant={notebook.published ? "secondary" : "ghost"}
+            size="icon"
+            onClick={() =>
+              notebook.published ? onUnpublish(notebook) : onPublish(notebook)
+            }
+            aria-label={
+              notebook.published
+                ? `Unpublish ${notebook.name}`
+                : `Publish ${notebook.name}`
+            }
+            title={
+              notebook.published ? "Unpublish notebook" : "Publish notebook"
+            }
+            disabled={publishBusy}
+          >
+            {publishBusy ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : notebook.published ? (
+              <EyeOff className="h-4 w-4" />
+            ) : (
+              <Megaphone className="h-4 w-4" />
+            )}
+          </Button>
+        ) : null}
+        {notebook.published && onViewPublished ? (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => onViewPublished(notebook)}
+            aria-label={`Open published view for ${notebook.name}`}
+            title="Open published view"
+          >
+            <ExternalLink className="h-4 w-4" />
           </Button>
         ) : null}
         <Button
@@ -236,7 +307,12 @@ interface NotebookGroupProps {
     targetIndex: number
   ) => void;
   onRenameNotebook: (notebook: NotebookWithAccess) => void;
+  onPublishNotebook: (notebook: NotebookWithAccess) => void;
+  onUnpublishNotebook: (notebook: NotebookWithAccess) => void;
+  onViewPublishedNotebook?: (notebook: NotebookWithAccess) => void;
   exportingId: string | null;
+  publishingId: string | null;
+  unpublishingId: string | null;
   emptyLabel?: string;
   headerActions?: React.ReactNode;
 }
@@ -251,7 +327,12 @@ const NotebookGroup = ({
   onDeleteNotebook,
   onMoveNotebook,
   onRenameNotebook,
+  onPublishNotebook,
+  onUnpublishNotebook,
+  onViewPublishedNotebook,
   exportingId,
+  publishingId,
+  unpublishingId,
   emptyLabel,
   headerActions,
 }: NotebookGroupProps) => {
@@ -303,6 +384,11 @@ const NotebookGroup = ({
               exporting={exportingId === notebook.id}
               onMove={onMoveNotebook}
               onRename={onRenameNotebook}
+              onPublish={onPublishNotebook}
+              onUnpublish={onUnpublishNotebook}
+              onViewPublished={onViewPublishedNotebook}
+              publishingId={publishingId}
+              unpublishingId={unpublishingId}
             />
           ))
         )}
@@ -347,7 +433,14 @@ const ProjectSidebar = ({
             className="w-full truncate rounded-md px-2 py-1 text-left text-muted-foreground hover:bg-muted hover:text-foreground"
             onClick={() => onOpenNotebook(notebook.id)}
           >
-            {notebook.name}
+            <span className="flex items-center gap-2">
+              <span className="truncate">{notebook.name}</span>
+              {notebook.published ? (
+                <Badge variant="secondary" className="text-[9px]">
+                  Published
+                </Badge>
+              ) : null}
+            </span>
           </button>
         </li>
       ))}
@@ -398,7 +491,14 @@ const ProjectSidebar = ({
               className={`flex w-full items-center justify-between rounded-md px-3 py-2 text-sm transition-colors ${selectedProjectId === group.project.id ? "bg-muted text-foreground" : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"}`}
               onClick={() => onSelectProject(group.project.id)}
             >
-              <span>{group.project.name}</span>
+              <span className="flex items-center gap-2">
+                {group.project.name}
+                {group.project.published ? (
+                  <Badge variant="secondary" className="h-5 px-2 text-[10px]">
+                    Published
+                  </Badge>
+                ) : null}
+              </span>
               <Badge
                 variant={
                   selectedProjectId === group.project.id ? "default" : "outline"
@@ -596,6 +696,101 @@ export default function NotebooksPage() {
   const [renameNotebookError, setRenameNotebookError] = useState<string | null>(
     null
   );
+  const [publishNotebookTarget, setPublishNotebookTarget] =
+    useState<NotebookWithAccess | null>(null);
+  const [notebookPublishError, setNotebookPublishError] = useState<
+    string | null
+  >(null);
+  const [notebookPublishSubmitting, setNotebookPublishSubmitting] =
+    useState(false);
+  const [unpublishNotebookTarget, setUnpublishNotebookTarget] =
+    useState<NotebookWithAccess | null>(null);
+  const [notebookUnpublishSubmitting, setNotebookUnpublishSubmitting] =
+    useState(false);
+  const [publishProjectTarget, setPublishProjectTarget] =
+    useState<ProjectWithNotebooks | null>(null);
+  const [projectPublishError, setProjectPublishError] = useState<string | null>(
+    null
+  );
+  const [projectPublishSubmitting, setProjectPublishSubmitting] =
+    useState(false);
+  const [unpublishProjectTarget, setUnpublishProjectTarget] =
+    useState<ProjectWithNotebooks | null>(null);
+  const [projectUnpublishSubmitting, setProjectUnpublishSubmitting] =
+    useState(false);
+
+  const sortProjectNotebooks = (list: NotebookWithAccess[]) =>
+    [...list].sort((a, b) => {
+      const orderA = a.projectOrder ?? Number.POSITIVE_INFINITY;
+      const orderB = b.projectOrder ?? Number.POSITIVE_INFINITY;
+      if (orderA !== orderB) {
+        return orderA - orderB;
+      }
+      return a.name.localeCompare(b.name);
+    });
+
+  const applyNotebookUpdate = useCallback((updated: NotebookWithAccess) => {
+    setBoard((prev) => ({
+      projects: prev.projects.map((group) => ({
+        project: group.project,
+        notebooks: group.notebooks.map((item) =>
+          item.id === updated.id ? { ...item, ...updated } : item
+        ),
+      })),
+      unassigned: prev.unassigned.map((item) =>
+        item.id === updated.id ? { ...item, ...updated } : item
+      ),
+    }));
+  }, []);
+
+  const applyProjectUpdate = useCallback(
+    (
+      project: ProjectWithNotebooks["project"],
+      notebooks: NotebookWithAccess[]
+    ) => {
+      const sorted = sortProjectNotebooks(notebooks);
+      const map = new Map(sorted.map((nb) => [nb.id, nb]));
+      setBoard((prev) => ({
+        projects: prev.projects.map((group) =>
+          group.project.id === project.id
+            ? {
+                project,
+                notebooks: sorted,
+              }
+            : {
+                project: group.project,
+                notebooks: group.notebooks.map((item) =>
+                  map.has(item.id) ? { ...item, ...map.get(item.id)! } : item
+                ),
+              }
+        ),
+        unassigned: prev.unassigned.map((item) =>
+          map.has(item.id) ? { ...item, ...map.get(item.id)! } : item
+        ),
+      }));
+    },
+    []
+  );
+
+  const getNotebookPublishHref = useCallback(
+    (notebook: NotebookWithAccess) => {
+      if (!notebook.published) {
+        return null;
+      }
+      if (notebook.projectId) {
+        const group = board.projects.find(
+          (entry) => entry.project.id === notebook.projectId
+        );
+        if (group?.project.slug) {
+          const slugPart = notebook.publicSlug ?? notebook.id;
+          return `/v/${encodeURIComponent(group.project.slug)}/${encodeURIComponent(slugPart)}`;
+        }
+      }
+      const identifier = notebook.publicSlug ?? notebook.id;
+      return `/v/${encodeURIComponent(identifier)}`;
+    },
+    [board.projects]
+  );
 
   const projectSharing = useProjectSharing({
     isAdmin,
@@ -614,6 +809,151 @@ export default function NotebooksPage() {
     },
     [isAdmin]
   );
+
+  const handlePublishNotebook = useCallback(
+    (notebook: NotebookWithAccess) => {
+      if (!isAdmin) {
+        setActionError("Only workspace admins can publish notebooks.");
+        return;
+      }
+      setNotebookPublishError(null);
+      setPublishNotebookTarget(notebook);
+    },
+    [isAdmin]
+  );
+
+  const handleNotebookPublishSubmit = useCallback(
+    async (slug: string | null) => {
+      if (!publishNotebookTarget) {
+        return;
+      }
+      setNotebookPublishSubmitting(true);
+      setNotebookPublishError(null);
+      try {
+        const updated = await publishNotebook(
+          publishNotebookTarget.id,
+          slug ?? undefined
+        );
+        applyNotebookUpdate(updated);
+        setPublishNotebookTarget(null);
+      } catch (error) {
+        setNotebookPublishError(
+          error instanceof Error ? error.message : "Failed to publish notebook"
+        );
+      } finally {
+        setNotebookPublishSubmitting(false);
+      }
+    },
+    [publishNotebookTarget, applyNotebookUpdate]
+  );
+
+  const handleUnpublishNotebook = useCallback(
+    (notebook: NotebookWithAccess) => {
+      if (!isAdmin) {
+        setActionError("Only workspace admins can unpublish notebooks.");
+        return;
+      }
+      setUnpublishNotebookTarget(notebook);
+    },
+    [isAdmin]
+  );
+
+  const confirmUnpublishNotebook = useCallback(async () => {
+    if (!unpublishNotebookTarget) {
+      return;
+    }
+    setNotebookUnpublishSubmitting(true);
+    setActionError(null);
+    try {
+      const updated = await unpublishNotebook(unpublishNotebookTarget.id);
+      applyNotebookUpdate(updated);
+      setUnpublishNotebookTarget(null);
+    } catch (error) {
+      setActionError(
+        error instanceof Error ? error.message : "Failed to unpublish notebook"
+      );
+    } finally {
+      setNotebookUnpublishSubmitting(false);
+    }
+  }, [unpublishNotebookTarget, applyNotebookUpdate]);
+
+  const handleViewPublishedNotebook = useCallback(
+    (notebook: NotebookWithAccess) => {
+      const href = getNotebookPublishHref(notebook);
+      if (!href) {
+        return;
+      }
+      window.open(href, "_blank", "noopener,noreferrer");
+    },
+    [getNotebookPublishHref]
+  );
+
+  const handlePublishProject = useCallback(
+    (project: ProjectWithNotebooks) => {
+      if (!isAdmin) {
+        setActionError("Only workspace admins can publish projects.");
+        return;
+      }
+      setProjectPublishError(null);
+      setPublishProjectTarget(project);
+    },
+    [isAdmin]
+  );
+
+  const handleProjectPublishSubmit = useCallback(
+    async (slug: string | null) => {
+      if (!publishProjectTarget) {
+        return;
+      }
+      setProjectPublishSubmitting(true);
+      setProjectPublishError(null);
+      try {
+        const result = await publishProject(
+          publishProjectTarget.project.id,
+          slug ?? undefined
+        );
+        applyProjectUpdate(result.project, result.notebooks ?? []);
+        setPublishProjectTarget(null);
+      } catch (error) {
+        setProjectPublishError(
+          error instanceof Error ? error.message : "Failed to publish project"
+        );
+      } finally {
+        setProjectPublishSubmitting(false);
+      }
+    },
+    [publishProjectTarget, applyProjectUpdate]
+  );
+
+  const handleUnpublishProject = useCallback(
+    (project: ProjectWithNotebooks) => {
+      if (!isAdmin) {
+        setActionError("Only workspace admins can unpublish projects.");
+        return;
+      }
+      setUnpublishProjectTarget(project);
+    },
+    [isAdmin]
+  );
+
+  const confirmUnpublishProject = useCallback(async () => {
+    if (!unpublishProjectTarget) {
+      return;
+    }
+    setProjectUnpublishSubmitting(true);
+    setActionError(null);
+    try {
+      const result = await unpublishProject(unpublishProjectTarget.project.id);
+      applyProjectUpdate(result.project, result.notebooks ?? []);
+      setUnpublishProjectTarget(null);
+    } catch (error) {
+      setActionError(
+        error instanceof Error ? error.message : "Failed to unpublish project"
+      );
+    } finally {
+      setProjectUnpublishSubmitting(false);
+    }
+  }, [unpublishProjectTarget, applyProjectUpdate]);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -699,6 +1039,23 @@ export default function NotebooksPage() {
       ),
     [board]
   );
+
+  const publishingNotebookId =
+    notebookPublishSubmitting && publishNotebookTarget
+      ? publishNotebookTarget.id
+      : null;
+  const unpublishingNotebookId =
+    notebookUnpublishSubmitting && unpublishNotebookTarget
+      ? unpublishNotebookTarget.id
+      : null;
+  const publishingProjectId =
+    projectPublishSubmitting && publishProjectTarget
+      ? publishProjectTarget.project.id
+      : null;
+  const unpublishingProjectId =
+    projectUnpublishSubmitting && unpublishProjectTarget
+      ? unpublishProjectTarget.project.id
+      : null;
 
   const handleOpen = useCallback(
     (id: string) => router.push(`/notebooks/${id}`),
@@ -1276,6 +1633,11 @@ export default function NotebooksPage() {
               onMoveNotebook={handleMoveNotebook}
               onRenameNotebook={handleOpenRenameNotebook}
               exportingId={exportingId}
+              onPublishNotebook={handlePublishNotebook}
+              onUnpublishNotebook={handleUnpublishNotebook}
+              onViewPublishedNotebook={handleViewPublishedNotebook}
+              publishingId={publishingNotebookId}
+              unpublishingId={unpublishingNotebookId}
               emptyLabel="Drag notebooks here to remove them from a project."
             />
             {board.projects.map((group) => (
@@ -1294,9 +1656,54 @@ export default function NotebooksPage() {
                 onMoveNotebook={handleMoveNotebook}
                 onRenameNotebook={handleOpenRenameNotebook}
                 exportingId={exportingId}
+                onPublishNotebook={handlePublishNotebook}
+                onUnpublishNotebook={handleUnpublishNotebook}
+                onViewPublishedNotebook={handleViewPublishedNotebook}
+                publishingId={publishingNotebookId}
+                unpublishingId={unpublishingNotebookId}
                 headerActions={
                   isAdmin ? (
                     <div className="flex items-center gap-1">
+                      <Badge
+                        variant={
+                          group.project.published ? "secondary" : "outline"
+                        }
+                        className="px-2 text-[10px]"
+                      >
+                        {group.project.published ? "Published" : "Private"}
+                      </Badge>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        onClick={() =>
+                          group.project.published
+                            ? handleUnpublishProject(group)
+                            : handlePublishProject(group)
+                        }
+                        title={
+                          group.project.published
+                            ? "Unpublish project"
+                            : "Publish project"
+                        }
+                        disabled={
+                          (group.project.published &&
+                            unpublishingProjectId === group.project.id) ||
+                          (!group.project.published &&
+                            publishingProjectId === group.project.id)
+                        }
+                      >
+                        {group.project.published ? (
+                          unpublishingProjectId === group.project.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <EyeOff className="h-4 w-4" />
+                          )
+                        ) : publishingProjectId === group.project.id ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Megaphone className="h-4 w-4" />
+                        )}
+                      </Button>
                       <Button
                         size="sm"
                         variant="ghost"
@@ -1345,6 +1752,80 @@ export default function NotebooksPage() {
             if (pendingDeleteId) await handleDeleteNotebook(pendingDeleteId);
             setConfirmOpen(false);
             setPendingDeleteId(null);
+          }}
+        />
+        <PublishDialog
+          open={publishNotebookTarget !== null}
+          kind="notebook"
+          defaultSlug={publishNotebookTarget?.publicSlug ?? null}
+          suggestedSlug={
+            publishNotebookTarget
+              ? (suggestSlug(
+                  publishNotebookTarget.name,
+                  publishNotebookTarget.id
+                ) ?? undefined)
+              : undefined
+          }
+          submitting={notebookPublishSubmitting}
+          error={notebookPublishError}
+          onOpenChange={(open) => {
+            if (!open) {
+              setPublishNotebookTarget(null);
+              setNotebookPublishError(null);
+            }
+          }}
+          onSubmit={async (slug) => {
+            await handleNotebookPublishSubmit(slug);
+          }}
+        />
+        <ConfirmDialog
+          open={unpublishNotebookTarget !== null}
+          title="Unpublish notebook?"
+          description="The notebook will no longer be publicly accessible."
+          confirmLabel="Unpublish"
+          onCancel={() => setUnpublishNotebookTarget(null)}
+          onConfirm={async () => {
+            if (notebookUnpublishSubmitting) {
+              return;
+            }
+            await confirmUnpublishNotebook();
+          }}
+        />
+        <PublishDialog
+          open={publishProjectTarget !== null}
+          kind="project"
+          defaultSlug={publishProjectTarget?.project.slug ?? null}
+          suggestedSlug={
+            publishProjectTarget
+              ? (suggestSlug(
+                  publishProjectTarget.project.name,
+                  publishProjectTarget.project.id
+                ) ?? undefined)
+              : undefined
+          }
+          submitting={projectPublishSubmitting}
+          error={projectPublishError}
+          onOpenChange={(open) => {
+            if (!open) {
+              setPublishProjectTarget(null);
+              setProjectPublishError(null);
+            }
+          }}
+          onSubmit={async (slug) => {
+            await handleProjectPublishSubmit(slug);
+          }}
+        />
+        <ConfirmDialog
+          open={unpublishProjectTarget !== null}
+          title="Unpublish project?"
+          description="All notebooks in this project will become private."
+          confirmLabel="Unpublish project"
+          onCancel={() => setUnpublishProjectTarget(null)}
+          onConfirm={async () => {
+            if (projectUnpublishSubmitting) {
+              return;
+            }
+            await confirmUnpublishProject();
           }}
         />
         <ConfirmDialog
