@@ -1,5 +1,7 @@
 "use client";
 
+import DOMPurify from "dompurify";
+import type { Config as DomPurifyConfig } from "dompurify";
 import hljs from "highlight.js";
 import { Marked, Renderer, type Tokens } from "marked";
 import markedKatex from "marked-katex-extension";
@@ -66,14 +68,46 @@ markdownRenderer.use(
   })
 );
 
-const sanitizeHtml = (raw: string) => {
-  return raw
-    .replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, "")
-    .replace(/on[a-z]+\s*=\s*"[^"]*"/gi, "")
-    .replace(/on[a-z]+\s*=\s*'[^']*'/gi, "")
-    .replace(/javascript:/gi, "")
-    .replace(/data:text\/html/gi, "");
+const DEFAULT_ADD_ATTR: readonly string[] = [
+  "class",
+  "style",
+  "target",
+  "rel",
+  "aria-label",
+  "aria-labelledby",
+  "aria-describedby",
+  "data-footnote-ref",
+  "data-footnote-backref",
+];
+
+const mergeUnique = (base: readonly string[], extras?: readonly string[]) => {
+  if (!extras || extras.length === 0) {
+    return [...base];
+  }
+  return Array.from(new Set([...base, ...extras]));
 };
+
+const createDomPurifyConfig = (config?: DomPurifyConfig): DomPurifyConfig => {
+  const merged: DomPurifyConfig = {
+    ...config,
+    ADD_ATTR: mergeUnique(DEFAULT_ADD_ATTR, config?.ADD_ATTR),
+  };
+
+  if (config?.ADD_TAGS) {
+    merged.ADD_TAGS = Array.from(new Set(config.ADD_TAGS));
+  }
+
+  if (!config?.USE_PROFILES) {
+    merged.USE_PROFILES = { html: true };
+  } else if (config.USE_PROFILES) {
+    merged.USE_PROFILES = { ...config.USE_PROFILES };
+  }
+
+  return merged;
+};
+
+const sanitizeHtml = (raw: string, config?: DomPurifyConfig) =>
+  DOMPurify.sanitize(raw, createDomPurifyConfig(config));
 
 export const renderMarkdownToHtml = (source: string) => {
   const parsed = markdownRenderer.parse(source ?? "", { async: false });
@@ -82,9 +116,14 @@ export const renderMarkdownToHtml = (source: string) => {
 };
 
 export const sanitizeSvg = (svg: string) =>
-  sanitizeHtml(svg).replace(/<\/?(html|body)[^>]*>/gi, "");
+  sanitizeHtml(svg, {
+    USE_PROFILES: { svg: true, svgFilters: true },
+    ADD_TAGS: ["style", "foreignObject"],
+    ADD_ATTR: ["xmlns", "xmlns:xlink", "xlink:href"],
+  }).replace(/<\/?(html|body)[^>]*>/gi, "");
 
-export const sanitizeHtmlSnippet = sanitizeHtml;
+export const sanitizeHtmlSnippet = (snippet: string) =>
+  sanitizeHtml(snippet, { ADD_TAGS: ["span"] });
 
 export const loadMermaid = (() => {
   let mermaidPromise: Promise<typeof import("mermaid")> | null = null;
