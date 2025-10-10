@@ -90,6 +90,7 @@ export function scanImportsForPackages(cells: CodeCell[]): string[] {
 
 // Keep per-notebook state so we can dispose models when switching
 const notebookModels = new Map<string, Set<string>>();
+const nodeTypesLoadedFor = new Set<string>();
 
 export type SyncArgs = {
   notebookId: string;
@@ -123,6 +124,11 @@ function doSync({ notebookId, cells, currentCellId }: SyncArgs) {
   const globals = buildGlobalsDts(beforeCells);
   setGlobalsDts(globals);
 
+  if (!nodeTypesLoadedFor.has(notebookId)) {
+    nodeTypesLoadedFor.add(notebookId);
+    void ensurePackageTypes("@types/node", notebookId);
+  }
+
   // Ensure models exist for previous cells (not for current to avoid duplicates)
   const createdUris = new Set<string>();
   beforeCells.forEach((cell, i) => {
@@ -138,6 +144,6 @@ function doSync({ notebookId, cells, currentCellId }: SyncArgs) {
   for (const spec of specs) {
     // Add a shim for the exact specifier; future: fetch types for root package
     addModuleShim(spec);
-    void ensurePackageTypes(spec);
+    void ensurePackageTypes(spec, notebookId);
   }
 }

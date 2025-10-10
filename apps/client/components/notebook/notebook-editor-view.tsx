@@ -117,43 +117,95 @@ const NotebookEditorView = ({
     );
   }
 
-  if (notebook.cells.length === 0) {
-    return (
-      <div className="flex flex-1 items-center justify-center p-10">
-        <Card className="w-full max-w-lg text-center">
-          <CardContent className="space-y-6 py-10">
-            {readOnly ? (
-              <AlertCallout
-                level="info"
-                text={
-                  readOnlyMessage ??
-                  "This notebook is read-only. An editor can add content."
-                }
-                themeMode={themeMode}
-              />
-            ) : (
-              <>
-                <div className="space-y-2">
-                  <p className="text-lg font-semibold text-foreground">
-                    Start building your notebook
-                  </p>
-                  <p className="text-sm text-muted-foreground">
-                    Add a Markdown note, run JavaScript or TypeScript, or open a
-                    terminal session to begin.
-                  </p>
-                </div>
-                <AddCellMenu
-                  onAdd={(type) => onAddCell(type)}
-                  className="mt-0 flex justify-center gap-2 text-[13px]"
-                  disabled={readOnly}
-                />
-              </>
-            )}
-          </CardContent>
-        </Card>
+  const isEmpty = notebook.cells.length === 0;
+  const showInstallPanel = depBusy || depOutputs.length > 0 || depError;
+  const installPanel = !showInstallPanel ? null : (
+    <div className="mb-4 rounded-lg border border-border bg-card/80 p-3 text-card-foreground shadow-sm">
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+          Install output
+        </div>
+        <div className="flex items-center gap-1">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="text-muted-foreground hover:text-foreground"
+            onClick={readOnly ? undefined : onClearDepOutputs}
+            disabled={
+              readOnly || (!depBusy && depOutputs.length === 0 && !depError)
+            }
+            aria-label="Clear outputs"
+          >
+            <Eraser className="h-4 w-4" />
+          </Button>
+          {depBusy && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="text-rose-500 hover:text-rose-600"
+              onClick={readOnly ? undefined : onAbortInstall}
+              aria-label="Abort install"
+              disabled={readOnly}
+            >
+              <XCircle className="h-4 w-4" />
+            </Button>
+          )}
+        </div>
       </div>
-    );
-  }
+      <div className="mt-2 space-y-2 rounded-md border border-slate-800/60 bg-slate-950 p-3 font-mono text-[13px] text-slate-100">
+        {depBusy && depOutputs.length === 0 ? (
+          <div className="flex items-center gap-2 text-slate-200">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" /> Preparing
+            environment…
+          </div>
+        ) : null}
+        {depOutputs.map((output, index) => (
+          <OutputView key={index} output={output} />
+        ))}
+      </div>
+      {depError ? (
+        <p className="mt-2 text-[11px] text-rose-500">{depError}</p>
+      ) : null}
+    </div>
+  );
+
+  const renderEmptyState = () => (
+    <div className="flex flex-1 items-center justify-center p-10">
+      <Card className="w-full max-w-lg text-center">
+        <CardContent className="space-y-6 py-10">
+          {readOnly ? (
+            <AlertCallout
+              level="info"
+              text={
+                readOnlyMessage ??
+                "This notebook is read-only. An editor can add content."
+              }
+              themeMode={themeMode}
+            />
+          ) : (
+            <>
+              <div className="space-y-2">
+                <p className="text-lg font-semibold text-foreground">
+                  Start building your notebook
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  Add a Markdown note, run JavaScript or TypeScript, or open a
+                  terminal session to begin.
+                </p>
+              </div>
+              <AddCellMenu
+                onAdd={(type) => onAddCell(type)}
+                className="mt-0 flex justify-center gap-2 text-[13px]"
+                disabled={readOnly}
+              />
+            </>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
 
   return (
     <div className="flex min-h-full flex-1 flex-col">
@@ -184,59 +236,9 @@ const NotebookEditorView = ({
               themeMode={themeMode}
             />
           ) : null}
-          {(depBusy || depOutputs.length > 0 || depError) && (
-            <div className="mb-4 rounded-lg border border-border bg-card p-2 text-card-foreground shadow-sm">
-              <div className="flex items-center justify-between gap-2">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-                  Install output
-                </div>
-                <div className="flex items-center gap-1">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="text-muted-foreground hover:text-foreground"
-                    onClick={readOnly ? undefined : onClearDepOutputs}
-                    disabled={
-                      readOnly ||
-                      (!depBusy && depOutputs.length === 0 && !depError)
-                    }
-                    aria-label="Clear outputs"
-                  >
-                    <Eraser className="h-4 w-4" />
-                  </Button>
-                  {depBusy && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="text-rose-600 hover:text-rose-700"
-                      onClick={readOnly ? undefined : onAbortInstall}
-                      aria-label="Abort install"
-                      disabled={readOnly}
-                    >
-                      <XCircle className="h-4 w-4" />
-                    </Button>
-                  )}
-                </div>
-              </div>
-              <div className="mt-2 space-y-2 rounded-md border border-border bg-muted/20 p-2 text-[13px] text-foreground">
-                {depBusy && depOutputs.length === 0 ? (
-                  <div className="flex items-center gap-2 text-muted-foreground">
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" /> Preparing
-                    environment…
-                  </div>
-                ) : null}
-                {depOutputs.map((output, index) => (
-                  <OutputView key={index} output={output} />
-                ))}
-              </div>
-              {depError ? (
-                <p className="mt-2 text-[11px] text-rose-500">{depError}</p>
-              ) : null}
-            </div>
-          )}
+          {installPanel}
           <div className="space-y-2">
+            {isEmpty ? renderEmptyState() : null}
             {notebook.cells.map((cell, index) => {
               const cellCanRun =
                 cell.type === "command" ? !readOnly : socketReady && !readOnly;

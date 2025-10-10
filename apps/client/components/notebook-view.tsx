@@ -1054,7 +1054,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
           notebookRef.current = initialNotebook;
           setNotebook(initialNotebook);
           setNotebookAccessRole(
-            role ?? (isAdmin ? "editor" : notebookAccessRole)
+            (current) => role ?? (isAdmin ? "editor" : current)
           );
           if (initialNotebook) {
             setDirty(false);
@@ -1086,7 +1086,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     return () => {
       controller.abort();
     };
-  }, [initialNotebookId, isAdmin, notebookAccessRole]);
+  }, [initialNotebookId, isAdmin]);
 
   useEffect(() => {
     const projectId = notebook?.projectId ?? null;
@@ -1852,7 +1852,8 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
           : cell
       ),
     }));
-  }, [ensureEditable, updateNotebook]);
+    handleClearDepOutputs();
+  }, [ensureEditable, handleClearDepOutputs, updateNotebook]);
 
   const handleDeleteNotebook = useCallback(
     async (id?: string) => {
