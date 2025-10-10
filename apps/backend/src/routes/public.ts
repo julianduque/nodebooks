@@ -21,7 +21,7 @@ interface RegisterPublicViewRoutesOptions {
   projects: ProjectStore;
 }
 
-const buildPublishPayload = async (
+const buildPublicPayload = async (
   store: NotebookStore,
   projects: ProjectStore,
   notebook: Notebook
@@ -75,7 +75,7 @@ export const registerPublicViewRoutes = (
       return;
     }
 
-    const payload = await buildPublishPayload(
+    const payload = await buildPublicPayload(
       options.store,
       options.projects,
       notebook
@@ -120,7 +120,7 @@ export const registerPublicViewRoutes = (
         return;
       }
 
-      const payload = await buildPublishPayload(
+      const payload = await buildPublicPayload(
         options.store,
         options.projects,
         notebook
