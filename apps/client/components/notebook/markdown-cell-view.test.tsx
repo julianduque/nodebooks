@@ -10,6 +10,8 @@ import {
 } from "vitest";
 import { createRoot } from "react-dom/client";
 
+import { ThemeProvider } from "@/components/theme-context";
+
 const renderSpy = vi.fn<[string, string], Promise<{ svg: string }>>(
   (id, definition) =>
     Promise.resolve({ svg: `<svg data-id="${id}">${definition}</svg>` })
@@ -105,12 +107,14 @@ describe("MarkdownCellView", () => {
 
     await act(async () => {
       root.render(
-        <MarkdownCellView
-          cell={cell}
-          notebookId="notebook-1"
-          onChange={noop as never}
-          editorKey="key"
-        />
+        <ThemeProvider initialTheme="light">
+          <MarkdownCellView
+            cell={cell}
+            notebookId="notebook-1"
+            onChange={noop as never}
+            editorKey="key"
+          />
+        </ThemeProvider>
       );
     });
 
@@ -142,12 +146,14 @@ describe("MarkdownCellView", () => {
 
     await act(async () => {
       root.render(
-        <MarkdownCellView
-          cell={cell}
-          notebookId="notebook-1"
-          onChange={onChange as never}
-          editorKey="key"
-        />
+        <ThemeProvider initialTheme="light">
+          <MarkdownCellView
+            cell={cell}
+            notebookId="notebook-1"
+            onChange={onChange as never}
+            editorKey="key"
+          />
+        </ThemeProvider>
       );
     });
 
@@ -185,12 +191,14 @@ describe("MarkdownCellView", () => {
 
     await act(async () => {
       root.render(
-        <MarkdownCellView
-          cell={cell}
-          notebookId="notebook-1"
-          onChange={noop as never}
-          editorKey="key"
-        />
+        <ThemeProvider initialTheme="light">
+          <MarkdownCellView
+            cell={cell}
+            notebookId="notebook-1"
+            onChange={noop as never}
+            editorKey="key"
+          />
+        </ThemeProvider>
       );
     });
 

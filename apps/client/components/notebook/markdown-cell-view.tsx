@@ -6,6 +6,7 @@ import DOMPurify from "dompurify";
 import MonacoEditor from "@/components/notebook/monaco-editor-client";
 import { initMonaco } from "@/components/notebook/monaco-setup";
 import type { NotebookCell } from "@nodebooks/notebook-schema";
+import { useTheme } from "@/components/theme-context";
 import {
   useAttachmentDropzone,
   useAttachmentUploader,
@@ -64,6 +65,7 @@ const MarkdownCellView = ({
     () => renderMarkdownToHtml(cell.source ?? ""),
     [cell.source]
   );
+  const { theme } = useTheme();
 
   type MarkdownUIMeta = { ui?: { edit?: boolean } };
   const isEditing = readOnly
@@ -166,7 +168,7 @@ const MarkdownCellView = ({
       }
       retries = 0;
 
-      const mermaid = await loadMermaid();
+      const mermaid = await loadMermaid(theme);
       let index = 0;
 
       for (const block of blocks) {
@@ -178,7 +180,7 @@ const MarkdownCellView = ({
           : (block.textContent ?? "");
         if (!definition) continue;
 
-        const cacheKey = `${cell.id}::${definition}`;
+        const cacheKey = `${theme}::${cell.id}::${definition}`;
         const cached = renderCacheRef.current.get(cacheKey);
         if (cached) {
           block.innerHTML = cached;
@@ -235,7 +237,7 @@ const MarkdownCellView = ({
       observer?.disconnect();
       window.clearTimeout(fallbackTimer);
     };
-  }, [cell.id, previewEl, html]);
+  }, [cell.id, previewEl, html, theme]);
 
   // moved isEditing above to use inside effects
 

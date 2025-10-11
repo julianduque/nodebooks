@@ -75,6 +75,17 @@ const NotebookSharingDialog = ({
   onRemoveCollaborator,
 }: NotebookSharingDialogProps) => {
   const effectiveOpen = open && isAdmin;
+  const now = Date.now();
+  const pendingInvitations = sortedInvitations.filter((invitation) => {
+    if (invitation.acceptedAt || invitation.revokedAt) {
+      return false;
+    }
+    const expiresAt = Date.parse(invitation.expiresAt);
+    if (Number.isFinite(expiresAt) && expiresAt <= now) {
+      return false;
+    }
+    return true;
+  });
 
   return (
     <Dialog open={effectiveOpen} onOpenChange={onOpenChange}>
@@ -193,26 +204,26 @@ const NotebookSharingDialog = ({
               <h4 className="text-sm font-semibold text-foreground">
                 Invitations
               </h4>
-              <Badge variant="outline">{sortedInvitations.length}</Badge>
+              <Badge variant="outline">{pendingInvitations.length}</Badge>
             </div>
             {invitesLoading ? (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" /> Loading
                 invitations…
               </div>
-            ) : sortedInvitations.length === 0 ? (
+            ) : pendingInvitations.length === 0 ? (
               <p className="text-sm text-muted-foreground">
-                No invitations have been sent yet.
+                No pending invitations.
               </p>
             ) : (
               <ul className="space-y-2">
-                {sortedInvitations.map((invitation) => {
+                {pendingInvitations.map((invitation) => {
                   const expiresAt = Date.parse(invitation.expiresAt);
                   const expired =
                     !invitation.acceptedAt &&
                     !invitation.revokedAt &&
                     Number.isFinite(expiresAt) &&
-                    expiresAt <= Date.now();
+                    expiresAt <= now;
                   const status = invitation.acceptedAt
                     ? "Accepted"
                     : invitation.revokedAt
