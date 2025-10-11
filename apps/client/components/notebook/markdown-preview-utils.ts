@@ -5,6 +5,9 @@ import type { Config as DomPurifyConfig } from "dompurify";
 import hljs from "highlight.js";
 import { Marked, Renderer, type Tokens } from "marked";
 import markedKatex from "marked-katex-extension";
+import type { MermaidConfig } from "mermaid";
+
+import type { ThemeMode } from "@/components/theme-context";
 
 const escapeHtml = (value: string) =>
   value
@@ -125,19 +128,222 @@ export const sanitizeSvg = (svg: string) =>
 export const sanitizeHtmlSnippet = (snippet: string) =>
   sanitizeHtml(snippet, { ADD_TAGS: ["span"] });
 
+const resolveThemeMode = (override?: ThemeMode): ThemeMode => {
+  if (override) {
+    return override;
+  }
+  if (typeof document !== "undefined") {
+    const declared = document.documentElement.dataset.theme;
+    if (declared === "dark") {
+      return "dark";
+    }
+  }
+  return "light";
+};
+
+const readCssVariable = (name: string): string | undefined => {
+  if (typeof window === "undefined" || typeof document === "undefined") {
+    return undefined;
+  }
+  const raw = getComputedStyle(document.documentElement).getPropertyValue(name);
+  const trimmed = raw.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+};
+
+const STANDARD_COLOR_PATTERN = /^(#|rgba?\(|hsla?\()/i;
+
+const COLOR_FALLBACKS: Record<
+  ThemeMode,
+  {
+    background: string;
+    foreground: string;
+    primary: string;
+    primaryForeground: string;
+    border: string;
+    muted: string;
+    card: string;
+  }
+> = {
+  light: {
+    background: "#ffffff",
+    foreground: "#0f172a",
+    primary: "#2563eb",
+    primaryForeground: "#f8fafc",
+    border: "#cbd5f5",
+    muted: "#f1f5f9",
+    card: "#ffffff",
+  },
+  dark: {
+    background: "#0f172a",
+    foreground: "#e2e8f0",
+    primary: "#38bdf8",
+    primaryForeground: "#0f172a",
+    border: "#334155",
+    muted: "#1f2937",
+    card: "#111827",
+  },
+};
+
+let colorProbe: HTMLSpanElement | null = null;
+
+const ensureColorProbe = (): HTMLSpanElement | null => {
+  if (typeof document === "undefined") {
+    return null;
+  }
+  if (colorProbe && colorProbe.isConnected) {
+    return colorProbe;
+  }
+  const probe = document.createElement("span");
+  probe.setAttribute("aria-hidden", "true");
+  probe.style.position = "absolute";
+  probe.style.pointerEvents = "none";
+  probe.style.visibility = "hidden";
+  probe.style.width = "0";
+  probe.style.height = "0";
+  probe.style.padding = "0";
+  probe.style.margin = "0";
+  const parent = document.body ?? document.documentElement;
+  parent.appendChild(probe);
+  colorProbe = probe;
+  return colorProbe;
+};
+
+const normalizeColorForMermaid = (
+  value: string | undefined,
+  fallback: string
+): string => {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return fallback;
+  }
+  if (STANDARD_COLOR_PATTERN.test(trimmed)) {
+    return trimmed;
+  }
+  if (typeof document === "undefined") {
+    return fallback;
+  }
+  const probe = ensureColorProbe();
+  if (!probe) {
+    return fallback;
+  }
+  probe.style.color = "";
+  try {
+    probe.style.color = trimmed;
+    const computed = getComputedStyle(probe).color.trim();
+    if (!computed || computed === "rgba(0, 0, 0, 0)") {
+      return fallback;
+    }
+    if (!STANDARD_COLOR_PATTERN.test(computed)) {
+      return fallback;
+    }
+    return computed;
+  } catch {
+    return fallback;
+  }
+};
+
+const resolveColorVariable = (name: string, fallback: string): string => {
+  const raw = readCssVariable(name);
+  return normalizeColorForMermaid(raw, fallback);
+};
+
+const buildThemeVariables = (theme: ThemeMode): Record<string, string> => {
+  const fallbacks = COLOR_FALLBACKS[theme];
+  const font =
+    readCssVariable("--font-inter") ??
+    "Inter, -apple-system, BlinkMacSystemFont, sans-serif";
+
+  const background = resolveColorVariable("--background", fallbacks.background);
+  const foreground = resolveColorVariable("--foreground", fallbacks.foreground);
+  const primary = resolveColorVariable("--primary", fallbacks.primary);
+  const primaryForeground = resolveColorVariable(
+    "--primary-foreground",
+    fallbacks.primaryForeground
+  );
+  const border = resolveColorVariable("--border", fallbacks.border);
+  const muted = resolveColorVariable("--muted", fallbacks.muted);
+  const card = resolveColorVariable("--card", fallbacks.card);
+
+  if (theme === "dark") {
+    const surface = card;
+    const secondarySurface = muted;
+
+    return {
+      background,
+      fontFamily: font,
+      primaryColor: surface,
+      primaryTextColor: foreground,
+      primaryBorderColor: border,
+      secondaryColor: secondarySurface,
+      secondaryTextColor: foreground,
+      tertiaryColor: secondarySurface,
+      lineColor: border,
+      textColor: foreground,
+      clusterBkg: secondarySurface,
+      clusterBorder: border,
+      edgeLabelBackground: surface,
+      nodeTextColor: foreground,
+      noteBkgColor: secondarySurface,
+      noteTextColor: foreground,
+    };
+  }
+
+  const sectionBackground = muted;
+
+  return {
+    background,
+    fontFamily: font,
+    primaryColor: primary,
+    primaryTextColor: primaryForeground,
+    primaryBorderColor: border,
+    secondaryColor: sectionBackground,
+    secondaryTextColor: foreground,
+    tertiaryColor: sectionBackground,
+    lineColor: border,
+    textColor: foreground,
+    clusterBkg: sectionBackground,
+    clusterBorder: border,
+    edgeLabelBackground: background,
+    nodeTextColor: foreground,
+    noteBkgColor: sectionBackground,
+    noteTextColor: foreground,
+  };
+};
+
+const createMermaidConfig = (theme: ThemeMode): MermaidConfig => {
+  const themeVariables = buildThemeVariables(theme);
+  return {
+    startOnLoad: false,
+    securityLevel: "loose",
+    theme: theme === "dark" ? "dark" : "default",
+    themeVariables,
+  };
+};
+
 export const loadMermaid = (() => {
   let mermaidPromise: Promise<typeof import("mermaid")> | null = null;
-  let initialized = false;
-  return async () => {
+  let currentTheme: ThemeMode | null = null;
+  let currentConfigSignature: string | null = null;
+
+  return async (themeOverride?: ThemeMode) => {
+    const theme = resolveThemeMode(themeOverride);
     if (!mermaidPromise) {
       mermaidPromise = import("mermaid");
     }
     const mermaidModule = await mermaidPromise;
     const mermaid = mermaidModule.default;
-    if (!initialized) {
-      mermaid.initialize({ startOnLoad: false, securityLevel: "loose" });
-      initialized = true;
+
+    const config = createMermaidConfig(theme);
+    const serializedConfig = JSON.stringify({
+      theme: config.theme,
+      vars: config.themeVariables,
+    });
+    if (currentTheme !== theme || currentConfigSignature !== serializedConfig) {
+      mermaid.initialize(config);
+      currentTheme = theme;
+      currentConfigSignature = serializedConfig;
     }
+
     return mermaid;
   };
 })();

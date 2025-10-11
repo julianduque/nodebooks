@@ -8,6 +8,7 @@ import { buildOutlineItems } from "@/components/notebook/utils";
 import OutlinePanel from "@/components/notebook/outline-panel";
 import OutputView from "@/components/notebook/output-view";
 import { cn } from "@/components/lib/utils";
+import { useTheme } from "@/components/theme-context";
 import {
   loadMermaid,
   renderMarkdownToHtml,
@@ -103,6 +104,7 @@ const NotebookPublicView = ({
   className,
 }: NotebookPublicViewProps) => {
   const outlineItems = useMemo(() => buildOutlineItems(notebook), [notebook]);
+  const { theme } = useTheme();
 
   const handleOutlineSelect = useCallback((cellId: string) => {
     if (typeof document === "undefined") {
@@ -266,7 +268,7 @@ const PublishMarkdownCell = ({
         }
         return;
       }
-      const mermaid = await loadMermaid();
+      const mermaid = await loadMermaid(theme);
       let index = 0;
       for (const block of blocks) {
         if (cancelled) break;
@@ -275,7 +277,7 @@ const PublishMarkdownCell = ({
           ? decodeURIComponent(definitionAttr)
           : (block.textContent ?? "");
         if (!definition) continue;
-        const cacheKey = `${cell.id}::${definition}`;
+        const cacheKey = `${theme}::${cell.id}::${definition}`;
         const cached = cacheRef.current.get(cacheKey);
         if (cached) {
           block.innerHTML = cached;
@@ -319,7 +321,7 @@ const PublishMarkdownCell = ({
       observer?.disconnect();
       observer = null;
     };
-  }, [cell.id, html]);
+  }, [cell.id, html, theme]);
 
   return (
     <section
