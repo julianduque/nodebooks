@@ -2,7 +2,7 @@
   "name": "nodebooks",
   "description": "Interactive notebook environment for Node.js",
   "private": true,
-  "version": "0.5.1",
+  "version": "0.5.2",
   "repository": "https://github.com/julianduque/nodebooks",
   "keywords": [
     "node",
