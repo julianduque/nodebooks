@@ -121,28 +121,30 @@ export const registerAttachmentRoutes = (
       return { error: "Notebook not found" };
     }
 
-    if (
-      !(await ensureNotebookAccess(
-        request,
-        reply,
-        collaborators,
-        notebook.id,
-        "editor"
-      ))
-    ) {
-      return;
-    }
+    if (!notebook.published) {
+      if (
+        !(await ensureNotebookAccess(
+          request,
+          reply,
+          collaborators,
+          notebook.id,
+          "editor"
+        ))
+      ) {
+        return;
+      }
 
-    if (
-      !(await ensureNotebookAccess(
-        request,
-        reply,
-        collaborators,
-        notebook.id,
-        "viewer"
-      ))
-    ) {
-      return;
+      if (
+        !(await ensureNotebookAccess(
+          request,
+          reply,
+          collaborators,
+          notebook.id,
+          "viewer"
+        ))
+      ) {
+        return;
+      }
     }
 
     const attachments = await store.listAttachments(notebook.id);
@@ -328,16 +330,24 @@ export const registerAttachmentRoutes = (
         return { error: "Attachment not found" };
       }
 
-      if (
-        !(await ensureNotebookAccess(
-          request,
-          reply,
-          collaborators,
-          attachment.notebookId,
-          "viewer"
-        ))
-      ) {
-        return;
+      const notebook = await store.get(attachment.notebookId);
+      if (!notebook) {
+        reply.code(404);
+        return { error: "Notebook not found" };
+      }
+
+      if (!notebook.published) {
+        if (
+          !(await ensureNotebookAccess(
+            request,
+            reply,
+            collaborators,
+            attachment.notebookId,
+            "viewer"
+          ))
+        ) {
+          return;
+        }
       }
 
       return { data: summarize(attachment) };
@@ -362,16 +372,24 @@ export const registerAttachmentRoutes = (
         return { error: "Attachment not found" };
       }
 
-      if (
-        !(await ensureNotebookAccess(
-          request,
-          reply,
-          collaborators,
-          attachment.notebookId,
-          "viewer"
-        ))
-      ) {
-        return;
+      const notebook = await store.get(attachment.notebookId);
+      if (!notebook) {
+        reply.code(404);
+        return { error: "Notebook not found" };
+      }
+
+      if (!notebook.published) {
+        if (
+          !(await ensureNotebookAccess(
+            request,
+            reply,
+            collaborators,
+            attachment.notebookId,
+            "viewer"
+          ))
+        ) {
+          return;
+        }
       }
 
       reply.header("Content-Type", attachment.mimeType);
