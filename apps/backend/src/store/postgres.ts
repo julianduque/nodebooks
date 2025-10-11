@@ -661,13 +661,14 @@ export class PostgresSettingsStore implements SettingsStore {
       return;
     }
     const pool = await this.getPool();
+    const payload = JSON.stringify(value ?? null);
     await pool.query(
       `INSERT INTO settings (key, value, updated_at)
        VALUES ($1, $2, $3)
        ON CONFLICT (key) DO UPDATE SET
          value = EXCLUDED.value,
          updated_at = EXCLUDED.updated_at`,
-      [key, value ?? null, new Date().toISOString()]
+      [key, payload, new Date().toISOString()]
     );
   }
 
