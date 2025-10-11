@@ -8,7 +8,7 @@ import { buildOutlineItems } from "@/components/notebook/utils";
 import OutlinePanel from "@/components/notebook/outline-panel";
 import OutputView from "@/components/notebook/output-view";
 import { cn } from "@/components/lib/utils";
-import { useTheme } from "@/components/theme-context";
+import { useTheme, type ThemeMode } from "@/components/theme-context";
 import {
   loadMermaid,
   renderMarkdownToHtml,
@@ -205,7 +205,7 @@ const NotebookPublicView = ({
             </header>
             <div className="mt-10 space-y-12">
               {notebook.cells.map((cell) => (
-                <PublishCell key={cell.id} cell={cell} />
+                <PublishCell key={cell.id} cell={cell} theme={theme} />
               ))}
             </div>
           </article>
@@ -219,9 +219,15 @@ const NotebookPublicView = ({
   );
 };
 
-const PublishCell = ({ cell }: { cell: NotebookCell }) => {
+const PublishCell = ({
+  cell,
+  theme,
+}: {
+  cell: NotebookCell;
+  theme: ThemeMode;
+}) => {
   if (cell.type === "markdown") {
-    return <PublishMarkdownCell cell={cell} />;
+    return <PublishMarkdownCell cell={cell} theme={theme} />;
   }
   if (cell.type === "code") {
     return <PublishCodeCell cell={cell} />;
@@ -237,8 +243,10 @@ const PublishCell = ({ cell }: { cell: NotebookCell }) => {
 
 const PublishMarkdownCell = ({
   cell,
+  theme,
 }: {
   cell: Extract<NotebookCell, { type: "markdown" }>;
+  theme: ThemeMode;
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const cacheRef = useRef<Map<string, string>>(new Map());
