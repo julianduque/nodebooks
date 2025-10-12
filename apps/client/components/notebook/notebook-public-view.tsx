@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import type { Notebook, NotebookCell } from "@nodebooks/notebook-schema";
 import type { NotebookWithAccess } from "@/components/notebook/types";
@@ -9,6 +9,8 @@ import OutlinePanel from "@/components/notebook/outline-panel";
 import OutputView from "@/components/notebook/output-view";
 import { cn } from "@/components/lib/utils";
 import { useTheme, type ThemeMode } from "@/components/theme-context";
+import { Button } from "@/components/ui/button";
+import { Menu, PanelLeftClose, PanelLeftOpen, X } from "lucide-react";
 import {
   loadMermaid,
   renderMarkdownToHtml,
@@ -105,14 +107,78 @@ const NotebookPublicView = ({
 }: NotebookPublicViewProps) => {
   const outlineItems = useMemo(() => buildOutlineItems(notebook), [notebook]);
   const { theme } = useTheme();
+  const [isDesktop, setIsDesktop] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
-  const handleOutlineSelect = useCallback((cellId: string) => {
-    if (typeof document === "undefined") {
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mediaQuery = window.matchMedia("(min-width: 1024px)");
+    const handleChange = (event: MediaQueryListEvent) => {
+      setIsDesktop(event.matches);
+    };
+
+    setIsDesktop(mediaQuery.matches);
+
+    if (typeof mediaQuery.addEventListener === "function") {
+      mediaQuery.addEventListener("change", handleChange);
+    } else if (typeof mediaQuery.addListener === "function") {
+      mediaQuery.addListener(handleChange);
+    }
+
+    return () => {
+      if (typeof mediaQuery.removeEventListener === "function") {
+        mediaQuery.removeEventListener("change", handleChange);
+      } else if (typeof mediaQuery.removeListener === "function") {
+        mediaQuery.removeListener(handleChange);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (isDesktop) {
+      setMobileSidebarOpen(false);
+    }
+  }, [isDesktop]);
+
+  useEffect(() => {
+    if (!mobileSidebarOpen) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setMobileSidebarOpen(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [mobileSidebarOpen]);
+
+  const handleToggleSidebar = useCallback(() => {
+    if (isDesktop) {
+      setSidebarCollapsed((prev) => !prev);
       return;
     }
-    const element = document.getElementById(`cell-${cellId}`);
-    element?.scrollIntoView({ behavior: "smooth", block: "start" });
+    setMobileSidebarOpen((prev) => !prev);
+  }, [isDesktop]);
+
+  const handleCloseMobileSidebar = useCallback(() => {
+    setMobileSidebarOpen(false);
   }, []);
+
+  const handleOutlineSelect = useCallback(
+    (cellId: string) => {
+      if (typeof document === "undefined") {
+        return;
+      }
+      const element = document.getElementById(`cell-${cellId}`);
+      element?.scrollIntoView({ behavior: "smooth", block: "start" });
+      if (!isDesktop) {
+        setMobileSidebarOpen(false);
+      }
+    },
+    [isDesktop]
+  );
 
   const publishedProjectNotebooks = useMemo(() => {
     if (!project)
@@ -128,11 +194,30 @@ const NotebookPublicView = ({
   return (
     <div
       className={cn(
-        "flex min-h-screen w-full bg-background text-foreground",
+        "relative flex min-h-screen w-full bg-background text-foreground",
         className
       )}
     >
-      <aside className="flex w-72 flex-shrink-0 flex-col border-r border-border/60 bg-muted/40">
+      <div
+        className={cn(
+          "fixed inset-0 z-30 bg-background/70 backdrop-blur-sm transition-opacity duration-200 ease-linear lg:hidden",
+          mobileSidebarOpen ? "opacity-100" : "pointer-events-none opacity-0"
+        )}
+        onClick={handleCloseMobileSidebar}
+        aria-hidden="true"
+      />
+      <aside
+        className={cn(
+          "fixed inset-y-0 left-0 z-40 flex w-72 flex-shrink-0 flex-col border-r border-border/60 bg-muted/40 transition-all duration-200 ease-linear lg:relative lg:flex lg:translate-x-0",
+          mobileSidebarOpen
+            ? "translate-x-0"
+            : "-translate-x-full lg:translate-x-0",
+          sidebarCollapsed
+            ? "lg:w-0 lg:-translate-x-full lg:border-r-0 lg:opacity-0 lg:pointer-events-none"
+            : "lg:w-72 lg:translate-x-0"
+        )}
+        aria-hidden={!mobileSidebarOpen && !isDesktop ? true : undefined}
+      >
         {project ? (
           <div className="border-b border-border/60 px-4 py-5">
             <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -159,6 +244,11 @@ const NotebookPublicView = ({
                         href={{ pathname: href }}
                         className={itemClass}
                         aria-current={isActive ? "page" : undefined}
+                        onClick={() => {
+                          if (!isDesktop) {
+                            handleCloseMobileSidebar();
+                          }
+                        }}
                       >
                         <span className="block truncate">{entry.name}</span>
                       </Link>
@@ -196,6 +286,42 @@ const NotebookPublicView = ({
         </div>
       </aside>
       <main className="flex-1 overflow-y-auto">
+        <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-border/60 bg-background/95 px-4 py-4 backdrop-blur-sm lg:relative lg:border-none lg:bg-transparent lg:px-6 lg:py-6">
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="secondary"
+              size="icon"
+              onClick={handleToggleSidebar}
+              aria-label="Toggle outline sidebar"
+            >
+              {isDesktop ? (
+                sidebarCollapsed ? (
+                  <PanelLeftOpen className="h-4 w-4" />
+                ) : (
+                  <PanelLeftClose className="h-4 w-4" />
+                )
+              ) : mobileSidebarOpen ? (
+                <X className="h-4 w-4" />
+              ) : (
+                <Menu className="h-4 w-4" />
+              )}
+            </Button>
+            <span className="text-sm font-semibold tracking-tight text-muted-foreground lg:hidden">
+              Outline
+            </span>
+          </div>
+          {project ? (
+            <div className="hidden items-center gap-2 lg:flex">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Project
+              </p>
+              <span className="text-sm font-semibold text-foreground">
+                {project.name}
+              </span>
+            </div>
+          ) : null}
+        </div>
         {notebook ? (
           <article className="mx-auto w-full max-w-4xl px-6 py-12">
             <header className="border-b border-border/60 pb-6">

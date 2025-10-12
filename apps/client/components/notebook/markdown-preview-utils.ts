@@ -1,7 +1,10 @@
 "use client";
 
 import DOMPurify from "dompurify";
-import type { Config as DomPurifyConfig } from "dompurify";
+import type {
+  Config as DomPurifyConfig,
+  DOMPurify as DomPurifyInstance,
+} from "dompurify";
 import hljs from "highlight.js";
 import { Marked, Renderer, type Tokens } from "marked";
 import markedKatex from "marked-katex-extension";
@@ -109,8 +112,37 @@ const createDomPurifyConfig = (config?: DomPurifyConfig): DomPurifyConfig => {
   return merged;
 };
 
-const sanitizeHtml = (raw: string, config?: DomPurifyConfig) =>
-  DOMPurify.sanitize(raw, createDomPurifyConfig(config));
+const domPurifyModule = DOMPurify as DomPurifyInstance;
+
+let domPurifyInstance: DomPurifyInstance | null = null;
+
+const getDomPurify = (): DomPurifyInstance | null => {
+  if (domPurifyInstance) {
+    return domPurifyInstance;
+  }
+  if (typeof domPurifyModule.sanitize === "function") {
+    domPurifyInstance = domPurifyModule;
+    return domPurifyInstance;
+  }
+  if (typeof window === "undefined") {
+    return null;
+  }
+  try {
+    const root = window as unknown as Parameters<DomPurifyInstance>[0];
+    domPurifyInstance = domPurifyModule(root);
+    return domPurifyInstance;
+  } catch {
+    return null;
+  }
+};
+
+const sanitizeHtml = (raw: string, config?: DomPurifyConfig) => {
+  const purifier = getDomPurify();
+  if (!purifier || typeof purifier.sanitize !== "function") {
+    return raw;
+  }
+  return purifier.sanitize(raw, createDomPurifyConfig(config));
+};
 
 export const renderMarkdownToHtml = (source: string) => {
   const parsed = markdownRenderer.parse(source ?? "", { async: false });
