@@ -89,7 +89,7 @@ export function initMonaco(monaco: MonacoT) {
     esModuleInterop: true,
     target: monaco.languages.typescript.ScriptTarget.ES2020,
     module: monaco.languages.typescript.ModuleKind.ESNext,
-    moduleResolution: monaco.languages.typescript.ModuleResolutionKind.NodeNext,
+    moduleResolution: monaco.languages.typescript.ModuleResolutionKind.NodeJs,
     allowNonTsExtensions: true,
     resolveJsonModule: true,
     skipLibCheck: true,
