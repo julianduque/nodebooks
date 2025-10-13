@@ -208,7 +208,7 @@ const NotebookPublicView = ({
       />
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-40 flex w-72 flex-shrink-0 flex-col border-r border-border/60 bg-muted/40 transition-all duration-200 ease-linear lg:relative lg:flex lg:translate-x-0",
+          "fixed inset-y-0 left-0 z-40 flex w-72 flex-shrink-0 flex-col border-r border-border/60 bg-muted/40 transition-all duration-200 ease-linear lg:sticky lg:top-0 lg:flex lg:h-screen lg:translate-x-0 lg:overflow-y-auto lg:bottom-auto",
           mobileSidebarOpen
             ? "translate-x-0"
             : "-translate-x-full lg:translate-x-0",
@@ -272,7 +272,7 @@ const NotebookPublicView = ({
             )}
           </div>
         ) : null}
-        <div className="flex-1 overflow-y-auto px-4 py-5">
+        <div className="flex-1 min-h-0 overflow-y-auto px-4 py-5">
           <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
             Outline
           </p>
@@ -286,52 +286,58 @@ const NotebookPublicView = ({
         </div>
       </aside>
       <main className="flex-1 overflow-y-auto">
-        <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-border/60 bg-background/95 px-4 py-4 backdrop-blur-sm lg:relative lg:border-none lg:bg-transparent lg:px-6 lg:py-6">
-          <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              variant="secondary"
-              size="icon"
-              onClick={handleToggleSidebar}
-              aria-label="Toggle outline sidebar"
-            >
-              {isDesktop ? (
-                sidebarCollapsed ? (
-                  <PanelLeftOpen className="h-4 w-4" />
+        <div className="sticky top-0 z-20 border-b border-border/60 bg-background/95 backdrop-blur-sm">
+          <div className="relative flex h-16 items-center gap-3 px-4 sm:gap-4 lg:px-6">
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                size="icon"
+                onClick={handleToggleSidebar}
+                aria-label="Toggle outline sidebar"
+              >
+                {isDesktop ? (
+                  sidebarCollapsed ? (
+                    <PanelLeftOpen className="h-4 w-4" />
+                  ) : (
+                    <PanelLeftClose className="h-4 w-4" />
+                  )
+                ) : mobileSidebarOpen ? (
+                  <X className="h-4 w-4" />
                 ) : (
-                  <PanelLeftClose className="h-4 w-4" />
-                )
-              ) : mobileSidebarOpen ? (
-                <X className="h-4 w-4" />
-              ) : (
-                <Menu className="h-4 w-4" />
-              )}
-            </Button>
-            <span className="text-sm font-semibold tracking-tight text-muted-foreground lg:hidden">
-              Outline
-            </span>
-          </div>
-          {project ? (
-            <div className="hidden items-center gap-2 lg:flex">
-              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                Project
-              </p>
-              <span className="text-sm font-semibold text-foreground">
-                {project.name}
-              </span>
+                  <Menu className="h-4 w-4" />
+                )}
+              </Button>
             </div>
-          ) : null}
+            {notebook ? (
+              <span
+                className="min-w-0 flex-1 truncate text-base font-semibold text-foreground"
+                title={notebook.name}
+              >
+                {notebook.name}
+              </span>
+            ) : (
+              <span className="min-w-0 flex-1 truncate text-sm font-medium text-muted-foreground">
+                Notebook
+              </span>
+            )}
+            {project ? (
+              <div className="hidden items-center gap-2 lg:flex">
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Project
+                </p>
+                <span className="text-sm font-semibold text-foreground">
+                  {project.name}
+                </span>
+              </div>
+            ) : null}
+          </div>
         </div>
         {notebook ? (
           <article className="mx-auto w-full max-w-4xl px-6 py-12">
-            <header className="border-b border-border/60 pb-6">
-              <h1 className="text-3xl font-semibold tracking-tight text-foreground">
-                {notebook.name}
-              </h1>
-            </header>
             <div className="mt-10 space-y-12">
               {notebook.cells.map((cell) => (
-                <PublishCell key={cell.id} cell={cell} theme={theme} />
+                <PublicCell key={cell.id} cell={cell} theme={theme} />
               ))}
             </div>
           </article>
@@ -345,7 +351,7 @@ const NotebookPublicView = ({
   );
 };
 
-const PublishCell = ({
+const PublicCell = ({
   cell,
   theme,
 }: {
@@ -353,21 +359,21 @@ const PublishCell = ({
   theme: ThemeMode;
 }) => {
   if (cell.type === "markdown") {
-    return <PublishMarkdownCell cell={cell} theme={theme} />;
+    return <PublicMarkdownCell cell={cell} theme={theme} />;
   }
   if (cell.type === "code") {
-    return <PublishCodeCell cell={cell} />;
+    return <PublicCodeCell cell={cell} />;
   }
   if (cell.type === "terminal") {
-    return <PublishTerminalCell cell={cell} />;
+    return <PublicTerminalCell cell={cell} />;
   }
   if (cell.type === "command") {
-    return <PublishCommandCell cell={cell} />;
+    return <PublicCommandCell cell={cell} />;
   }
   return null;
 };
 
-const PublishMarkdownCell = ({
+const PublicMarkdownCell = ({
   cell,
   theme,
 }: {
@@ -467,7 +473,7 @@ const PublishMarkdownCell = ({
   );
 };
 
-const PublishCodeCell = ({
+const PublicCodeCell = ({
   cell,
 }: {
   cell: Extract<NotebookCell, { type: "code" }>;
@@ -497,7 +503,7 @@ const PublishCodeCell = ({
   );
 };
 
-const PublishTerminalCell = ({
+const PublicTerminalCell = ({
   cell,
 }: {
   cell: Extract<NotebookCell, { type: "terminal" }>;
@@ -520,7 +526,7 @@ const PublishTerminalCell = ({
   );
 };
 
-const PublishCommandCell = ({
+const PublicCommandCell = ({
   cell,
 }: {
   cell: Extract<NotebookCell, { type: "command" }>;

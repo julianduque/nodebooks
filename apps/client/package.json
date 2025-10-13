@@ -27,6 +27,7 @@
     "clsx": "^2.1.1",
     "dompurify": "^3.2.7",
     "highlight.js": "^11.11.1",
+    "isomorphic-dompurify": "^2.14.0",
     "katex": "^0.16.11",
     "lucide-react": "^0.544.0",
     "marked": "^16.3.0",
