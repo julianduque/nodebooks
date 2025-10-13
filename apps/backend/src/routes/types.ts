@@ -131,8 +131,17 @@ const readTextFile = async (filePath: string): Promise<string | null> => {
   }
 };
 
+const resolveWithinRoot = (root: string, ...segments: string[]) => {
+  const target = path.resolve(root, ...segments);
+  const relative = path.relative(root, target);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+    return null;
+  }
+  return target;
+};
+
 const sandboxNodeModulesPath = (notebookId: string) =>
-  path.join(RUNTIME_WORKSPACE_ROOT, notebookId, "node_modules");
+  resolveWithinRoot(RUNTIME_WORKSPACE_ROOT, notebookId, "node_modules");
 
 const packageDirFor = (baseDir: string, packageName: string) =>
   path.join(baseDir, ...packageName.split("/"));
@@ -590,7 +599,10 @@ const resolveTypesFromLocalPackage = async (
         normalized,
         text,
         async (rel) => {
-          const target = path.join(pkgDir, rel);
+          const target = resolveWithinRoot(pkgDir, rel);
+          if (!target) {
+            return null;
+          }
           return await readTextFile(target);
         },
         "local"
@@ -629,7 +641,7 @@ const resolveTypesFromSandbox = async (
   subpath: string | null
 ): Promise<ResolvedTypesBundle | null> => {
   const modulesRoot = sandboxNodeModulesPath(notebookId);
-  if (!(await pathExists(modulesRoot))) {
+  if (!modulesRoot || !(await pathExists(modulesRoot))) {
     return null;
   }
 
