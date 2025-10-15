@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 import type { NotebookOutput } from "@nodebooks/notebook-schema";
 import { UiDisplaySchema, NODEBOOKS_UI_MIME } from "@nodebooks/notebook-schema";
-import { UiRenderer } from "@nodebooks/notebook-ui";
+import { UiRenderer } from "@nodebooks/ui";
 import type { UiJson } from "@nodebooks/notebook-schema";
 import AnsiToHtml from "ansi-to-html";
 import { sanitizeHtmlSnippet } from "@/components/notebook/markdown-preview-utils";

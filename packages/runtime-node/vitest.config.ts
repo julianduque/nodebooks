@@ -20,8 +20,8 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      "@nodebooks/notebook-ui/runtime/ui-helpers-dts": uiHelpersPath,
-      "@nodebooks/notebook-ui/runtime/ui-helpers-module": uiHelpersModulePath,
+      "@nodebooks/ui/runtime/ui-helpers-dts": uiHelpersPath,
+      "@nodebooks/ui/runtime/ui-helpers-module": uiHelpersModulePath,
     },
   },
 });

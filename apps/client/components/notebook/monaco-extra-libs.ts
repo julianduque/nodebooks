@@ -3,7 +3,7 @@
 type IDisposable = import("monaco-editor").IDisposable;
 import { getMonaco } from "@/components/notebook/monaco-setup";
 import { clientConfig } from "@nodebooks/config/client";
-import { uiHelpersModuleDts as nodebooksUiDts } from "@nodebooks/notebook-ui/runtime/ui-helpers-dts";
+import { uiHelpersModuleDts as nodebooksUiDts } from "@nodebooks/ui/runtime/ui-helpers-dts";
 
 // Manages Monaco extra libs: globals d.ts and module shims/types per package
 

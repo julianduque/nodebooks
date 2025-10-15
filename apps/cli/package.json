@@ -1,6 +1,9 @@
 {
   "name": "@nodebooks/cli",
   "version": "0.1.0",
+  "description": "Command-line interface for installing and managing NodeBooks.",
+  "author": "Julián Duque <julianduquej@gmail.com>",
+  "license": "MIT",
   "type": "module",
   "bin": {
     "nbks": "./dist/index.js"
@@ -10,8 +13,12 @@
   "files": [
     "dist"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc --project tsconfig.build.json",
+    "prepack": "pnpm run build",
     "dev": "tsx watch src/index.ts",
     "lint": "eslint src --ext .ts",
     "test": "vitest run || exit 0"

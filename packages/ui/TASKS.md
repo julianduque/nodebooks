@@ -58,5 +58,5 @@ Utilities
 Notes
 
 - All components should be surfaced via vendor MIME `application/vnd.nodebooks.ui+json` and validated by `UiDisplaySchema` in `@nodebooks/notebook-schema`.
-- Renderers live in `@nodebooks/notebook-ui` and selected via `UiRenderer` in the UI app.
+- Renderers live in `@nodebooks/ui` and selected via `UiRenderer` in the UI app.
 - Runtime should add the vendor MIME when a returned value matches the UI schema.

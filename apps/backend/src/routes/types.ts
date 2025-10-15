@@ -5,7 +5,7 @@ import path from "node:path";
 import os from "node:os";
 
 const { uiHelpersModuleDts } = await import(
-  "@nodebooks/notebook-ui/runtime/ui-helpers-dts"
+  "@nodebooks/ui/runtime/ui-helpers-dts"
 );
 
 const SPEC_RE = /^[A-Za-z0-9@/_\-.~%:]+$/;

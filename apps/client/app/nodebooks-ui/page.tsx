@@ -23,7 +23,7 @@ import {
   Plot3dScene,
   MapView,
   GeoJsonMap,
-} from "@nodebooks/notebook-ui";
+} from "@nodebooks/ui";
 
 const sampleRows = [
   { id: 1, name: "Alice", age: 30, active: true },

@@ -1,12 +1,15 @@
 {
-  "name": "@nodebooks/notebook-ui",
+  "name": "@nodebooks/ui",
   "version": "0.1.0",
+  "description": "React components and styles used by the NodeBooks web client.",
+  "author": "Julián Duque <julianduquej@gmail.com>",
+  "license": "MIT",
   "type": "module",
   "main": "src/index.tsx",
   "types": "src/index.tsx",
-  "private": true,
   "scripts": {
     "build": "run-p build:css build:types",
+    "prepack": "pnpm run build",
     "build:types": "tsc --project tsconfig.json",
     "build:css": "tailwindcss -i ./src/styles.css -o ./dist/styles.css",
     "dev": "run-p dev:css dev:types",
@@ -48,6 +51,9 @@
     "dist",
     "src"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "exports": {
     ".": {
       "types": "./src/index.tsx",

@@ -12,7 +12,7 @@ const nextConfig = {
       },
     ],
   },
-  transpilePackages: ["@nodebooks/notebook-ui", "@nodebooks/notebook-schema"],
+  transpilePackages: ["@nodebooks/ui", "@nodebooks/notebook-schema"],
   webpack: (config) => {
     config.resolve = config.resolve ?? {};
     config.resolve.alias = config.resolve.alias ?? {};
