@@ -7,14 +7,14 @@
     "noEmit": false,
     "paths": {
       "@nodebooks/ui/runtime/ui-helpers-dts": [
-        "../../packages/notebook-ui/src/runtime/ui-helpers-dts.d.ts"
+        "../../packages/ui/src/runtime/ui-helpers-dts.d.ts"
       ],
       "@nodebooks/ui/runtime/ui-helpers-dts.js": [
-        "../../packages/notebook-ui/src/runtime/ui-helpers-dts.js"
+        "../../packages/ui/src/runtime/ui-helpers-dts.js"
       ],
       "@nodebooks/ui/runtime/ui-helpers-module": [
-        "../../packages/notebook-ui/src/runtime/ui-helpers-module.d.ts",
-        "../../packages/notebook-ui/src/runtime/ui-helpers-module.js"
+        "../../packages/ui/src/runtime/ui-helpers-module.d.ts",
+        "../../packages/ui/src/runtime/ui-helpers-module.js"
       ]
     }
   },

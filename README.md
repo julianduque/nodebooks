@@ -21,17 +21,17 @@ NodeBooks is a JS/TS notebook environment. It supports editing Markdown and code
 ```
 nodebooks/
 ├── apps/
-│   ├── backend/              # @nodebooks/server – Fastify 5 API + optional embedded Next.js
-│   └── client/               # @nodebooks/client – Next.js 15 UI (Monaco-powered editor)
+│   ├── backend/              # @nodebooks/server – Fastify API with bundled Next.js client
+│   ├── client/               # @nodebooks/client – Next.js 15 UI (Monaco-powered editor)
+│   └── cli/                  # @nodebooks/cli – nbks command-line interface
 ├── packages/
-│   ├── notebook-schema/      # Shared Zod models + kernel protocol (built to dist/, exported via package.exports)
-│   ├── runtime-node/         # Runtime environment for notebook execution (built to dist/, exported via package.exports)
-│   ├── runtime-host/         # Runtime environment for notebook execution (built to dist/, exported via package.exports)
-│   ├── runtime-protocol/     # Runtime protocol for notebook execution (built to dist/, exported via package.exports)
-│   ├── runtime-node-worker/  # Runtime environment for notebook execution (built to dist/, exported via package.exports)
-│   ├── config/               # Shared config for server and client (built to dist/, exported via package.exports)
-│   └── notebook-ui/          # Reusable React UI pieces for notebook displays
-└── content/                  # Templates and notebooks
+│   ├── config/               # Shared config loaders and CLI helpers (builds to dist/)
+│   ├── notebook-schema/      # Shared Zod models and notebook definitions (builds to dist/)
+│   ├── runtime-host/         # Host utilities for coordinating runtimes (builds to dist/)
+│   ├── runtime-node/         # Sandboxed Node.js runtime harness (builds to dist/)
+│   ├── runtime-node-worker/  # Worker entrypoint for executing notebook cells (builds to dist/)
+│   ├── runtime-protocol/     # Shared protocol definitions for runtime messaging (builds to dist/)
+│   └── ui/                   # Reusable React UI components and styles
 ```
 
 ## Requirements

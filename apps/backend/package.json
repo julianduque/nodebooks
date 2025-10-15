@@ -32,7 +32,8 @@
   },
   "files": [
     "dist",
-    "client"
+    "client",
+    "templates"
   ],
   "publishConfig": {
     "access": "public"

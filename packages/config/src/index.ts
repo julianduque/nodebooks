@@ -107,8 +107,6 @@ export function loadServerConfig(
     10_000;
   const kernelWsHeartbeatMs = num(resolvedEnv.NODEBOOKS_KERNEL_WS_HEARTBEAT_MS);
 
-  const templatesDir = resolvedEnv.NODEBOOKS_TEMPLATE_DIR;
-
   const runtimeAi = runtimeOverrides.ai ?? {};
   const runtimeAiEnabled =
     typeof runtimeOverrides.aiEnabled === "boolean"
@@ -174,7 +172,6 @@ export function loadServerConfig(
     kernelTimeoutMs,
     kernelWsHeartbeatMs,
     persistence,
-    templatesDir,
     ai,
   } satisfies ServerConfig;
 }

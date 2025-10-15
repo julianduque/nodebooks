@@ -28,7 +28,6 @@ describe("@nodebooks/config – loadServerConfig", () => {
     expect(cfg.persistence.driver).toBe("sqlite");
     expect(cfg.persistence.sqlitePath).toBe(".data/nodebooks.sqlite");
     expect(cfg.persistence.databaseUrl).toBeUndefined();
-    expect(cfg.templatesDir).toBeUndefined();
     expect(cfg.ai.enabled).toBe(true);
     expect(cfg.ai.provider).toBe("openai");
     expect(cfg.ai.openai?.model).toBe("gpt-4o-mini");
@@ -62,13 +61,11 @@ describe("@nodebooks/config – loadServerConfig", () => {
       NODEBOOKS_PERSISTENCE: "postgres",
       DATABASE_URL: "postgres://user:pass@host:5432/db",
       NODEBOOKS_SQLITE_PATH: "/tmp/file.sqlite",
-      NODEBOOKS_TEMPLATE_DIR: "./content/custom",
     } as NodeJS.ProcessEnv);
     expect(cfg.persistence.driver).toBe("postgres");
     expect(cfg.persistence.databaseUrl).toContain("postgres://");
     // sqlitePath uses provided env regardless of driver; consumer decides usage
     expect(cfg.persistence.sqlitePath).toBe("/tmp/file.sqlite");
-    expect(cfg.templatesDir).toBe("./content/custom");
   });
 
   it("prefers runtime overrides over environment variables", () => {
