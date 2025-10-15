@@ -1,5 +1,11 @@
 # @nodebooks/cli
 
+## 0.2.2
+
+### Patch Changes
+
+- Update the @nodebooks/server entry
+
 ## 0.2.1
 
 ### Patch Changes
