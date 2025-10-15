@@ -43,7 +43,18 @@ const workspaceServerEntry = async (): Promise<string | null> => {
 
 const resolveServerEntry = async (): Promise<string> => {
   try {
-    return require.resolve("@nodebooks/server");
+    const serverPackageJsonPath = require.resolve(
+      "@nodebooks/server/package.json"
+    );
+    const serverPackageJson = require(serverPackageJsonPath) as {
+      main?: string;
+    };
+    const candidate = path.resolve(
+      path.dirname(serverPackageJsonPath),
+      serverPackageJson.main ?? "dist/index.js"
+    );
+    await fs.access(candidate);
+    return candidate;
   } catch {
     const workspaceEntry = await workspaceServerEntry();
     if (workspaceEntry) {
