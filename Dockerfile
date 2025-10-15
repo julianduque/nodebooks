@@ -18,7 +18,7 @@ COPY pnpm-lock.yaml ./
 COPY apps/backend/package.json apps/backend/
 COPY apps/client/package.json apps/client/
 COPY packages/notebook-schema/package.json packages/notebook-schema/
-COPY packages/notebook-ui/package.json packages/notebook-ui/
+COPY packages/ui/package.json packages/ui/
 COPY packages/runtime-host/package.json packages/runtime-host/
 COPY packages/runtime-node/package.json packages/runtime-node/
 COPY packages/runtime-node-worker/package.json packages/runtime-node-worker/

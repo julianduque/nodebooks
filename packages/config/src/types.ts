@@ -37,7 +37,6 @@ export interface ServerConfig {
     sqlitePath?: string;
     databaseUrl?: string;
   };
-  templatesDir?: string;
   ai: AiConfig;
 }
 

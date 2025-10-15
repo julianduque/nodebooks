@@ -6,14 +6,14 @@
     "types": ["node"],
     "paths": {
       "@nodebooks/ui/runtime/ui-helpers-dts": [
-        "../notebook-ui/src/runtime/ui-helpers-dts.d.ts"
+        "../ui/src/runtime/ui-helpers-dts.d.ts"
       ],
       "@nodebooks/ui/runtime/ui-helpers-dts.js": [
-        "../notebook-ui/src/runtime/ui-helpers-dts.js"
+        "../ui/src/runtime/ui-helpers-dts.js"
       ],
       "@nodebooks/ui/runtime/ui-helpers-module": [
-        "../notebook-ui/src/runtime/ui-helpers-module.d.ts",
-        "../notebook-ui/src/runtime/ui-helpers-module.js"
+        "../ui/src/runtime/ui-helpers-module.d.ts",
+        "../ui/src/runtime/ui-helpers-module.js"
       ]
     }
   },

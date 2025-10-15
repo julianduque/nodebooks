@@ -2,7 +2,7 @@
         "../components/**/*.{ts,tsx}" \
         "../pages/**/*.{ts,tsx}" \
         "../node_modules/**/@nodebooks/ui/src/**/*.{ts,tsx}" \
-        "../../../packages/notebook-ui/src/**/*.{ts,tsx}";
+        "../../../packages/ui/src/**/*.{ts,tsx}";
 
 :root {
   --radius: 0.65rem;

@@ -20,23 +20,7 @@ interface NotebookTemplateDefinition {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const DEFAULT_TEMPLATE_DIR = path.join(
-  __dirname,
-  "../../../..",
-  "content",
-  "templates"
-);
-
-import { loadServerConfig } from "@nodebooks/config";
-
-const TEMPLATE_DIR = (() => {
-  const cfg = loadServerConfig();
-  if (cfg.templatesDir && cfg.templatesDir.length > 0) {
-    return path.resolve(process.cwd(), cfg.templatesDir);
-  }
-  return DEFAULT_TEMPLATE_DIR;
-})();
-
+const TEMPLATE_DIR = path.join(__dirname, "../../templates");
 const registry = new Map<string, NotebookTemplateDefinition>();
 
 class TemplateParseError extends Error {

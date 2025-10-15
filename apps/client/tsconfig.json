@@ -21,7 +21,7 @@
     "**/*.tsx",
     "next-env.d.ts",
     ".next/types/**/*.ts",
-    "../packages/notebook-ui/src/types/**/*.d.ts",
+    "../packages/ui/src/types/**/*.d.ts",
     "types/**/*.d.ts"
   ],
   "exclude": ["node_modules"]

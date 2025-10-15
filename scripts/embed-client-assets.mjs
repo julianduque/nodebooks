@@ -7,7 +7,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const workspaceRoot = path.resolve(__dirname, "..");
 const clientDir = path.join(workspaceRoot, "apps", "client");
-const backendClientDir = path.join(workspaceRoot, "apps", "backend", "client");
+const backendDir = path.join(workspaceRoot, "apps", "backend");
+const backendClientDir = path.join(backendDir, "client");
 
 const exists = async (target) => {
   try {
@@ -46,7 +47,7 @@ const buildClientIfNeeded = async () => {
   await run("pnpm", ["--filter", "@nodebooks/client", "build"], workspaceRoot);
 };
 
-const copyAssets = async () => {
+const copyClientAssets = async () => {
   if (await exists(backendClientDir)) {
     await rm(backendClientDir, { recursive: true, force: true });
   }
@@ -81,7 +82,7 @@ const copyAssets = async () => {
 
 const main = async () => {
   await buildClientIfNeeded();
-  await copyAssets();
+  await copyClientAssets();
 };
 
 await main();

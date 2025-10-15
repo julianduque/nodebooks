@@ -3,13 +3,10 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const rootDir = dirname(fileURLToPath(import.meta.url));
-const uiHelpersPath = resolve(
-  rootDir,
-  "../notebook-ui/src/runtime/ui-helpers-dts.js"
-);
+const uiHelpersPath = resolve(rootDir, "../ui/src/runtime/ui-helpers-dts.js");
 const uiHelpersModulePath = resolve(
   rootDir,
-  "../notebook-ui/src/runtime/ui-helpers-module.js"
+  "../ui/src/runtime/ui-helpers-module.js"
 );
 
 export default defineConfig({
