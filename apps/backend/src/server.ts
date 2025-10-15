@@ -1,5 +1,9 @@
 import Fastify from "fastify";
-import type { FastifyReply, FastifyRequest } from "fastify";
+import type {
+  FastifyReply,
+  FastifyRequest,
+  FastifyServerOptions,
+} from "fastify";
 import cors from "@fastify/cors";
 import fastifyCookie from "@fastify/cookie";
 import type * as FastifyCookieNamespace from "@fastify/cookie";
@@ -9,53 +13,8 @@ import type { Socket } from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
-import {
-  InMemoryNotebookStore,
-  InMemorySessionManager as InMemoryKernelSessionManager,
-  InMemorySettingsStore,
-  InMemoryUserStore,
-  InMemoryAuthSessionStore,
-  InMemoryInvitationStore,
-  InMemoryNotebookCollaboratorStore,
-  InMemoryProjectStore,
-  InMemoryProjectInvitationStore,
-  InMemoryProjectCollaboratorStore,
-} from "./store/memory.js";
-import {
-  SqliteNotebookStore,
-  SqliteSettingsStore,
-  SqliteUserStore,
-  SqliteAuthSessionStore,
-  SqliteInvitationStore,
-  SqliteNotebookCollaboratorStore,
-  SqliteProjectStore,
-  SqliteProjectInvitationStore,
-  SqliteProjectCollaboratorStore,
-} from "./store/sqlite.js";
-import {
-  PostgresNotebookStore,
-  PostgresSettingsStore,
-  PostgresUserStore,
-  PostgresAuthSessionStore,
-  PostgresInvitationStore,
-  PostgresNotebookCollaboratorStore,
-  PostgresProjectStore,
-  PostgresProjectInvitationStore,
-  PostgresProjectCollaboratorStore,
-} from "./store/postgres.js";
-import type {
-  NotebookStore,
-  SettingsStore,
-  UserStore,
-  AuthSessionStore,
-  SafeUser,
-  AuthSession,
-  InvitationStore,
-  NotebookCollaboratorStore,
-  ProjectStore,
-  ProjectInvitationStore,
-  ProjectCollaboratorStore,
-} from "./types.js";
+import { InMemorySessionManager as InMemoryKernelSessionManager } from "./store/memory.js";
+import type { SafeUser, AuthSession } from "./types.js";
 import { registerNotebookRoutes } from "./routes/notebooks.js";
 import { registerDependencyRoutes } from "./routes/dependencies.js";
 import { registerSessionRoutes } from "./routes/sessions.js";
@@ -83,9 +42,11 @@ import {
 } from "./auth/session.js";
 import { registerSettingsRoutes } from "./routes/settings.js";
 import { loadServerConfig } from "@nodebooks/config";
-import type { ServerConfig } from "@nodebooks/config";
 import { SettingsService } from "./settings/service.js";
 import { setSettingsService } from "./settings/index.js";
+import { createNotebookStore } from "./store/factory.js";
+
+export { createNotebookStore } from "./store/factory.js";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -94,13 +55,30 @@ declare module "fastify" {
   }
 }
 
+type LoggerOption = FastifyServerOptions["logger"];
+
+const resolveLoggerOption = (
+  provided: LoggerOption | undefined
+): LoggerOption => {
+  if (provided !== undefined) {
+    return provided;
+  }
+  const envLevel = process.env.NODEBOOKS_LOG_LEVEL;
+  if (!envLevel) {
+    return true;
+  }
+  const normalized = envLevel.trim().toLowerCase();
+  if (["false", "off", "none", "silent"].includes(normalized)) {
+    return false;
+  }
+  return { level: normalized } satisfies LoggerOption;
+};
+
 export interface CreateServerOptions {
-  logger?: boolean;
+  logger?: LoggerOption;
 }
 
-export const createServer = async ({
-  logger = true,
-}: CreateServerOptions = {}) => {
+export const createServer = async ({ logger }: CreateServerOptions = {}) => {
   const baseConfig = loadServerConfig();
   const {
     store,
@@ -120,7 +98,10 @@ export const createServer = async ({
 
   const cfg = loadServerConfig(undefined, settingsService.getSettings());
   const isDev = cfg.isDev;
-  const app = Fastify({ logger, pluginTimeout: isDev ? 120_000 : undefined });
+  const app = Fastify({
+    logger: resolveLoggerOption(logger),
+    pluginTimeout: isDev ? 120_000 : undefined,
+  });
 
   await app.register(fastifyCookie);
   await app.register(cors, {
@@ -668,103 +649,4 @@ export const createServer = async ({
   );
 
   return app;
-};
-
-type PersistenceDriver = "in-memory" | "sqlite" | "postgres";
-
-interface CreateNotebookStoreOptions {
-  driver?: string;
-  sqlitePath?: string;
-  databaseUrl?: string;
-}
-
-interface NotebookStoreResult {
-  store: NotebookStore;
-  settings: SettingsStore;
-  users: UserStore;
-  authSessions: AuthSessionStore;
-  invitations: InvitationStore;
-  collaborators: NotebookCollaboratorStore;
-  projects: ProjectStore;
-  projectInvitations: ProjectInvitationStore;
-  projectCollaborators: ProjectCollaboratorStore;
-  driver: PersistenceDriver;
-}
-
-const resolvePersistenceDriver = (
-  raw: string | undefined
-): PersistenceDriver => {
-  const normalized = (raw ?? "sqlite").trim().toLowerCase();
-  if (normalized === "in-memory" || normalized === "memory") {
-    return "in-memory";
-  }
-  if (normalized === "sqlite") {
-    return "sqlite";
-  }
-  if (normalized === "postgres" || normalized === "postgresql") {
-    return "postgres";
-  }
-  throw new Error(
-    `Unsupported NODEBOOKS_PERSISTENCE value "${raw}". Use "in-memory", "sqlite", or "postgres".`
-  );
-};
-
-export const createNotebookStore = (
-  options: CreateNotebookStoreOptions = {},
-  config: ServerConfig = loadServerConfig()
-): NotebookStoreResult => {
-  const driver = resolvePersistenceDriver(
-    options.driver ?? config.persistence.driver
-  );
-  switch (driver) {
-    case "in-memory":
-      return {
-        store: new InMemoryNotebookStore(),
-        settings: new InMemorySettingsStore(),
-        users: new InMemoryUserStore(),
-        authSessions: new InMemoryAuthSessionStore(),
-        invitations: new InMemoryInvitationStore(),
-        collaborators: new InMemoryNotebookCollaboratorStore(),
-        projects: new InMemoryProjectStore(),
-        projectInvitations: new InMemoryProjectInvitationStore(),
-        projectCollaborators: new InMemoryProjectCollaboratorStore(),
-        driver,
-      };
-    case "sqlite": {
-      const sqliteStore = new SqliteNotebookStore({
-        databaseFile: options.sqlitePath ?? config.persistence.sqlitePath,
-      });
-      return {
-        store: sqliteStore,
-        settings: new SqliteSettingsStore(sqliteStore),
-        users: new SqliteUserStore(sqliteStore),
-        authSessions: new SqliteAuthSessionStore(sqliteStore),
-        invitations: new SqliteInvitationStore(sqliteStore),
-        collaborators: new SqliteNotebookCollaboratorStore(sqliteStore),
-        projects: new SqliteProjectStore(sqliteStore),
-        projectInvitations: new SqliteProjectInvitationStore(sqliteStore),
-        projectCollaborators: new SqliteProjectCollaboratorStore(sqliteStore),
-        driver,
-      };
-    }
-    case "postgres": {
-      const postgresStore = new PostgresNotebookStore({
-        connectionString: options.databaseUrl ?? config.persistence.databaseUrl,
-      });
-      return {
-        store: postgresStore,
-        settings: new PostgresSettingsStore(postgresStore),
-        users: new PostgresUserStore(postgresStore),
-        authSessions: new PostgresAuthSessionStore(postgresStore),
-        invitations: new PostgresInvitationStore(postgresStore),
-        collaborators: new PostgresNotebookCollaboratorStore(postgresStore),
-        projects: new PostgresProjectStore(postgresStore),
-        projectInvitations: new PostgresProjectInvitationStore(postgresStore),
-        projectCollaborators: new PostgresProjectCollaboratorStore(
-          postgresStore
-        ),
-        driver,
-      };
-    }
-  }
 };
