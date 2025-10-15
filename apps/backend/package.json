@@ -1,6 +1,6 @@
 {
   "name": "@nodebooks/server",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Fastify server that powers the NodeBooks API and embedded web app.",
   "author": "Julián Duque <julianduquej@gmail.com>",
   "license": "MIT",
