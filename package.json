@@ -1,7 +1,6 @@
 {
-  "name": "nodebooks",
+  "name": "nbks",
   "description": "Interactive notebook environment for Node.js",
-  "private": true,
   "version": "0.5.2",
   "repository": "https://github.com/julianduque/nodebooks",
   "keywords": [
@@ -15,8 +14,13 @@
     "apps/*",
     "packages/*"
   ],
+  "bin": {
+    "nbks": "./apps/cli/dist/index.js"
+  },
   "scripts": {
     "build": "pnpm -r build",
+    "prepack": "pnpm -r build",
+    "prepublishOnly": "pnpm -r build",
     "dev": "pnpm --filter @nodebooks/server dev",
     "ui:dev": "pnpm --filter @nodebooks/client dev",
     "api:dev": "pnpm --filter @nodebooks/server dev:api-only",
@@ -27,12 +31,16 @@
     "start": "pnpm --filter @nodebooks/server start"
   },
   "devDependencies": {
-    "@eslint/js": "^9.36.0",
-    "@next/eslint-plugin-next": "^15.5.4",
-    "eslint": "^9.36.0",
+    "@changesets/cli": "^2.29.7",
+    "@eslint/js": "^9.37.0",
+    "@next/eslint-plugin-next": "^15.5.5",
+    "eslint": "^9.37.0",
     "prettier": "^3.3.3",
-    "typescript-eslint": "^8.44.1"
+    "typescript-eslint": "^8.46.1"
   },
   "type": "module",
-  "packageManager": "pnpm@10.17.0+sha512.fce8a3dd29a4ed2ec566fb53efbb04d8c44a0f05bc6f24a73046910fb9c3ce7afa35a0980500668fa3573345bd644644fa98338fa168235c80f4aa17aa17fbef"
+  "packageManager": "pnpm@10.18.3+sha512.bbd16e6d7286fd7e01f6b3c0b3c932cda2965c06a908328f74663f10a9aea51f1129eea615134bf992831b009eabe167ecb7008b597f40ff9bc75946aadfb08d",
+  "dependencies": {
+    "@nodebooks/core": "link:"
+  }
 }

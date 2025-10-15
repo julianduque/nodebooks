@@ -54,6 +54,31 @@ pnpm install
   - Terminal 2 (UI): `pnpm ui:dev` (Next.js on http://localhost:3000)
   - The UI dev script is preconfigured with `NEXT_PUBLIC_API_BASE_URL=http://localhost:4000/api`.
 
+## CLI (nbks)
+
+The `@nodebooks/cli` workspace exposes an `nbks` binary for configuring and running the server locally. Once published it will also be installable via `npx nbks`, but you can exercise it in-repo today:
+
+```bash
+# Build the CLI (emits dist/index.js with the nbks entrypoint)
+pnpm --filter @nodebooks/cli build
+
+# Open the interactive config wizard to set persistence, theme, AI, admin user
+pnpm --filter @nodebooks/cli exec nbks config
+
+# Start the NodeBooks server using the saved config
+pnpm --filter @nodebooks/cli exec nbks
+
+# Reset the admin password (prompt for a value or auto-generate one)
+pnpm --filter @nodebooks/cli exec nbks reset
+```
+
+- Configuration lives at `~/.config/nodebooks/nodebooks.toml` (respects `XDG_CONFIG_HOME` on Linux). The CLI keeps sensitive values (like passwords or API keys) out of source control.
+- The default SQLite database path resolves to:
+  - `~/Library/Application Support/nodebooks/nodebooks.sqlite` on macOS
+  - `%APPDATA%\nodebooks\data\nodebooks.sqlite` on Windows
+  - `$XDG_DATA_HOME/nodebooks/nodebooks.sqlite` (or `~/.local/share/nodebooks/nodebooks.sqlite`) on Linux
+- When you run `nbks`, it synchronizes the admin user defined in the config with the chosen persistence store before launching `@nodebooks/server`.
+
 ## Accounts & Invitations
 
 - When the server starts with no users, visit `/signup` to create the initial admin account.

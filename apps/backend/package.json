@@ -2,11 +2,35 @@
   "name": "@nodebooks/server",
   "version": "0.1.0",
   "type": "module",
-  "main": "src/index.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./server": {
+      "types": "./dist/server.d.ts",
+      "import": "./dist/server.js"
+    },
+    "./auth/service": {
+      "types": "./dist/auth/service.d.ts",
+      "import": "./dist/auth/service.js"
+    },
+    "./auth/password": {
+      "types": "./dist/auth/password.d.ts",
+      "import": "./dist/auth/password.js"
+    },
+    "./store/factory": {
+      "types": "./dist/store/factory.d.ts",
+      "import": "./dist/store/factory.js"
+    },
+    "./package.json": "./package.json"
+  },
   "scripts": {
     "dev": "nodemon --watch src --ext ts,js --ignore ../client/.next --ignore ../client/node_modules --signal SIGTERM --exec tsx src/index.ts",
     "dev:api-only": "EMBED_NEXT=false nodemon --watch src --ext ts,js --ignore ../client/.next --ignore ../client/node_modules --signal SIGTERM --exec tsx src/index.ts",
-    "build": "tsc --project tsconfig.json",
+    "build": "tsc --project tsconfig.build.json",
     "start": "NODE_ENV=production node dist/index.js",
     "lint": "eslint src --ext .ts",
     "test": "vitest run"
