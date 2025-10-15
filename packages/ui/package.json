@@ -1,6 +1,6 @@
 {
   "name": "@nodebooks/ui",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "React components and styles used by the NodeBooks web client.",
   "author": "Julián Duque <julianduquej@gmail.com>",
   "license": "MIT",
