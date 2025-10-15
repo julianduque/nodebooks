@@ -1,6 +1,9 @@
 {
   "name": "@nodebooks/notebook-schema",
   "version": "0.1.0",
+  "description": "Zod schemas that describe NodeBooks notebooks, cells, and runtime data.",
+  "author": "Julián Duque <julianduquej@gmail.com>",
+  "license": "MIT",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -14,8 +17,12 @@
   "files": [
     "dist"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc --project tsconfig.build.json",
+    "prepack": "pnpm run build",
     "lint": "eslint .",
     "test": "vitest run",
     "dev": "tsc --project tsconfig.build.json --watch"

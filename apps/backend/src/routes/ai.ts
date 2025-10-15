@@ -11,7 +11,7 @@ import {
 import type { SettingsService } from "../settings/service.js";
 
 const { uiHelpersModuleDts } = await import(
-  "@nodebooks/notebook-ui/runtime/ui-helpers-dts"
+  "@nodebooks/ui/runtime/ui-helpers-dts"
 );
 
 const BodySchema = z

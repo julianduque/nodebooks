@@ -1,6 +1,6 @@
 import type { FormEvent } from "react";
 
-import { AlertCallout } from "@nodebooks/notebook-ui";
+import { AlertCallout } from "@nodebooks/ui";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {

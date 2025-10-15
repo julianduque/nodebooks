@@ -1,7 +1,7 @@
 @source "./**/*.{ts,tsx}" \
         "../components/**/*.{ts,tsx}" \
         "../pages/**/*.{ts,tsx}" \
-        "../node_modules/**/@nodebooks/notebook-ui/src/**/*.{ts,tsx}" \
+        "../node_modules/**/@nodebooks/ui/src/**/*.{ts,tsx}" \
         "../../../packages/notebook-ui/src/**/*.{ts,tsx}";
 
 :root {

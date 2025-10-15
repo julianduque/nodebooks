@@ -1,7 +1,6 @@
 {
   "name": "@nodebooks/client",
   "version": "0.1.0",
-  "private": true,
   "scripts": {
     "dev": "NEXT_PUBLIC_SITE_URL=http://localhost:4000 NEXT_PUBLIC_API_BASE_URL=http://localhost:4000/api next dev",
     "build": "next build",
@@ -13,7 +12,7 @@
     "@monaco-editor/react": "^4.7.0",
     "@nodebooks/config": "workspace:*",
     "@nodebooks/notebook-schema": "workspace:*",
-    "@nodebooks/notebook-ui": "workspace:*",
+    "@nodebooks/ui": "workspace:*",
     "@radix-ui/react-alert-dialog": "^1.1.15",
     "@radix-ui/react-dialog": "^1.1.15",
     "@radix-ui/react-scroll-area": "^1.2.10",

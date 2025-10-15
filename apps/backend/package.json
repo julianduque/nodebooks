@@ -1,6 +1,9 @@
 {
   "name": "@nodebooks/server",
   "version": "0.1.0",
+  "description": "Fastify server that powers the NodeBooks API and embedded web app.",
+  "author": "Julián Duque <julianduquej@gmail.com>",
+  "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -27,10 +30,20 @@
     },
     "./package.json": "./package.json"
   },
+  "files": [
+    "dist",
+    "client"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "dev": "nodemon --watch src --ext ts,js --ignore ../client/.next --ignore ../client/node_modules --signal SIGTERM --exec tsx src/index.ts",
     "dev:api-only": "EMBED_NEXT=false nodemon --watch src --ext ts,js --ignore ../client/.next --ignore ../client/node_modules --signal SIGTERM --exec tsx src/index.ts",
     "build": "tsc --project tsconfig.build.json",
+    "build:client": "pnpm --filter @nodebooks/client build",
+    "prepare:client": "node ../../scripts/embed-client-assets.mjs",
+    "prepack": "pnpm run build && pnpm run build:client && pnpm run prepare:client",
     "start": "NODE_ENV=production node dist/index.js",
     "lint": "eslint src --ext .ts",
     "test": "vitest run"
@@ -44,7 +57,7 @@
     "@lydell/node-pty": "^1.1.0",
     "@nodebooks/config": "workspace:*",
     "@nodebooks/notebook-schema": "workspace:*",
-    "@nodebooks/notebook-ui": "workspace:*",
+    "@nodebooks/ui": "workspace:*",
     "@nodebooks/runtime-host": "workspace:*",
     "@nodebooks/runtime-node": "workspace:*",
     "@nodebooks/runtime-node-worker": "workspace:*",

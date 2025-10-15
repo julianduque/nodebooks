@@ -9,8 +9,8 @@ import { formatWithOptions, inspect, promisify } from "node:util";
 import vm from "node:vm";
 import { transform } from "esbuild";
 import { loadRuntimeConfig } from "@nodebooks/config";
-import { uiHelpersDts } from "@nodebooks/notebook-ui/runtime/ui-helpers-dts";
-import { uiHelpersModuleJs } from "@nodebooks/notebook-ui/runtime/ui-helpers-module";
+import { uiHelpersDts } from "@nodebooks/ui/runtime/ui-helpers-dts";
+import { uiHelpersModuleJs } from "@nodebooks/ui/runtime/ui-helpers-module";
 
 const execFileAsync = promisify(execFile);
 const DEFAULT_WORKSPACE_ROOT = join(tmpdir(), "nodebooks-runtime");

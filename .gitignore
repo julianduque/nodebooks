@@ -5,6 +5,7 @@ node_modules
 out
 dist
 build
+apps/backend/client
 .DS_Store
 .env
 .env.local

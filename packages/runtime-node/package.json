@@ -1,6 +1,9 @@
 {
   "name": "@nodebooks/runtime-node",
   "version": "0.1.0",
+  "description": "Node.js runtime harness that executes notebook code for NodeBooks.",
+  "author": "Julián Duque <julianduquej@gmail.com>",
+  "license": "MIT",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -16,15 +19,19 @@
   ],
   "scripts": {
     "build": "tsc --project tsconfig.build.json",
+    "prepack": "pnpm run build",
     "lint": "eslint .",
     "test": "vitest run",
     "dev": "tsc --project tsconfig.build.json --watch"
   },
   "dependencies": {
     "@nodebooks/config": "workspace:*",
-    "@nodebooks/notebook-ui": "workspace:*",
+    "@nodebooks/ui": "workspace:*",
     "@nodebooks/notebook-schema": "workspace:*",
     "esbuild": "^0.25.10"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "devDependencies": {
     "@types/node": "^24.5.2",

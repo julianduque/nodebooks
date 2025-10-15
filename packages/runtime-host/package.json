@@ -1,11 +1,18 @@
 {
   "name": "@nodebooks/runtime-host",
   "version": "0.1.0",
+  "description": "Host process utilities that coordinate the NodeBooks execution runtimes.",
+  "author": "Julián Duque <julianduquej@gmail.com>",
+  "license": "MIT",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
+    "prepack": "pnpm run build",
     "pretest": "pnpm --filter @nodebooks/runtime-node-worker build",
     "lint": "eslint src --ext .ts",
     "test": "vitest run"
@@ -14,6 +21,9 @@
     "@nodebooks/runtime-protocol": "workspace:*",
     "@nodebooks/notebook-schema": "workspace:*",
     "@nodebooks/runtime-node-worker": "workspace:*"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "devDependencies": {
     "typescript": "^5.9.2",

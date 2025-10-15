@@ -9,7 +9,7 @@ import CellCard from "@/components/notebook/cell-card";
 import OutputView from "@/components/notebook/output-view";
 import type { AttachmentMetadata } from "@/components/notebook/attachment-utils";
 import { cellUri } from "@/components/notebook/monaco-models";
-import { AlertCallout } from "@nodebooks/notebook-ui";
+import { AlertCallout } from "@nodebooks/ui";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Eraser, Loader2, XCircle } from "lucide-react";

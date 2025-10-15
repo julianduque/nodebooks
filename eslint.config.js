@@ -21,8 +21,8 @@ export default [
       "**/next.config.*",
       "**/postcss.config.*",
       "**/tailwind.config.*",
-      "packages/notebook-ui/src/runtime/ui-helpers-dts.js",
-      "packages/notebook-ui/src/runtime/ui-helpers-module.js",
+      "packages/ui/src/runtime/ui-helpers-dts.js",
+      "packages/ui/src/runtime/ui-helpers-module.js",
     ],
   },
   {

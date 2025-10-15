@@ -1,5 +1,7 @@
 # NodeBooks
 
+![NodeBooks Logo](./apps/client/public/assets/nodebooks-logo-64x64.png)
+
 NodeBooks is a JS/TS notebook environment. It supports editing Markdown and code cells, executing TypeScript/JavaScript, and streaming outputs to the browser in real time.
 
 ## Features

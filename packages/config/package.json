@@ -1,6 +1,9 @@
 {
   "name": "@nodebooks/config",
   "version": "0.1.0",
+  "description": "Shared configuration loaders and helpers for NodeBooks services.",
+  "author": "Julián Duque <julianduquej@gmail.com>",
+  "license": "MIT",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -24,8 +27,12 @@
   "files": [
     "dist"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
+    "prepack": "pnpm run build",
     "lint": "eslint src --ext .ts",
     "test": "vitest run || exit 0",
     "dev": "tsc -p tsconfig.build.json --watch"
