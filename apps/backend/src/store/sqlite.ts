@@ -1,10 +1,8 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import initSqlJs, {
-  type Database as SqlDatabase,
-  type SqlJsStatic,
-} from "sql.js";
+import sqlite from "node:sqlite";
+import { DatabaseSync } from "node:sqlite";
 import { customAlphabet } from "nanoid";
 import {
   ensureNotebookRuntimeVersion,
@@ -42,6 +40,205 @@ import type {
   ProjectRole,
 } from "../types.js";
 
+type SqlRunResult = {
+  changes?: number | bigint;
+  lastInsertRowid?: number | bigint;
+};
+
+type SqlStatement = {
+  run: (...params: unknown[]) => SqlRunResult | Promise<SqlRunResult>;
+  get: (
+    ...params: unknown[]
+  ) =>
+    | (Record<string, unknown> | undefined)
+    | Promise<Record<string, unknown> | undefined>;
+  all: (
+    ...params: unknown[]
+  ) => Record<string, unknown>[] | Promise<Record<string, unknown>[]>;
+  iterate: (
+    ...params: unknown[]
+  ) =>
+    | Iterable<Record<string, unknown>>
+    | AsyncIterable<Record<string, unknown>>;
+  close?: () => void | Promise<void>;
+  finalize?: () => void | Promise<void>;
+};
+
+type SqlDatabase = {
+  prepare: (sql: string) => SqlStatement | Promise<SqlStatement>;
+  exec?: (sql: string) => void | Promise<void>;
+  close?: () => void | Promise<void>;
+};
+
+type StatementParams =
+  | ReadonlyArray<unknown>
+  | Record<string, unknown>
+  | undefined;
+
+async function openDatabase(file: string): Promise<SqlDatabase> {
+  const maybeDatabaseFactory = (
+    sqlite as unknown as {
+      Database?: { open: (path: string) => Promise<SqlDatabase> };
+    }
+  ).Database;
+
+  if (maybeDatabaseFactory?.open) {
+    return maybeDatabaseFactory.open(file);
+  }
+
+  return new DatabaseSync(file) as unknown as SqlDatabase;
+}
+
+function isAsyncIterable<T>(value: unknown): value is AsyncIterable<T> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as AsyncIterable<T>)[Symbol.asyncIterator] === "function"
+  );
+}
+
+function isIterable<T>(value: unknown): value is Iterable<T> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as Iterable<T>)[Symbol.iterator] === "function"
+  );
+}
+
+function toAsyncIterable<T>(
+  source: Iterable<T> | AsyncIterable<T>
+): AsyncIterable<T> {
+  if (isAsyncIterable<T>(source)) {
+    return source;
+  }
+
+  if (isIterable<T>(source)) {
+    return {
+      async *[Symbol.asyncIterator]() {
+        for (const item of source) {
+          yield item;
+        }
+      },
+    };
+  }
+
+  throw new TypeError(
+    "Statement iterator is neither iterable nor async iterable"
+  );
+}
+
+function callWithParams<T>(
+  fn: (...args: unknown[]) => T,
+  params?: StatementParams
+): T {
+  if (Array.isArray(params)) {
+    return fn(...params);
+  }
+  if (params && typeof params === "object") {
+    return fn(params);
+  }
+  return fn();
+}
+
+async function finalizeStatement(statement: SqlStatement) {
+  if (typeof statement.finalize === "function") {
+    await statement.finalize();
+    return;
+  }
+  if (typeof statement.close === "function") {
+    await statement.close();
+  }
+}
+
+async function withStatement<T>(
+  db: SqlDatabase,
+  sql: string,
+  handler: (statement: SqlStatement) => Promise<T>
+): Promise<T> {
+  const prepared = db.prepare(sql);
+  const statement = await Promise.resolve(prepared);
+  try {
+    return await handler(statement as SqlStatement);
+  } finally {
+    await finalizeStatement(statement as SqlStatement);
+  }
+}
+
+async function execSql(db: SqlDatabase, sql: string): Promise<void> {
+  if (typeof db.exec === "function") {
+    await Promise.resolve(db.exec(sql));
+    return;
+  }
+
+  await withStatement(db, sql, async (statement) => {
+    await Promise.resolve(statement.run());
+  });
+}
+
+async function runSql(
+  db: SqlDatabase,
+  sql: string,
+  params?: StatementParams
+): Promise<SqlRunResult> {
+  try {
+    return await withStatement(db, sql, async (statement) => {
+      const result = callWithParams(
+        (...args: unknown[]) => statement.run(...args),
+        params
+      );
+      return (await Promise.resolve(result)) as SqlRunResult;
+    });
+  } catch (error) {
+    const details =
+      params && typeof params !== "function"
+        ? Array.isArray(params)
+          ? params
+          : [params]
+        : [];
+    const message =
+      error instanceof Error
+        ? error.message
+        : typeof error === "string"
+          ? error
+          : "Unknown error";
+    throw new Error(
+      `SQLite run failed for SQL: ${sql} with params: ${JSON.stringify(details)} - ${message}`
+    );
+  }
+}
+
+async function getRow<T extends Record<string, unknown> | undefined>(
+  db: SqlDatabase,
+  sql: string,
+  params?: StatementParams
+): Promise<T | undefined> {
+  return withStatement(db, sql, async (statement) => {
+    const row = callWithParams(
+      (...args: unknown[]) => statement.get(...args),
+      params
+    );
+    return (await Promise.resolve(row)) as T | undefined;
+  });
+}
+
+async function getAllRows<T extends Record<string, unknown>>(
+  db: SqlDatabase,
+  sql: string,
+  params?: StatementParams
+): Promise<T[]> {
+  return withStatement(db, sql, async (statement) => {
+    const iterable = callWithParams(
+      (...args: unknown[]) => statement.iterate(...args),
+      params
+    );
+    const rows: T[] = [];
+    for await (const row of toAsyncIterable(iterable)) {
+      rows.push(row as T);
+    }
+    return rows;
+  });
+}
+
 export interface SqliteNotebookStoreOptions {
   databaseFile?: string;
 }
@@ -52,7 +249,6 @@ export class SqliteNotebookStore implements NotebookStore {
   private db!: SqlDatabase;
   private readonly file: string;
   private readonly ready: Promise<void>;
-  private sqlModule!: SqlJsStatic;
   private readonly nanoid = customAlphabet(
     "1234567890abcdefghijklmnopqrstuvwxyz",
     12
@@ -71,39 +267,30 @@ export class SqliteNotebookStore implements NotebookStore {
 
   async all(): Promise<Notebook[]> {
     await this.ready;
-    const statement = this.db.prepare(
+    const rows = await getAllRows<{ data?: string }>(
+      this.db,
       "SELECT data FROM notebooks ORDER BY updated_at DESC, id ASC"
     );
-
     const notebooks: Notebook[] = [];
-    while (statement.step()) {
-      const row = statement.getAsObject() as { data?: string };
-      if (row.data) {
+    for (const row of rows) {
+      if (typeof row.data === "string") {
         notebooks.push(this.deserialize(row.data));
       }
     }
-    statement.free();
-
     return notebooks;
   }
 
   async get(id: string): Promise<Notebook | undefined> {
     await this.ready;
-    const statement = this.db.prepare(
-      "SELECT data FROM notebooks WHERE id = ?1 LIMIT 1"
+    const row = await getRow<{ data?: string } | undefined>(
+      this.db,
+      "SELECT data FROM notebooks WHERE id = ? LIMIT 1",
+      [id]
     );
-    statement.bind([id]);
-
-    let notebook: Notebook | undefined;
-    if (statement.step()) {
-      const row = statement.getAsObject() as { data?: string };
-      if (row.data) {
-        notebook = this.deserialize(row.data);
-      }
+    if (!row?.data) {
+      return undefined;
     }
-    statement.free();
-
-    return notebook;
+    return this.deserialize(row.data);
   }
 
   async getByPublicSlug(slug: string): Promise<Notebook | undefined> {
@@ -113,21 +300,15 @@ export class SqliteNotebookStore implements NotebookStore {
       return undefined;
     }
 
-    const statement = this.db.prepare(
-      "SELECT data FROM notebooks WHERE public_slug = ?1 LIMIT 1"
+    const row = await getRow<{ data?: string } | undefined>(
+      this.db,
+      "SELECT data FROM notebooks WHERE public_slug = ? LIMIT 1",
+      [normalized]
     );
-    statement.bind([normalized]);
-
-    let notebook: Notebook | undefined;
-    if (statement.step()) {
-      const row = statement.getAsObject() as { data?: string };
-      if (row.data) {
-        notebook = this.deserialize(row.data);
-      }
+    if (!row?.data) {
+      return undefined;
     }
-    statement.free();
-
-    return notebook;
+    return this.deserialize(row.data);
   }
 
   async save(notebook: Notebook): Promise<Notebook> {
@@ -152,29 +333,26 @@ export class SqliteNotebookStore implements NotebookStore {
       published: Boolean(parsed.published),
     };
 
-    const statement = this.db.prepare(
+    await runSql(
+      this.db,
       `INSERT INTO notebooks (id, name, data, created_at, updated_at, published, public_slug)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          name = excluded.name,
          data = excluded.data,
          updated_at = excluded.updated_at,
          published = excluded.published,
-         public_slug = excluded.public_slug`
+         public_slug = excluded.public_slug`,
+      [
+        sanitized.id,
+        sanitized.name,
+        JSON.stringify(sanitized),
+        sanitized.createdAt,
+        sanitized.updatedAt,
+        sanitized.published ? 1 : 0,
+        sanitized.publicSlug ?? null,
+      ]
     );
-
-    statement.run([
-      sanitized.id,
-      sanitized.name,
-      JSON.stringify(sanitized),
-      sanitized.createdAt,
-      sanitized.updatedAt,
-      sanitized.published ? 1 : 0,
-      sanitized.publicSlug ?? null,
-    ]);
-    statement.free();
-
-    await this.persistToDisk();
     return sanitized;
   }
 
@@ -185,41 +363,34 @@ export class SqliteNotebookStore implements NotebookStore {
       return undefined;
     }
 
-    const attachmentsStatement = this.db.prepare(
-      "DELETE FROM attachments WHERE notebook_id = ?1"
-    );
-    attachmentsStatement.run([id]);
-    attachmentsStatement.free();
+    await runSql(this.db, "DELETE FROM attachments WHERE notebook_id = ?", [
+      id,
+    ]);
 
-    const statement = this.db.prepare("DELETE FROM notebooks WHERE id = ?1");
-    statement.run([id]);
-    statement.free();
-
-    await this.persistToDisk();
+    await runSql(this.db, "DELETE FROM notebooks WHERE id = ?", [id]);
     return existing;
   }
 
   async listAttachments(notebookId: string): Promise<NotebookAttachment[]> {
     await this.ready;
-    const statement = this.db.prepare(
+    const rows = await getAllRows<{
+      id: string;
+      notebook_id: string;
+      filename: string;
+      mime_type: string;
+      size: number;
+      created_at: string;
+      updated_at: string;
+    }>(
+      this.db,
       `SELECT id, notebook_id, filename, mime_type, size, created_at, updated_at
        FROM attachments
-       WHERE notebook_id = ?1
-       ORDER BY created_at DESC, id ASC`
+       WHERE notebook_id = ?
+       ORDER BY created_at DESC, id ASC`,
+      [notebookId]
     );
-    statement.bind([notebookId]);
-
     const attachments: NotebookAttachment[] = [];
-    while (statement.step()) {
-      const row = statement.getAsObject() as {
-        id: string;
-        notebook_id: string;
-        filename: string;
-        mime_type: string;
-        size: number;
-        created_at: string;
-        updated_at: string;
-      };
+    for (const row of rows) {
       attachments.push({
         id: row.id,
         notebookId: row.notebook_id,
@@ -230,7 +401,6 @@ export class SqliteNotebookStore implements NotebookStore {
         updatedAt: row.updated_at,
       });
     }
-    statement.free();
     return attachments;
   }
 
@@ -239,39 +409,39 @@ export class SqliteNotebookStore implements NotebookStore {
     attachmentId: string
   ): Promise<NotebookAttachmentContent | undefined> {
     await this.ready;
-    const statement = this.db.prepare(
+    const row = await getRow<
+      | {
+          id: string;
+          notebook_id: string;
+          filename: string;
+          mime_type: string;
+          size: number;
+          created_at: string;
+          updated_at: string;
+          content: Uint8Array;
+        }
+      | undefined
+    >(
+      this.db,
       `SELECT id, notebook_id, filename, mime_type, size, content, created_at, updated_at
        FROM attachments
-       WHERE notebook_id = ?1 AND id = ?2
-       LIMIT 1`
+       WHERE notebook_id = ? AND id = ?
+       LIMIT 1`,
+      [notebookId, attachmentId]
     );
-    statement.bind([notebookId, attachmentId]);
-
-    let attachment: NotebookAttachmentContent | undefined;
-    if (statement.step()) {
-      const row = statement.getAsObject() as {
-        id: string;
-        notebook_id: string;
-        filename: string;
-        mime_type: string;
-        size: number;
-        created_at: string;
-        updated_at: string;
-        content: Uint8Array;
-      };
-      attachment = {
-        id: row.id,
-        notebookId: row.notebook_id,
-        filename: row.filename,
-        mimeType: row.mime_type,
-        size: row.size,
-        createdAt: row.created_at,
-        updatedAt: row.updated_at,
-        content: row.content,
-      };
+    if (!row) {
+      return undefined;
     }
-    statement.free();
-    return attachment;
+    return {
+      id: row.id,
+      notebookId: row.notebook_id,
+      filename: row.filename,
+      mimeType: row.mime_type,
+      size: row.size,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      content: row.content,
+    };
   }
 
   async saveAttachment(
@@ -292,25 +462,13 @@ export class SqliteNotebookStore implements NotebookStore {
     const content = new Uint8Array(input.content);
     const size = content.byteLength;
 
-    const statement = this.db.prepare(
+    await runSql(
+      this.db,
       `INSERT INTO attachments (
         id, notebook_id, filename, mime_type, size, content, created_at, updated_at
-      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, notebookId, input.filename, input.mimeType, size, content, now, now]
     );
-
-    statement.run([
-      id,
-      notebookId,
-      input.filename,
-      input.mimeType,
-      size,
-      content,
-      now,
-      now,
-    ]);
-    statement.free();
-
-    await this.persistToDisk();
 
     return {
       id,
@@ -328,17 +486,13 @@ export class SqliteNotebookStore implements NotebookStore {
     attachmentId: string
   ): Promise<boolean> {
     await this.ready;
-    const statement = this.db.prepare(
-      "DELETE FROM attachments WHERE notebook_id = ?1 AND id = ?2"
+    const result = await runSql(
+      this.db,
+      "DELETE FROM attachments WHERE notebook_id = ? AND id = ?",
+      [notebookId, attachmentId]
     );
-    statement.run([notebookId, attachmentId]);
-    statement.free();
-    const changes = this.db.getRowsModified();
-    if (changes > 0) {
-      await this.persistToDisk();
-      return true;
-    }
-    return false;
+    const changes = Number(result.changes ?? 0);
+    return changes > 0;
   }
 
   async ensureReady() {
@@ -353,31 +507,21 @@ export class SqliteNotebookStore implements NotebookStore {
   }
 
   async flush() {
-    await this.persistToDisk();
+    await this.ready;
   }
 
   private async initialize() {
-    const here = path.dirname(fileURLToPath(import.meta.url));
-    const apiRoot = path.resolve(here, "../../");
-    const locateFile = (file: string) =>
-      path.resolve(apiRoot, "node_modules/sql.js/dist", file);
-
-    this.sqlModule = await initSqlJs({ locateFile });
-
-    if (this.file !== ":memory:" && !(await this.fileExists(this.file))) {
+    if (this.file !== ":memory:") {
       await fs.mkdir(path.dirname(this.file), { recursive: true });
     }
 
-    if (this.file !== ":memory:" && (await this.fileExists(this.file))) {
-      const buffer = await fs.readFile(this.file);
-      this.db = new this.sqlModule.Database(new Uint8Array(buffer));
-    } else {
-      this.db = new this.sqlModule.Database();
-    }
+    this.db = await openDatabase(this.file);
 
-    this.db.run("PRAGMA foreign_keys = ON");
+    await execSql(this.db, "PRAGMA journal_mode = WAL");
+    await execSql(this.db, "PRAGMA foreign_keys = ON");
 
-    this.db.run(
+    await execSql(
+      this.db,
       `CREATE TABLE IF NOT EXISTS notebooks (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
@@ -389,13 +533,15 @@ export class SqliteNotebookStore implements NotebookStore {
       )`
     );
 
-    this.db.run(
+    await execSql(
+      this.db,
       `CREATE INDEX IF NOT EXISTS idx_notebooks_updated_at
         ON notebooks (updated_at DESC)`
     );
 
     try {
-      this.db.run(
+      await execSql(
+        this.db,
         `ALTER TABLE notebooks ADD COLUMN published INTEGER NOT NULL DEFAULT 0`
       );
     } catch (error) {
@@ -403,17 +549,22 @@ export class SqliteNotebookStore implements NotebookStore {
     }
 
     try {
-      this.db.run(`ALTER TABLE notebooks ADD COLUMN public_slug TEXT`);
+      await execSql(
+        this.db,
+        `ALTER TABLE notebooks ADD COLUMN public_slug TEXT`
+      );
     } catch (error) {
       void error;
     }
 
-    this.db.run(
+    await execSql(
+      this.db,
       `CREATE UNIQUE INDEX IF NOT EXISTS idx_notebooks_public_slug
         ON notebooks (public_slug)`
     );
 
-    this.db.run(
+    await execSql(
+      this.db,
       `CREATE TABLE IF NOT EXISTS attachments (
         id TEXT PRIMARY KEY,
         notebook_id TEXT NOT NULL,
@@ -427,12 +578,14 @@ export class SqliteNotebookStore implements NotebookStore {
       )`
     );
 
-    this.db.run(
+    await execSql(
+      this.db,
       `CREATE INDEX IF NOT EXISTS idx_attachments_notebook
         ON attachments (notebook_id, created_at DESC, id ASC)`
     );
 
-    this.db.run(
+    await execSql(
+      this.db,
       `CREATE TABLE IF NOT EXISTS settings (
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL,
@@ -440,12 +593,14 @@ export class SqliteNotebookStore implements NotebookStore {
       )`
     );
 
-    this.db.run(
+    await execSql(
+      this.db,
       `CREATE INDEX IF NOT EXISTS idx_settings_updated_at
         ON settings (updated_at DESC, key ASC)`
     );
 
-    this.db.run(
+    await execSql(
+      this.db,
       `CREATE TABLE IF NOT EXISTS users (
         id TEXT PRIMARY KEY,
         email TEXT NOT NULL UNIQUE,
@@ -457,7 +612,8 @@ export class SqliteNotebookStore implements NotebookStore {
       )`
     );
 
-    this.db.run(
+    await execSql(
+      this.db,
       `CREATE TABLE IF NOT EXISTS projects (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
@@ -469,30 +625,34 @@ export class SqliteNotebookStore implements NotebookStore {
     );
 
     try {
-      this.db.run(`ALTER TABLE projects ADD COLUMN slug TEXT`);
+      await execSql(this.db, `ALTER TABLE projects ADD COLUMN slug TEXT`);
     } catch (error) {
       void error;
     }
 
     try {
-      this.db.run(
+      await execSql(
+        this.db,
         `ALTER TABLE projects ADD COLUMN published INTEGER NOT NULL DEFAULT 0`
       );
     } catch (error) {
       void error;
     }
 
-    this.db.run(
+    await execSql(
+      this.db,
       `CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_slug
         ON projects (slug)`
     );
 
-    this.db.run(
+    await execSql(
+      this.db,
       `CREATE INDEX IF NOT EXISTS idx_projects_created_at
         ON projects (created_at ASC, id ASC)`
     );
 
-    this.db.run(
+    await execSql(
+      this.db,
       `CREATE TABLE IF NOT EXISTS user_sessions (
         id TEXT PRIMARY KEY,
         user_id TEXT NOT NULL,
@@ -505,12 +665,14 @@ export class SqliteNotebookStore implements NotebookStore {
       )`
     );
 
-    this.db.run(
+    await execSql(
+      this.db,
       `CREATE INDEX IF NOT EXISTS idx_user_sessions_user
         ON user_sessions (user_id, updated_at DESC)`
     );
 
-    this.db.run(
+    await execSql(
+      this.db,
       `CREATE TABLE IF NOT EXISTS user_invitations (
         id TEXT PRIMARY KEY,
         email TEXT NOT NULL,
@@ -528,23 +690,29 @@ export class SqliteNotebookStore implements NotebookStore {
       )`
     );
 
-    this.db.run(
+    await execSql(
+      this.db,
       `CREATE INDEX IF NOT EXISTS idx_user_invitations_email
         ON user_invitations (email, created_at DESC, id ASC)`
     );
 
     try {
-      this.db.run(`ALTER TABLE user_invitations ADD COLUMN notebook_id TEXT`);
+      await execSql(
+        this.db,
+        `ALTER TABLE user_invitations ADD COLUMN notebook_id TEXT`
+      );
     } catch (error) {
       void error;
     }
 
-    this.db.run(
+    await execSql(
+      this.db,
       `CREATE INDEX IF NOT EXISTS idx_user_invitations_notebook
         ON user_invitations (notebook_id, created_at DESC, id ASC)`
     );
 
-    this.db.run(
+    await execSql(
+      this.db,
       `CREATE TABLE IF NOT EXISTS notebook_collaborators (
         id TEXT PRIMARY KEY,
         notebook_id TEXT NOT NULL,
@@ -558,12 +726,14 @@ export class SqliteNotebookStore implements NotebookStore {
       )`
     );
 
-    this.db.run(
+    await execSql(
+      this.db,
       `CREATE INDEX IF NOT EXISTS idx_notebook_collaborators_user
         ON notebook_collaborators (user_id, notebook_id)`
     );
 
-    this.db.run(
+    await execSql(
+      this.db,
       `CREATE TABLE IF NOT EXISTS project_collaborators (
         id TEXT PRIMARY KEY,
         project_id TEXT NOT NULL,
@@ -577,12 +747,14 @@ export class SqliteNotebookStore implements NotebookStore {
       )`
     );
 
-    this.db.run(
+    await execSql(
+      this.db,
       `CREATE INDEX IF NOT EXISTS idx_project_collaborators_user
         ON project_collaborators (user_id, project_id)`
     );
 
-    this.db.run(
+    await execSql(
+      this.db,
       `CREATE TABLE IF NOT EXISTS project_invitations (
         id TEXT PRIMARY KEY,
         email TEXT NOT NULL,
@@ -600,39 +772,22 @@ export class SqliteNotebookStore implements NotebookStore {
       )`
     );
 
-    this.db.run(
+    await execSql(
+      this.db,
       `CREATE INDEX IF NOT EXISTS idx_project_invitations_email
         ON project_invitations (email, created_at DESC, id ASC)`
     );
 
-    this.db.run(
+    await execSql(
+      this.db,
       `CREATE INDEX IF NOT EXISTS idx_project_invitations_project
         ON project_invitations (project_id, created_at DESC, id ASC)`
     );
-
-    await this.persistToDisk();
-  }
-
-  private async persistToDisk() {
-    if (this.file === ":memory:") {
-      return;
-    }
-    const data = this.db.export();
-    await fs.writeFile(this.file, Buffer.from(data));
   }
 
   private deserialize(raw: string): Notebook {
     const data = JSON.parse(raw);
     return ensureNotebookRuntimeVersion(NotebookSchema.parse(data));
-  }
-
-  private async fileExists(target: string) {
-    try {
-      await fs.access(target);
-      return true;
-    } catch {
-      return false;
-    }
   }
 }
 
@@ -646,40 +801,31 @@ export class SqliteSettingsStore implements SettingsStore {
 
   async all(): Promise<Record<string, unknown>> {
     const db = await this.getDb();
-    const statement = db.prepare("SELECT key, value FROM settings");
     const result: Record<string, unknown> = {};
-    try {
-      while (statement.step()) {
-        const row = statement.getAsObject() as { key?: string; value?: string };
-        if (!row.key) {
-          continue;
-        }
-        result[row.key] = row.value ? JSON.parse(row.value) : null;
+    const rows = await getAllRows<{ key?: string; value?: string }>(
+      db,
+      "SELECT key, value FROM settings"
+    );
+    for (const row of rows) {
+      if (!row.key) {
+        continue;
       }
-    } finally {
-      statement.free();
+      result[row.key] = row.value ? JSON.parse(row.value) : null;
     }
     return result;
   }
 
   async get<T = unknown>(key: string): Promise<T | undefined> {
     const db = await this.getDb();
-    const statement = db.prepare(
-      "SELECT value FROM settings WHERE key = ?1 LIMIT 1"
+    const row = await getRow<{ value?: string } | undefined>(
+      db,
+      "SELECT value FROM settings WHERE key = ? LIMIT 1",
+      [key]
     );
-    statement.bind([key]);
-    try {
-      if (!statement.step()) {
-        return undefined;
-      }
-      const row = statement.getAsObject() as { value?: string };
-      if (row.value == null) {
-        return undefined;
-      }
-      return JSON.parse(row.value) as T;
-    } finally {
-      statement.free();
+    if (row?.value == null) {
+      return undefined;
     }
+    return JSON.parse(row.value) as T;
   }
 
   async set<T = unknown>(key: string, value: T): Promise<void> {
@@ -688,31 +834,23 @@ export class SqliteSettingsStore implements SettingsStore {
       return;
     }
     const db = await this.getDb();
-    const statement = db.prepare(
-      `INSERT INTO settings (key, value, updated_at)
-       VALUES (?1, ?2, ?3)
-       ON CONFLICT(key) DO UPDATE SET
-         value = excluded.value,
-         updated_at = excluded.updated_at`
-    );
     const payload = JSON.stringify(value ?? null);
     const updatedAt = new Date().toISOString();
-    try {
-      statement.run([key, payload, updatedAt]);
-    } finally {
-      statement.free();
-    }
+    await runSql(
+      db,
+      `INSERT INTO settings (key, value, updated_at)
+       VALUES (?, ?, ?)
+       ON CONFLICT(key) DO UPDATE SET
+         value = excluded.value,
+         updated_at = excluded.updated_at`,
+      [key, payload, updatedAt]
+    );
     await this.notebooks.flush();
   }
 
   async delete(key: string): Promise<void> {
     const db = await this.getDb();
-    const statement = db.prepare("DELETE FROM settings WHERE key = ?1");
-    try {
-      statement.run([key]);
-    } finally {
-      statement.free();
-    }
+    await runSql(db, "DELETE FROM settings WHERE key = ?", [key]);
     await this.notebooks.flush();
   }
 }
@@ -851,12 +989,11 @@ export class SqliteUserStore implements UserStore {
     const now = new Date().toISOString();
     const id = userNanoid();
     const email = input.email.trim().toLowerCase();
-    const statement = db.prepare(
+    await runSql(
+      db,
       `INSERT INTO users (id, email, name, role, password_hash, created_at, updated_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`
-    );
-    try {
-      statement.run([
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
         id,
         email,
         input.name?.trim() ?? null,
@@ -864,10 +1001,8 @@ export class SqliteUserStore implements UserStore {
         input.passwordHash,
         now,
         now,
-      ]);
-    } finally {
-      statement.free();
-    }
+      ]
+    );
     await this.notebooks.flush();
     const created = await this.get(id);
     if (!created) {
@@ -878,52 +1013,44 @@ export class SqliteUserStore implements UserStore {
 
   async get(id: string): Promise<User | undefined> {
     const db = await this.getDb();
-    const statement = db.prepare(
-      `SELECT id, email, name, role, password_hash, created_at, updated_at FROM users WHERE id = ?1 LIMIT 1`
+    const row = await getRow<
+      | {
+          id: string;
+          email: string;
+          name: string | null;
+          role: string;
+          password_hash: string;
+          created_at: string;
+          updated_at: string;
+        }
+      | undefined
+    >(
+      db,
+      `SELECT id, email, name, role, password_hash, created_at, updated_at FROM users WHERE id = ? LIMIT 1`,
+      [id]
     );
-    statement.bind([id]);
-    try {
-      if (!statement.step()) {
-        return undefined;
-      }
-      const row = statement.getAsObject() as {
-        id: string;
-        email: string;
-        name: string | null;
-        role: string;
-        password_hash: string;
-        created_at: string;
-        updated_at: string;
-      };
-      return mapUserRow(row);
-    } finally {
-      statement.free();
-    }
+    return row ? mapUserRow(row) : undefined;
   }
 
   async findByEmail(email: string): Promise<User | undefined> {
     const db = await this.getDb();
-    const statement = db.prepare(
-      `SELECT id, email, name, role, password_hash, created_at, updated_at FROM users WHERE email = ?1 LIMIT 1`
+    const row = await getRow<
+      | {
+          id: string;
+          email: string;
+          name: string | null;
+          role: string;
+          password_hash: string;
+          created_at: string;
+          updated_at: string;
+        }
+      | undefined
+    >(
+      db,
+      `SELECT id, email, name, role, password_hash, created_at, updated_at FROM users WHERE email = ? LIMIT 1`,
+      [email.trim().toLowerCase()]
     );
-    statement.bind([email.trim().toLowerCase()]);
-    try {
-      if (!statement.step()) {
-        return undefined;
-      }
-      const row = statement.getAsObject() as {
-        id: string;
-        email: string;
-        name: string | null;
-        role: string;
-        password_hash: string;
-        created_at: string;
-        updated_at: string;
-      };
-      return mapUserRow(row);
-    } finally {
-      statement.free();
-    }
+    return row ? mapUserRow(row) : undefined;
   }
 
   async update(id: string, updates: UpdateUserInput): Promise<User> {
@@ -957,16 +1084,13 @@ export class SqliteUserStore implements UserStore {
     values.push(now);
     values.push(id);
 
-    const statement = db.prepare(
-      `UPDATE users SET ${setFragments.join(", ")} WHERE id = ?`
+    const result = await runSql(
+      db,
+      `UPDATE users SET ${setFragments.join(", ")} WHERE id = ?`,
+      values
     );
-    try {
-      statement.run(values);
-    } finally {
-      statement.free();
-    }
 
-    if (db.getRowsModified() === 0) {
+    if (Number(result.changes ?? 0) === 0) {
       throw new Error("User not found");
     }
 
@@ -980,38 +1104,25 @@ export class SqliteUserStore implements UserStore {
 
   async list(): Promise<User[]> {
     const db = await this.getDb();
-    const statement = db.prepare(
+    const rows = await getAllRows<{
+      id: string;
+      email: string;
+      name: string | null;
+      role: string;
+      password_hash: string;
+      created_at: string;
+      updated_at: string;
+    }>(
+      db,
       `SELECT id, email, name, role, password_hash, created_at, updated_at FROM users ORDER BY created_at ASC`
     );
-    const users: User[] = [];
-    try {
-      while (statement.step()) {
-        const row = statement.getAsObject() as {
-          id: string;
-          email: string;
-          name: string | null;
-          role: string;
-          password_hash: string;
-          created_at: string;
-          updated_at: string;
-        };
-        users.push(mapUserRow(row));
-      }
-    } finally {
-      statement.free();
-    }
-    return users;
+    return rows.map(mapUserRow);
   }
 
   async remove(id: string): Promise<boolean> {
     const db = await this.getDb();
-    const statement = db.prepare(`DELETE FROM users WHERE id = ?1`);
-    try {
-      statement.run([id]);
-    } finally {
-      statement.free();
-    }
-    const removed = db.getRowsModified() > 0;
+    const result = await runSql(db, `DELETE FROM users WHERE id = ?`, [id]);
+    const removed = Number(result.changes ?? 0) > 0;
     if (removed) {
       await this.notebooks.flush();
     }
@@ -1020,16 +1131,11 @@ export class SqliteUserStore implements UserStore {
 
   async count(): Promise<number> {
     const db = await this.getDb();
-    const statement = db.prepare(`SELECT COUNT(1) as count FROM users`);
-    try {
-      if (!statement.step()) {
-        return 0;
-      }
-      const row = statement.getAsObject() as { count: number };
-      return Number(row.count ?? 0);
-    } finally {
-      statement.free();
-    }
+    const row = await getRow<{ count: number } | undefined>(
+      db,
+      `SELECT COUNT(1) as count FROM users`
+    );
+    return Number(row?.count ?? 0);
   }
 }
 
@@ -1067,22 +1173,12 @@ export class SqliteAuthSessionStore implements AuthSessionStore {
     const db = await this.getDb();
     const now = new Date().toISOString();
     const id = userNanoid();
-    const statement = db.prepare(
+    await runSql(
+      db,
       `INSERT INTO user_sessions (id, user_id, token_hash, created_at, updated_at, expires_at, revoked_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL)`
+       VALUES (?, ?, ?, ?, ?, ?, NULL)`,
+      [id, input.userId, input.tokenHash, now, now, input.expiresAt]
     );
-    try {
-      statement.run([
-        id,
-        input.userId,
-        input.tokenHash,
-        now,
-        now,
-        input.expiresAt,
-      ]);
-    } finally {
-      statement.free();
-    }
     await this.notebooks.flush();
     const created = await this.findByTokenHash(input.tokenHash);
     if (!created) {
@@ -1093,65 +1189,50 @@ export class SqliteAuthSessionStore implements AuthSessionStore {
 
   async findByTokenHash(tokenHash: string): Promise<AuthSession | undefined> {
     const db = await this.getDb();
-    const statement = db.prepare(
-      `SELECT id, user_id, token_hash, created_at, updated_at, expires_at, revoked_at FROM user_sessions WHERE token_hash = ?1 LIMIT 1`
+    const row = await getRow<
+      | {
+          id: string;
+          user_id: string;
+          token_hash: string;
+          created_at: string;
+          updated_at: string;
+          expires_at: string;
+          revoked_at: string | null;
+        }
+      | undefined
+    >(
+      db,
+      `SELECT id, user_id, token_hash, created_at, updated_at, expires_at, revoked_at FROM user_sessions WHERE token_hash = ? LIMIT 1`,
+      [tokenHash]
     );
-    statement.bind([tokenHash]);
-    try {
-      if (!statement.step()) {
-        return undefined;
-      }
-      const row = statement.getAsObject() as {
-        id: string;
-        user_id: string;
-        token_hash: string;
-        created_at: string;
-        updated_at: string;
-        expires_at: string;
-        revoked_at: string | null;
-      };
-      return mapSessionRow(row);
-    } finally {
-      statement.free();
-    }
+    return row ? mapSessionRow(row) : undefined;
   }
 
   async touch(id: string): Promise<void> {
     const db = await this.getDb();
-    const statement = db.prepare(
-      `UPDATE user_sessions SET updated_at = ?1 WHERE id = ?2`
-    );
-    try {
-      statement.run([new Date().toISOString(), id]);
-    } finally {
-      statement.free();
-    }
+    await runSql(db, `UPDATE user_sessions SET updated_at = ? WHERE id = ?`, [
+      new Date().toISOString(),
+      id,
+    ]);
     await this.notebooks.flush();
   }
 
   async revoke(id: string): Promise<void> {
     const db = await this.getDb();
-    const statement = db.prepare(
-      `UPDATE user_sessions SET revoked_at = ?1 WHERE id = ?2`
-    );
-    try {
-      statement.run([new Date().toISOString(), id]);
-    } finally {
-      statement.free();
-    }
+    await runSql(db, `UPDATE user_sessions SET revoked_at = ? WHERE id = ?`, [
+      new Date().toISOString(),
+      id,
+    ]);
     await this.notebooks.flush();
   }
 
   async revokeForUser(userId: string): Promise<void> {
     const db = await this.getDb();
-    const statement = db.prepare(
-      `UPDATE user_sessions SET revoked_at = ?1 WHERE user_id = ?2`
+    await runSql(
+      db,
+      `UPDATE user_sessions SET revoked_at = ? WHERE user_id = ?`,
+      [new Date().toISOString(), userId]
     );
-    try {
-      statement.run([new Date().toISOString(), userId]);
-    } finally {
-      statement.free();
-    }
     await this.notebooks.flush();
   }
 }
@@ -1169,13 +1250,12 @@ export class SqliteInvitationStore implements InvitationStore {
     const now = new Date().toISOString();
     const id = userNanoid();
     const email = input.email.trim().toLowerCase();
-    const statement = db.prepare(
+    await runSql(
+      db,
       `INSERT INTO user_invitations (
          id, email, notebook_id, role, token_hash, invited_by, created_at, updated_at, expires_at, accepted_at, revoked_at
-       ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, NULL, NULL)`
-    );
-    try {
-      statement.run([
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)`,
+      [
         id,
         email,
         input.notebookId,
@@ -1185,10 +1265,8 @@ export class SqliteInvitationStore implements InvitationStore {
         now,
         now,
         input.expiresAt,
-      ]);
-    } finally {
-      statement.free();
-    }
+      ]
+    );
     await this.notebooks.flush();
     const created = await this.get(id);
     if (!created) {
@@ -1199,66 +1277,58 @@ export class SqliteInvitationStore implements InvitationStore {
 
   async get(id: string): Promise<Invitation | undefined> {
     const db = await this.getDb();
-    const statement = db.prepare(
+    const row = await getRow<
+      | {
+          id: string;
+          email: string;
+          notebook_id: string | null;
+          role: string;
+          token_hash: string;
+          invited_by: string | null;
+          created_at: string;
+          updated_at: string;
+          expires_at: string;
+          accepted_at: string | null;
+          revoked_at: string | null;
+        }
+      | undefined
+    >(
+      db,
       `SELECT id, email, notebook_id, role, token_hash, invited_by, created_at, updated_at, expires_at, accepted_at, revoked_at
        FROM user_invitations
-       WHERE id = ?1
-       LIMIT 1`
+       WHERE id = ?
+       LIMIT 1`,
+      [id]
     );
-    statement.bind([id]);
-    try {
-      if (!statement.step()) {
-        return undefined;
-      }
-      const row = statement.getAsObject() as {
-        id: string;
-        email: string;
-        notebook_id: string | null;
-        role: string;
-        token_hash: string;
-        invited_by: string | null;
-        created_at: string;
-        updated_at: string;
-        expires_at: string;
-        accepted_at: string | null;
-        revoked_at: string | null;
-      };
-      return mapInvitationRow(row);
-    } finally {
-      statement.free();
-    }
+    return row ? mapInvitationRow(row) : undefined;
   }
 
   async findByTokenHash(tokenHash: string): Promise<Invitation | undefined> {
     const db = await this.getDb();
-    const statement = db.prepare(
+    const row = await getRow<
+      | {
+          id: string;
+          email: string;
+          notebook_id: string | null;
+          role: string;
+          token_hash: string;
+          invited_by: string | null;
+          created_at: string;
+          updated_at: string;
+          expires_at: string;
+          accepted_at: string | null;
+          revoked_at: string | null;
+        }
+      | undefined
+    >(
+      db,
       `SELECT id, email, notebook_id, role, token_hash, invited_by, created_at, updated_at, expires_at, accepted_at, revoked_at
        FROM user_invitations
-       WHERE token_hash = ?1
-       LIMIT 1`
+       WHERE token_hash = ?
+       LIMIT 1`,
+      [tokenHash]
     );
-    statement.bind([tokenHash]);
-    try {
-      if (!statement.step()) {
-        return undefined;
-      }
-      const row = statement.getAsObject() as {
-        id: string;
-        email: string;
-        notebook_id: string | null;
-        role: string;
-        token_hash: string;
-        invited_by: string | null;
-        created_at: string;
-        updated_at: string;
-        expires_at: string;
-        accepted_at: string | null;
-        revoked_at: string | null;
-      };
-      return mapInvitationRow(row);
-    } finally {
-      statement.free();
-    }
+    return row ? mapInvitationRow(row) : undefined;
   }
 
   async findActiveByEmail(
@@ -1266,118 +1336,98 @@ export class SqliteInvitationStore implements InvitationStore {
     notebookId: string
   ): Promise<Invitation | undefined> {
     const db = await this.getDb();
-    const statement = db.prepare(
+    const row = await getRow<
+      | {
+          id: string;
+          email: string;
+          notebook_id: string | null;
+          role: string;
+          token_hash: string;
+          invited_by: string | null;
+          created_at: string;
+          updated_at: string;
+          expires_at: string;
+          accepted_at: string | null;
+          revoked_at: string | null;
+        }
+      | undefined
+    >(
+      db,
       `SELECT id, email, notebook_id, role, token_hash, invited_by, created_at, updated_at, expires_at, accepted_at, revoked_at
        FROM user_invitations
-       WHERE email = ?1 AND notebook_id = ?2
+       WHERE email = ? AND notebook_id = ?
        ORDER BY created_at DESC, id DESC
-       LIMIT 1`
+       LIMIT 1`,
+      [email.trim().toLowerCase(), notebookId]
     );
-    statement.bind([email.trim().toLowerCase(), notebookId]);
-    try {
-      if (!statement.step()) {
-        return undefined;
-      }
-      const row = statement.getAsObject() as {
-        id: string;
-        email: string;
-        notebook_id: string | null;
-        role: string;
-        token_hash: string;
-        invited_by: string | null;
-        created_at: string;
-        updated_at: string;
-        expires_at: string;
-        accepted_at: string | null;
-        revoked_at: string | null;
-      };
-      const invitation = mapInvitationRow(row);
-      if (invitation.acceptedAt || invitation.revokedAt) {
-        return undefined;
-      }
-      return invitation;
-    } finally {
-      statement.free();
+    if (!row) {
+      return undefined;
     }
+    const invitation = mapInvitationRow(row);
+    if (invitation.acceptedAt || invitation.revokedAt) {
+      return undefined;
+    }
+    return invitation;
   }
 
   async list(): Promise<Invitation[]> {
     const db = await this.getDb();
-    const statement = db.prepare(
+    const rows = await getAllRows<{
+      id: string;
+      email: string;
+      notebook_id: string | null;
+      role: string;
+      token_hash: string;
+      invited_by: string | null;
+      created_at: string;
+      updated_at: string;
+      expires_at: string;
+      accepted_at: string | null;
+      revoked_at: string | null;
+    }>(
+      db,
       `SELECT id, email, notebook_id, role, token_hash, invited_by, created_at, updated_at, expires_at, accepted_at, revoked_at
        FROM user_invitations
        ORDER BY created_at DESC, id DESC`
     );
-    const invitations: Invitation[] = [];
-    try {
-      while (statement.step()) {
-        const row = statement.getAsObject() as {
-          id: string;
-          email: string;
-          notebook_id: string | null;
-          role: string;
-          token_hash: string;
-          invited_by: string | null;
-          created_at: string;
-          updated_at: string;
-          expires_at: string;
-          accepted_at: string | null;
-          revoked_at: string | null;
-        };
-        invitations.push(mapInvitationRow(row));
-      }
-    } finally {
-      statement.free();
-    }
-    return invitations;
+    return rows.map(mapInvitationRow);
   }
 
   async listByNotebook(notebookId: string): Promise<Invitation[]> {
     const db = await this.getDb();
-    const statement = db.prepare(
+    const rows = await getAllRows<{
+      id: string;
+      email: string;
+      notebook_id: string | null;
+      role: string;
+      token_hash: string;
+      invited_by: string | null;
+      created_at: string;
+      updated_at: string;
+      expires_at: string;
+      accepted_at: string | null;
+      revoked_at: string | null;
+    }>(
+      db,
       `SELECT id, email, notebook_id, role, token_hash, invited_by, created_at, updated_at, expires_at, accepted_at, revoked_at
        FROM user_invitations
-       WHERE notebook_id = ?1
-       ORDER BY created_at DESC, id DESC`
+       WHERE notebook_id = ?
+       ORDER BY created_at DESC, id DESC`,
+      [notebookId]
     );
-    statement.bind([notebookId]);
-    const invitations: Invitation[] = [];
-    try {
-      while (statement.step()) {
-        const row = statement.getAsObject() as {
-          id: string;
-          email: string;
-          notebook_id: string | null;
-          role: string;
-          token_hash: string;
-          invited_by: string | null;
-          created_at: string;
-          updated_at: string;
-          expires_at: string;
-          accepted_at: string | null;
-          revoked_at: string | null;
-        };
-        invitations.push(mapInvitationRow(row));
-      }
-    } finally {
-      statement.free();
-    }
-    return invitations;
+    return rows.map(mapInvitationRow);
   }
 
   async markAccepted(id: string): Promise<Invitation | undefined> {
     const db = await this.getDb();
     const now = new Date().toISOString();
-    const statement = db.prepare(
+    await runSql(
+      db,
       `UPDATE user_invitations
-       SET accepted_at = ?1, updated_at = ?1
-       WHERE id = ?2`
+       SET accepted_at = ?, updated_at = ?
+       WHERE id = ?`,
+      [now, id]
     );
-    try {
-      statement.run([now, id]);
-    } finally {
-      statement.free();
-    }
     await this.notebooks.flush();
     return this.get(id);
   }
@@ -1385,21 +1435,56 @@ export class SqliteInvitationStore implements InvitationStore {
   async revoke(id: string): Promise<Invitation | undefined> {
     const db = await this.getDb();
     const now = new Date().toISOString();
-    const statement = db.prepare(
+    await runSql(
+      db,
       `UPDATE user_invitations
-       SET revoked_at = ?1, updated_at = ?1
-       WHERE id = ?2`
+       SET revoked_at = ?, updated_at = ?
+       WHERE id = ?`,
+      [now, id]
     );
-    try {
-      statement.run([now, id]);
-    } finally {
-      statement.free();
-    }
     await this.notebooks.flush();
     return this.get(id);
   }
-}
 
+  async remove(id: string): Promise<boolean> {
+    const db = await this.getDb();
+    const result = await runSql(
+      db,
+      `DELETE FROM user_invitations WHERE id = ?`,
+      [id]
+    );
+    const removed = Number(result.changes ?? 0) > 0;
+    if (removed) {
+      await this.notebooks.flush();
+    }
+    return removed;
+  }
+
+  async listPending(): Promise<Invitation[]> {
+    const db = await this.getDb();
+    const rows = await getAllRows<{
+      id: string;
+      email: string;
+      notebook_id: string | null;
+      role: string;
+      token_hash: string;
+      invited_by: string | null;
+      created_at: string;
+      updated_at: string;
+      expires_at: string;
+      accepted_at: string | null;
+      revoked_at: string | null;
+    }>(
+      db,
+      `SELECT id, email, notebook_id, role, token_hash, invited_by, created_at, updated_at, expires_at, accepted_at, revoked_at
+       FROM user_invitations
+       WHERE accepted_at IS NULL AND revoked_at IS NULL AND expires_at > ?
+       ORDER BY created_at DESC, id DESC`,
+      [new Date().toISOString()]
+    );
+    return rows.map(mapInvitationRow);
+  }
+}
 export class SqliteNotebookCollaboratorStore
   implements NotebookCollaboratorStore
 {
@@ -1412,79 +1497,55 @@ export class SqliteNotebookCollaboratorStore
 
   async listByNotebook(notebookId: string): Promise<NotebookCollaborator[]> {
     const db = await this.getDb();
-    const statement = db.prepare(
+    const rows = await getAllRows<{
+      id: string;
+      notebook_id: string;
+      user_id: string;
+      role: string;
+      created_at: string;
+      updated_at: string;
+    }>(
+      db,
       `SELECT id, notebook_id, user_id, role, created_at, updated_at
        FROM notebook_collaborators
-       WHERE notebook_id = ?1
-       ORDER BY updated_at DESC, created_at DESC`
+       WHERE notebook_id = ?
+       ORDER BY updated_at DESC, created_at DESC`,
+      [notebookId]
     );
-    statement.bind([notebookId]);
-    const collaborators: NotebookCollaborator[] = [];
-    try {
-      while (statement.step()) {
-        const row = statement.getAsObject() as {
-          id: string;
-          notebook_id: string;
-          user_id: string;
-          role: string;
-          created_at: string;
-          updated_at: string;
-        };
-        collaborators.push(mapCollaboratorRow(row));
-      }
-    } finally {
-      statement.free();
-    }
-    return collaborators;
+    return rows.map(mapCollaboratorRow);
   }
 
   async listNotebookIdsForUser(userId: string): Promise<string[]> {
     const db = await this.getDb();
-    const statement = db.prepare(
+    const rows = await getAllRows<{ notebook_id: string }>(
+      db,
       `SELECT notebook_id
        FROM notebook_collaborators
-       WHERE user_id = ?1
-       ORDER BY notebook_id ASC`
+       WHERE user_id = ?
+       ORDER BY notebook_id ASC`,
+      [userId]
     );
-    statement.bind([userId]);
-    const notebookIds: string[] = [];
-    try {
-      while (statement.step()) {
-        const row = statement.getAsObject() as { notebook_id: string };
-        notebookIds.push(row.notebook_id);
-      }
-    } finally {
-      statement.free();
-    }
-    return notebookIds;
+    return rows.map((row) => row.notebook_id);
   }
 
   async listForUser(userId: string): Promise<NotebookCollaborator[]> {
     const db = await this.getDb();
-    const statement = db.prepare(
+    const rows = await getAllRows<{
+      id: string;
+      notebook_id: string;
+      user_id: string;
+      role: string;
+      created_at: string;
+      updated_at: string;
+    }>(
+      db,
       `SELECT id, notebook_id, user_id, role, created_at, updated_at
        FROM notebook_collaborators
-       WHERE user_id = ?1
-       ORDER BY notebook_id ASC`
+       WHERE user_id = ?
+       ORDER BY notebook_id ASC`,
+      [userId]
     );
-    statement.bind([userId]);
-    const collaborators: NotebookCollaborator[] = [];
-    try {
-      while (statement.step()) {
-        const row = statement.getAsObject() as {
-          id: string;
-          notebook_id: string;
-          user_id: string;
-          role: string;
-          created_at: string;
-          updated_at: string;
-        };
-        collaborators.push(mapCollaboratorRow(row));
-      }
-    } finally {
-      statement.free();
-    }
-    return collaborators;
+    return rows.map(mapCollaboratorRow);
   }
 
   async get(
@@ -1492,29 +1553,25 @@ export class SqliteNotebookCollaboratorStore
     userId: string
   ): Promise<NotebookCollaborator | undefined> {
     const db = await this.getDb();
-    const statement = db.prepare(
+    const row = await getRow<
+      | {
+          id: string;
+          notebook_id: string;
+          user_id: string;
+          role: string;
+          created_at: string;
+          updated_at: string;
+        }
+      | undefined
+    >(
+      db,
       `SELECT id, notebook_id, user_id, role, created_at, updated_at
        FROM notebook_collaborators
-       WHERE notebook_id = ?1 AND user_id = ?2
-       LIMIT 1`
+       WHERE notebook_id = ? AND user_id = ?
+       LIMIT 1`,
+      [notebookId, userId]
     );
-    statement.bind([notebookId, userId]);
-    try {
-      if (!statement.step()) {
-        return undefined;
-      }
-      const row = statement.getAsObject() as {
-        id: string;
-        notebook_id: string;
-        user_id: string;
-        role: string;
-        created_at: string;
-        updated_at: string;
-      };
-      return mapCollaboratorRow(row);
-    } finally {
-      statement.free();
-    }
+    return row ? mapCollaboratorRow(row) : undefined;
   }
 
   async upsert(input: {
@@ -1525,19 +1582,16 @@ export class SqliteNotebookCollaboratorStore
     const db = await this.getDb();
     const now = new Date().toISOString();
     const id = userNanoid();
-    const statement = db.prepare(
+    await runSql(
+      db,
       `INSERT INTO notebook_collaborators (
          id, notebook_id, user_id, role, created_at, updated_at
-       ) VALUES (?1, ?2, ?3, ?4, ?5, ?5)
+       ) VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT(notebook_id, user_id) DO UPDATE SET
          role = excluded.role,
-         updated_at = excluded.updated_at`
+         updated_at = excluded.updated_at`,
+      [id, input.notebookId, input.userId, input.role, now]
     );
-    try {
-      statement.run([id, input.notebookId, input.userId, input.role, now]);
-    } finally {
-      statement.free();
-    }
     await this.notebooks.flush();
     const collaborator = await this.get(input.notebookId, input.userId);
     if (!collaborator) {
@@ -1553,37 +1607,30 @@ export class SqliteNotebookCollaboratorStore
   ): Promise<NotebookCollaborator | undefined> {
     const db = await this.getDb();
     const now = new Date().toISOString();
-    const statement = db.prepare(
+    await runSql(
+      db,
       `UPDATE notebook_collaborators
-       SET role = ?1, updated_at = ?2
-       WHERE notebook_id = ?3 AND user_id = ?4`
+       SET role = ?, updated_at = ?
+       WHERE notebook_id = ? AND user_id = ?`,
+      [role, now, notebookId, userId]
     );
-    try {
-      statement.run([role, now, notebookId, userId]);
-    } finally {
-      statement.free();
-    }
     await this.notebooks.flush();
     return this.get(notebookId, userId);
   }
 
   async remove(notebookId: string, userId: string): Promise<boolean> {
     const db = await this.getDb();
-    const statement = db.prepare(
+    const result = await runSql(
+      db,
       `DELETE FROM notebook_collaborators
-       WHERE notebook_id = ?1 AND user_id = ?2`
+       WHERE notebook_id = ? AND user_id = ?`,
+      [notebookId, userId]
     );
-    try {
-      statement.run([notebookId, userId]);
-      const affected = db.getRowsModified();
-      await this.notebooks.flush();
-      return affected > 0;
-    } finally {
-      statement.free();
-    }
+    const affected = Number(result.changes ?? 0);
+    await this.notebooks.flush();
+    return affected > 0;
   }
 }
-
 export class SqliteProjectStore implements ProjectStore {
   constructor(private readonly notebooks: SqliteNotebookStore) {}
 
@@ -1600,53 +1647,49 @@ export class SqliteProjectStore implements ProjectStore {
   }
 
   private async ensureProjectMigrations(db: SqlDatabase): Promise<void> {
-    db.run(
+    await execSql(
+      db,
       `CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_slug
         ON projects (slug)`
     );
 
-    const selectMissing = db.prepare(
+    const missing = await getAllRows<{ id: string; name: string }>(
+      db,
       `SELECT id, name FROM projects WHERE slug IS NULL OR trim(slug) = ''`
     );
-    const update = db.prepare(`UPDATE projects SET slug = ?1 WHERE id = ?2`);
 
     let updated = false;
-    try {
-      while (selectMissing.step()) {
-        const row = selectMissing.getAsObject() as { id: string; name: string };
-        const slug = this.generateUniqueProjectSlug(db, row.name, row.id);
-        update.run([slug, row.id]);
+
+    for (const row of missing) {
+      const slug = await this.generateUniqueProjectSlug(db, row.name, row.id);
+      await runSql(db, `UPDATE projects SET slug = ? WHERE id = ?`, [
+        slug,
+        row.id,
+      ]);
+      updated = true;
+    }
+
+    const sanitize = await getAllRows<{
+      id: string;
+      name: string;
+      slug: string;
+    }>(db, `SELECT id, name, slug FROM projects WHERE slug IS NOT NULL`);
+
+    for (const row of sanitize) {
+      const desired = await this.generateUniqueProjectSlug(
+        db,
+        row.name,
+        row.id,
+        row.slug,
+        row.id
+      );
+      if (desired !== row.slug) {
+        await runSql(db, `UPDATE projects SET slug = ? WHERE id = ?`, [
+          desired,
+          row.id,
+        ]);
         updated = true;
       }
-
-      const selectSanitize = db.prepare(
-        `SELECT id, name, slug FROM projects WHERE slug IS NOT NULL`
-      );
-      try {
-        while (selectSanitize.step()) {
-          const row = selectSanitize.getAsObject() as {
-            id: string;
-            name: string;
-            slug: string;
-          };
-          const desired = this.generateUniqueProjectSlug(
-            db,
-            row.name,
-            row.id,
-            row.slug,
-            row.id
-          );
-          if (desired !== row.slug) {
-            update.run([desired, row.id]);
-            updated = true;
-          }
-        }
-      } finally {
-        selectSanitize.free();
-      }
-    } finally {
-      selectMissing.free();
-      update.free();
     }
 
     if (updated) {
@@ -1654,35 +1697,28 @@ export class SqliteProjectStore implements ProjectStore {
     }
   }
 
-  private projectSlugExists(
+  private async projectSlugExists(
     db: SqlDatabase,
     slug: string,
     excludeId?: string
-  ): boolean {
-    const statement = excludeId
-      ? db.prepare(
-          `SELECT 1 FROM projects WHERE slug = ?1 AND id != ?2 LIMIT 1`
-        )
-      : db.prepare(`SELECT 1 FROM projects WHERE slug = ?1 LIMIT 1`);
-    try {
-      if (excludeId) {
-        statement.bind([slug, excludeId]);
-      } else {
-        statement.bind([slug]);
-      }
-      return statement.step();
-    } finally {
-      statement.free();
-    }
+  ): Promise<boolean> {
+    const row = await getRow<Record<string, unknown> | undefined>(
+      db,
+      excludeId
+        ? `SELECT 1 FROM projects WHERE slug = ? AND id != ? LIMIT 1`
+        : `SELECT 1 FROM projects WHERE slug = ? LIMIT 1`,
+      excludeId ? [slug, excludeId] : [slug]
+    );
+    return Boolean(row);
   }
 
-  private generateUniqueProjectSlug(
+  private async generateUniqueProjectSlug(
     db: SqlDatabase,
     name: string,
     fallbackId: string,
     requested?: string | null,
     excludeId?: string
-  ): string {
+  ): Promise<string> {
     const fallbackSlug =
       normalizeSlug(fallbackId) ||
       normalizeSlug(`project-${fallbackId}`) ||
@@ -1702,7 +1738,10 @@ export class SqliteProjectStore implements ProjectStore {
     let candidate = base;
     let suffix = 2;
 
-    while (candidate && this.projectSlugExists(db, candidate, excludeId)) {
+    while (
+      candidate &&
+      (await this.projectSlugExists(db, candidate, excludeId))
+    ) {
       const next = normalizeSlug(`${base}-${suffix++}`);
       if (next) {
         candidate = next;
@@ -1711,7 +1750,7 @@ export class SqliteProjectStore implements ProjectStore {
 
       const randomId = userNanoid().slice(0, 6);
       const random = normalizeSlug(`${fallbackSlug}-${randomId}`);
-      if (random && !this.projectSlugExists(db, random, excludeId)) {
+      if (random && !(await this.projectSlugExists(db, random, excludeId))) {
         candidate = random;
         break;
       }
@@ -1723,11 +1762,11 @@ export class SqliteProjectStore implements ProjectStore {
       candidate = this.randomProjectSlug();
     }
 
-    if (this.projectSlugExists(db, candidate, excludeId)) {
+    if (await this.projectSlugExists(db, candidate, excludeId)) {
       let attempt = 0;
       while (attempt < 5) {
         const random = this.randomProjectSlug();
-        if (!this.projectSlugExists(db, random, excludeId)) {
+        if (!(await this.projectSlugExists(db, random, excludeId))) {
           candidate = random;
           break;
         }
@@ -1741,7 +1780,6 @@ export class SqliteProjectStore implements ProjectStore {
 
     return candidate;
   }
-
   private randomProjectSlug(): string {
     const randomId = userNanoid();
     const slug = normalizeSlug(`project-${randomId}`);
@@ -1750,50 +1788,38 @@ export class SqliteProjectStore implements ProjectStore {
 
   async list(): Promise<Project[]> {
     const db = await this.getDb();
-    const statement = db.prepare(
+    const rows = await getAllRows<{
+      id: string;
+      name: string;
+      slug: string | null;
+      published: number | null;
+      created_at: string;
+      updated_at: string;
+    }>(
+      db,
       `SELECT id, name, slug, published, created_at, updated_at FROM projects ORDER BY created_at ASC, id ASC`
     );
-    const projects: Project[] = [];
-    try {
-      while (statement.step()) {
-        const row = statement.getAsObject() as {
+    return rows.map(mapProjectRow);
+  }
+
+  async get(id: string): Promise<Project | undefined> {
+    const db = await this.getDb();
+    const row = await getRow<
+      | {
           id: string;
           name: string;
           slug: string | null;
           published: number | null;
           created_at: string;
           updated_at: string;
-        };
-        projects.push(mapProjectRow(row));
-      }
-    } finally {
-      statement.free();
-    }
-    return projects;
-  }
-
-  async get(id: string): Promise<Project | undefined> {
-    const db = await this.getDb();
-    const statement = db.prepare(
-      `SELECT id, name, slug, published, created_at, updated_at FROM projects WHERE id = ?1 LIMIT 1`
+        }
+      | undefined
+    >(
+      db,
+      `SELECT id, name, slug, published, created_at, updated_at FROM projects WHERE id = ? LIMIT 1`,
+      [id]
     );
-    statement.bind([id]);
-    try {
-      if (!statement.step()) {
-        return undefined;
-      }
-      const row = statement.getAsObject() as {
-        id: string;
-        name: string;
-        slug: string | null;
-        published: number | null;
-        created_at: string;
-        updated_at: string;
-      };
-      return mapProjectRow(row);
-    } finally {
-      statement.free();
-    }
+    return row ? mapProjectRow(row) : undefined;
   }
 
   async getBySlug(slug: string): Promise<Project | undefined> {
@@ -1802,26 +1828,22 @@ export class SqliteProjectStore implements ProjectStore {
     if (!normalized) {
       return undefined;
     }
-    const statement = db.prepare(
-      `SELECT id, name, slug, published, created_at, updated_at FROM projects WHERE slug = ?1 LIMIT 1`
+    const row = await getRow<
+      | {
+          id: string;
+          name: string;
+          slug: string | null;
+          published: number | null;
+          created_at: string;
+          updated_at: string;
+        }
+      | undefined
+    >(
+      db,
+      `SELECT id, name, slug, published, created_at, updated_at FROM projects WHERE slug = ? LIMIT 1`,
+      [normalized]
     );
-    statement.bind([normalized]);
-    try {
-      if (!statement.step()) {
-        return undefined;
-      }
-      const row = statement.getAsObject() as {
-        id: string;
-        name: string;
-        slug: string | null;
-        published: number | null;
-        created_at: string;
-        updated_at: string;
-      };
-      return mapProjectRow(row);
-    } finally {
-      statement.free();
-    }
+    return row ? mapProjectRow(row) : undefined;
   }
 
   async create(input: CreateProjectInput): Promise<Project> {
@@ -1829,22 +1851,19 @@ export class SqliteProjectStore implements ProjectStore {
     const now = new Date().toISOString();
     const id = userNanoid();
     const name = input.name.trim();
-    const slug = this.generateUniqueProjectSlug(
+    const slug = await this.generateUniqueProjectSlug(
       db,
       name,
       id,
       input.slug ?? null
     );
     const published = Boolean(input.published);
-    const statement = db.prepare(
+    await runSql(
+      db,
       `INSERT INTO projects (id, name, slug, published, created_at, updated_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6)`
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [id, name, slug, published ? 1 : 0, now, now]
     );
-    try {
-      statement.run([id, name, slug, published ? 1 : 0, now, now]);
-    } finally {
-      statement.free();
-    }
     await this.notebooks.flush();
     const created = await this.get(id);
     if (!created) {
@@ -1872,7 +1891,7 @@ export class SqliteProjectStore implements ProjectStore {
 
     if (updates.slug !== undefined) {
       const preferred = updates.slug ?? null;
-      const slug = this.generateUniqueProjectSlug(
+      const slug = await this.generateUniqueProjectSlug(
         db,
         effectiveName,
         id,
@@ -1897,16 +1916,13 @@ export class SqliteProjectStore implements ProjectStore {
     values.push(now);
     values.push(id);
 
-    const statement = db.prepare(
-      `UPDATE projects SET ${fragments.join(", ")} WHERE id = ?`
+    const result = await runSql(
+      db,
+      `UPDATE projects SET ${fragments.join(", ")} WHERE id = ?`,
+      values
     );
-    try {
-      statement.run(values);
-    } finally {
-      statement.free();
-    }
 
-    if (db.getRowsModified() === 0) {
+    if (Number(result.changes ?? 0) === 0) {
       throw new Error("Project not found");
     }
 
@@ -1920,13 +1936,8 @@ export class SqliteProjectStore implements ProjectStore {
 
   async remove(id: string): Promise<boolean> {
     const db = await this.getDb();
-    const statement = db.prepare("DELETE FROM projects WHERE id = ?1");
-    try {
-      statement.run([id]);
-    } finally {
-      statement.free();
-    }
-    const removed = db.getRowsModified() > 0;
+    const result = await runSql(db, "DELETE FROM projects WHERE id = ?", [id]);
+    const removed = Number(result.changes ?? 0) > 0;
     if (removed) {
       await this.notebooks.flush();
     }
@@ -1946,51 +1957,35 @@ export class SqliteProjectCollaboratorStore
 
   async listByProject(projectId: string): Promise<ProjectCollaborator[]> {
     const db = await this.getDb();
-    const statement = db.prepare(
+    const rows = await getAllRows<{
+      id: string;
+      project_id: string;
+      user_id: string;
+      role: string;
+      created_at: string;
+      updated_at: string;
+    }>(
+      db,
       `SELECT id, project_id, user_id, role, created_at, updated_at
        FROM project_collaborators
-       WHERE project_id = ?1
-       ORDER BY updated_at DESC, created_at DESC`
+       WHERE project_id = ?
+       ORDER BY updated_at DESC, created_at DESC`,
+      [projectId]
     );
-    statement.bind([projectId]);
-    const collaborators: ProjectCollaborator[] = [];
-    try {
-      while (statement.step()) {
-        const row = statement.getAsObject() as {
-          id: string;
-          project_id: string;
-          user_id: string;
-          role: string;
-          created_at: string;
-          updated_at: string;
-        };
-        collaborators.push(mapProjectCollaboratorRow(row));
-      }
-    } finally {
-      statement.free();
-    }
-    return collaborators;
+    return rows.map(mapProjectCollaboratorRow);
   }
 
   async listProjectIdsForUser(userId: string): Promise<string[]> {
     const db = await this.getDb();
-    const statement = db.prepare(
+    const rows = await getAllRows<{ project_id: string }>(
+      db,
       `SELECT project_id
        FROM project_collaborators
-       WHERE user_id = ?1
-       ORDER BY project_id ASC`
+       WHERE user_id = ?
+       ORDER BY project_id ASC`,
+      [userId]
     );
-    statement.bind([userId]);
-    const projectIds: string[] = [];
-    try {
-      while (statement.step()) {
-        const row = statement.getAsObject() as { project_id: string };
-        projectIds.push(row.project_id);
-      }
-    } finally {
-      statement.free();
-    }
-    return projectIds;
+    return rows.map((row) => row.project_id);
   }
 
   async get(
@@ -1998,29 +1993,25 @@ export class SqliteProjectCollaboratorStore
     userId: string
   ): Promise<ProjectCollaborator | undefined> {
     const db = await this.getDb();
-    const statement = db.prepare(
+    const row = await getRow<
+      | {
+          id: string;
+          project_id: string;
+          user_id: string;
+          role: string;
+          created_at: string;
+          updated_at: string;
+        }
+      | undefined
+    >(
+      db,
       `SELECT id, project_id, user_id, role, created_at, updated_at
        FROM project_collaborators
-       WHERE project_id = ?1 AND user_id = ?2
-       LIMIT 1`
+       WHERE project_id = ? AND user_id = ?
+       LIMIT 1`,
+      [projectId, userId]
     );
-    statement.bind([projectId, userId]);
-    try {
-      if (!statement.step()) {
-        return undefined;
-      }
-      const row = statement.getAsObject() as {
-        id: string;
-        project_id: string;
-        user_id: string;
-        role: string;
-        created_at: string;
-        updated_at: string;
-      };
-      return mapProjectCollaboratorRow(row);
-    } finally {
-      statement.free();
-    }
+    return row ? mapProjectCollaboratorRow(row) : undefined;
   }
 
   async upsert(input: {
@@ -2030,20 +2021,17 @@ export class SqliteProjectCollaboratorStore
   }): Promise<ProjectCollaborator> {
     const db = await this.getDb();
     const now = new Date().toISOString();
-    const statement = db.prepare(
+    const id = userNanoid();
+    await runSql(
+      db,
       `INSERT INTO project_collaborators (
          id, project_id, user_id, role, created_at, updated_at
-       ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+       ) VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT(project_id, user_id) DO UPDATE SET
          role = excluded.role,
-         updated_at = excluded.updated_at`
+         updated_at = excluded.updated_at`,
+      [id, input.projectId, input.userId, input.role, now, now]
     );
-    const id = userNanoid();
-    try {
-      statement.run([id, input.projectId, input.userId, input.role, now, now]);
-    } finally {
-      statement.free();
-    }
     await this.notebooks.flush();
     const collaborator = await this.get(input.projectId, input.userId);
     if (!collaborator) {
@@ -2059,17 +2047,14 @@ export class SqliteProjectCollaboratorStore
   ): Promise<ProjectCollaborator | undefined> {
     const db = await this.getDb();
     const now = new Date().toISOString();
-    const statement = db.prepare(
+    const result = await runSql(
+      db,
       `UPDATE project_collaborators
-       SET role = ?1, updated_at = ?2
-       WHERE project_id = ?3 AND user_id = ?4`
+       SET role = ?, updated_at = ?
+       WHERE project_id = ? AND user_id = ?`,
+      [role, now, projectId, userId]
     );
-    try {
-      statement.run([role, now, projectId, userId]);
-    } finally {
-      statement.free();
-    }
-    if (db.getRowsModified() === 0) {
+    if (Number(result.changes ?? 0) === 0) {
       return undefined;
     }
     await this.notebooks.flush();
@@ -2078,16 +2063,13 @@ export class SqliteProjectCollaboratorStore
 
   async remove(projectId: string, userId: string): Promise<boolean> {
     const db = await this.getDb();
-    const statement = db.prepare(
+    const result = await runSql(
+      db,
       `DELETE FROM project_collaborators
-       WHERE project_id = ?1 AND user_id = ?2`
+       WHERE project_id = ? AND user_id = ?`,
+      [projectId, userId]
     );
-    try {
-      statement.run([projectId, userId]);
-    } finally {
-      statement.free();
-    }
-    const removed = db.getRowsModified() > 0;
+    const removed = Number(result.changes ?? 0) > 0;
     if (removed) {
       await this.notebooks.flush();
     }
@@ -2096,18 +2078,12 @@ export class SqliteProjectCollaboratorStore
 
   async removeAllForProject(projectId: string): Promise<void> {
     const db = await this.getDb();
-    const statement = db.prepare(
-      `DELETE FROM project_collaborators WHERE project_id = ?1`
-    );
-    try {
-      statement.run([projectId]);
-    } finally {
-      statement.free();
-    }
+    await runSql(db, `DELETE FROM project_collaborators WHERE project_id = ?`, [
+      projectId,
+    ]);
     await this.notebooks.flush();
   }
 }
-
 export class SqliteProjectInvitationStore implements ProjectInvitationStore {
   constructor(private readonly notebooks: SqliteNotebookStore) {}
 
@@ -2123,26 +2099,24 @@ export class SqliteProjectInvitationStore implements ProjectInvitationStore {
     const now = new Date().toISOString();
     const id = userNanoid();
     const email = input.email.trim().toLowerCase();
-    const statement = db.prepare(
+    const tokenHash = input.tokenHash;
+    await runSql(
+      db,
       `INSERT INTO project_invitations (
          id, email, project_id, role, token_hash, invited_by, created_at, updated_at, expires_at, accepted_at, revoked_at
-       ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, NULL, NULL)`
-    );
-    try {
-      statement.run([
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)`,
+      [
         id,
         email,
         input.projectId,
         input.role,
-        input.tokenHash,
+        tokenHash,
         input.invitedBy ?? null,
         now,
         now,
         input.expiresAt,
-      ]);
-    } finally {
-      statement.free();
-    }
+      ]
+    );
     await this.notebooks.flush();
     const created = await this.get(id);
     if (!created) {
@@ -2153,68 +2127,60 @@ export class SqliteProjectInvitationStore implements ProjectInvitationStore {
 
   async get(id: string): Promise<ProjectInvitation | undefined> {
     const db = await this.getDb();
-    const statement = db.prepare(
+    const row = await getRow<
+      | {
+          id: string;
+          email: string;
+          project_id: string;
+          role: string;
+          token_hash: string;
+          invited_by: string | null;
+          created_at: string;
+          updated_at: string;
+          expires_at: string;
+          accepted_at: string | null;
+          revoked_at: string | null;
+        }
+      | undefined
+    >(
+      db,
       `SELECT id, email, project_id, role, token_hash, invited_by, created_at, updated_at, expires_at, accepted_at, revoked_at
        FROM project_invitations
-       WHERE id = ?1
-       LIMIT 1`
+       WHERE id = ?
+       LIMIT 1`,
+      [id]
     );
-    statement.bind([id]);
-    try {
-      if (!statement.step()) {
-        return undefined;
-      }
-      const row = statement.getAsObject() as {
-        id: string;
-        email: string;
-        project_id: string;
-        role: string;
-        token_hash: string;
-        invited_by: string | null;
-        created_at: string;
-        updated_at: string;
-        expires_at: string;
-        accepted_at: string | null;
-        revoked_at: string | null;
-      };
-      return mapProjectInvitationRow(row);
-    } finally {
-      statement.free();
-    }
+    return row ? mapProjectInvitationRow(row) : undefined;
   }
 
   async findByTokenHash(
     tokenHash: string
   ): Promise<ProjectInvitation | undefined> {
     const db = await this.getDb();
-    const statement = db.prepare(
+    const row = await getRow<
+      | {
+          id: string;
+          email: string;
+          project_id: string;
+          role: string;
+          token_hash: string;
+          invited_by: string | null;
+          created_at: string;
+          updated_at: string;
+          expires_at: string;
+          accepted_at: string | null;
+          revoked_at: string | null;
+        }
+      | undefined
+    >(
+      db,
       `SELECT id, email, project_id, role, token_hash, invited_by, created_at, updated_at, expires_at, accepted_at, revoked_at
        FROM project_invitations
-       WHERE token_hash = ?1
-       LIMIT 1`
+       WHERE token_hash = ?
+       LIMIT 1`,
+      [tokenHash]
     );
-    statement.bind([tokenHash]);
-    try {
-      if (!statement.step()) {
-        return undefined;
-      }
-      const row = statement.getAsObject() as {
-        id: string;
-        email: string;
-        project_id: string;
-        role: string;
-        token_hash: string;
-        invited_by: string | null;
-        created_at: string;
-        updated_at: string;
-        expires_at: string;
-        accepted_at: string | null;
-        revoked_at: string | null;
-      };
-      return mapProjectInvitationRow(row);
-    } finally {
-      statement.free();
-    }
+    return row ? mapProjectInvitationRow(row) : undefined;
   }
 
   async findActiveByEmail(
@@ -2222,114 +2188,98 @@ export class SqliteProjectInvitationStore implements ProjectInvitationStore {
     projectId: string
   ): Promise<ProjectInvitation | undefined> {
     const db = await this.getDb();
-    const statement = db.prepare(
+    const row = await getRow<
+      | {
+          id: string;
+          email: string;
+          project_id: string;
+          role: string;
+          token_hash: string;
+          invited_by: string | null;
+          created_at: string;
+          updated_at: string;
+          expires_at: string;
+          accepted_at: string | null;
+          revoked_at: string | null;
+        }
+      | undefined
+    >(
+      db,
       `SELECT id, email, project_id, role, token_hash, invited_by, created_at, updated_at, expires_at, accepted_at, revoked_at
        FROM project_invitations
-       WHERE email = ?1 AND project_id = ?2
+       WHERE email = ? AND project_id = ?
        ORDER BY created_at DESC, id DESC
-       LIMIT 1`
+       LIMIT 1`,
+      [email.trim().toLowerCase(), projectId]
     );
-    statement.bind([email.trim().toLowerCase(), projectId]);
-    try {
-      if (!statement.step()) {
-        return undefined;
-      }
-      const row = statement.getAsObject() as {
-        id: string;
-        email: string;
-        project_id: string;
-        role: string;
-        token_hash: string;
-        invited_by: string | null;
-        created_at: string;
-        updated_at: string;
-        expires_at: string;
-        accepted_at: string | null;
-        revoked_at: string | null;
-      };
-      return mapProjectInvitationRow(row);
-    } finally {
-      statement.free();
+    if (!row) {
+      return undefined;
     }
+    const invitation = mapProjectInvitationRow(row);
+    if (invitation.acceptedAt || invitation.revokedAt) {
+      return undefined;
+    }
+    return invitation;
   }
 
   async list(): Promise<ProjectInvitation[]> {
     const db = await this.getDb();
-    const statement = db.prepare(
+    const rows = await getAllRows<{
+      id: string;
+      email: string;
+      project_id: string;
+      role: string;
+      token_hash: string;
+      invited_by: string | null;
+      created_at: string;
+      updated_at: string;
+      expires_at: string;
+      accepted_at: string | null;
+      revoked_at: string | null;
+    }>(
+      db,
       `SELECT id, email, project_id, role, token_hash, invited_by, created_at, updated_at, expires_at, accepted_at, revoked_at
        FROM project_invitations
        ORDER BY created_at DESC, id DESC`
     );
-    const invitations: ProjectInvitation[] = [];
-    try {
-      while (statement.step()) {
-        const row = statement.getAsObject() as {
-          id: string;
-          email: string;
-          project_id: string;
-          role: string;
-          token_hash: string;
-          invited_by: string | null;
-          created_at: string;
-          updated_at: string;
-          expires_at: string;
-          accepted_at: string | null;
-          revoked_at: string | null;
-        };
-        invitations.push(mapProjectInvitationRow(row));
-      }
-    } finally {
-      statement.free();
-    }
-    return invitations;
+    return rows.map(mapProjectInvitationRow);
   }
 
   async listByProject(projectId: string): Promise<ProjectInvitation[]> {
     const db = await this.getDb();
-    const statement = db.prepare(
+    const rows = await getAllRows<{
+      id: string;
+      email: string;
+      project_id: string;
+      role: string;
+      token_hash: string;
+      invited_by: string | null;
+      created_at: string;
+      updated_at: string;
+      expires_at: string;
+      accepted_at: string | null;
+      revoked_at: string | null;
+    }>(
+      db,
       `SELECT id, email, project_id, role, token_hash, invited_by, created_at, updated_at, expires_at, accepted_at, revoked_at
        FROM project_invitations
-       WHERE project_id = ?1
-       ORDER BY created_at DESC, id DESC`
+       WHERE project_id = ?
+       ORDER BY created_at DESC, id DESC`,
+      [projectId]
     );
-    statement.bind([projectId]);
-    const invitations: ProjectInvitation[] = [];
-    try {
-      while (statement.step()) {
-        const row = statement.getAsObject() as {
-          id: string;
-          email: string;
-          project_id: string;
-          role: string;
-          token_hash: string;
-          invited_by: string | null;
-          created_at: string;
-          updated_at: string;
-          expires_at: string;
-          accepted_at: string | null;
-          revoked_at: string | null;
-        };
-        invitations.push(mapProjectInvitationRow(row));
-      }
-    } finally {
-      statement.free();
-    }
-    return invitations;
+    return rows.map(mapProjectInvitationRow);
   }
 
   async markAccepted(id: string): Promise<ProjectInvitation | undefined> {
     const db = await this.getDb();
     const now = new Date().toISOString();
-    const statement = db.prepare(
+    await runSql(
+      db,
       `UPDATE project_invitations
-       SET accepted_at = ?1, updated_at = ?1
-       WHERE id = ?2`
+       SET accepted_at = ?, updated_at = ?
+       WHERE id = ?`,
+      [now, id]
     );
-    try {
-      statement.run([now, id]);
-    } finally {
-      statement.free();
-    }
     await this.notebooks.flush();
     return this.get(id);
   }
@@ -2337,17 +2287,28 @@ export class SqliteProjectInvitationStore implements ProjectInvitationStore {
   async revoke(id: string): Promise<ProjectInvitation | undefined> {
     const db = await this.getDb();
     const now = new Date().toISOString();
-    const statement = db.prepare(
+    await runSql(
+      db,
       `UPDATE project_invitations
-       SET revoked_at = ?1, updated_at = ?1
-       WHERE id = ?2`
+       SET revoked_at = ?, updated_at = ?
+       WHERE id = ?`,
+      [now, id]
     );
-    try {
-      statement.run([now, id]);
-    } finally {
-      statement.free();
-    }
     await this.notebooks.flush();
     return this.get(id);
+  }
+
+  async remove(id: string): Promise<boolean> {
+    const db = await this.getDb();
+    const result = await runSql(
+      db,
+      `DELETE FROM project_invitations WHERE id = ?`,
+      [id]
+    );
+    const removed = Number(result.changes ?? 0) > 0;
+    if (removed) {
+      await this.notebooks.flush();
+    }
+    return removed;
   }
 }

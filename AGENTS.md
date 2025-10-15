@@ -2,7 +2,7 @@
 
 ## Environment & Tooling
 
-Use `pnpm@10` (declared in `package.json`) to install dependencies across the monorepo. Run `pnpm install` from the repo root before touching workspace packages. Node 20+ ensures compatibility with Fastify, Next.js 15, and Vitest. Keep `.env` variables local; never commit real credentials.
+Use `pnpm@10` (declared in `package.json`) to install dependencies across the monorepo. Run `pnpm install` from the repo root before touching workspace packages. Node 22.6+ ensures compatibility with Fastify, Next.js 15, Vitest, and the `node:sqlite` driver. Keep `.env` variables local; never commit real credentials.
 
 ## Project Structure & Module Organization
 

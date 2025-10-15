@@ -36,7 +36,7 @@ nodebooks/
 
 ## Requirements
 
-- Node 22+
+- Node 22.6+
 - pnpm 10 (Corepack-enabled Node images work out of the box)
 
 ## Install
