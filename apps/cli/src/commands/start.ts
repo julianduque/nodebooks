@@ -122,7 +122,22 @@ export const startServer = async () => {
     console.log(chalk.greenBright("➜"), "Open", chalk.cyan(serverUrl));
   });
 
+  const signals: NodeJS.Signals[] = ["SIGINT", "SIGTERM"];
+  const signalHandlers = new Map<NodeJS.Signals, () => void>();
+
+  for (const signal of signals) {
+    const handler = () => {
+      child.kill(signal);
+    };
+    signalHandlers.set(signal, handler);
+    process.on(signal, handler);
+  }
+
   child.on("exit", (code: number | null, signal: NodeJS.Signals | null) => {
+    for (const [sig, handler] of signalHandlers) {
+      process.off(sig, handler);
+    }
+
     if (signal) {
       process.kill(process.pid, signal);
       return;
@@ -134,13 +149,6 @@ export const startServer = async () => {
     console.error(chalk.red("✖"), "Failed to start NodeBooks server:", error);
     process.exitCode = 1;
   });
-
-  const signals: NodeJS.Signals[] = ["SIGINT", "SIGTERM"];
-  for (const signal of signals) {
-    process.on(signal, () => {
-      child.kill(signal);
-    });
-  }
 };
 
 export const registerStartCommand = (program: Command) => {
