@@ -24,13 +24,22 @@ function ensureLeadingSlash(value: string) {
 
 const config: NextConfig = {
   output: "export",
-  distDir: "docs",
   reactStrictMode: true,
   trailingSlash: true,
   basePath: basePathInput || undefined,
   assetPrefix: assetPrefixInput || undefined,
   images: {
     unoptimized: true,
+    remotePatterns: [
+      {
+        protocol: "https",
+        hostname: "www.herokucdn.com",
+      },
+      {
+        protocol: "https",
+        hostname: "herokucdn.com",
+      },
+    ],
   },
   typedRoutes: true,
 };

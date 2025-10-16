@@ -36,12 +36,12 @@ const importConfig = pluginImport.configs.recommended;
 
 export default [
   {
-    ignores: ["**/*.d.ts", "node_modules", ".next", "out"],
+    ignores: ["**/*.d.ts", "node_modules", ".next", "out", "docs"],
   },
   js.configs.recommended,
   ...tsConfigs,
   {
-    files: ["**/*.{js,jsx,ts,tsx}"],
+    files: ["**/*.{js,jsx,ts,tsx,mjs,cjs}"],
     languageOptions: {
       ecmaVersion: "latest",
       sourceType: "module",

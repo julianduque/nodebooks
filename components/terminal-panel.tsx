@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useState } from "react";
 import { Check, Copy } from "lucide-react";
 
@@ -10,6 +11,9 @@ interface CommandBlock {
   label: string;
   lines: string[];
 }
+
+const HEROKU_DEPLOY_URL =
+  "https://heroku.com/deploy?template=https://github.com/julianduque/nodebooks";
 
 const commands: CommandBlock[] = [
   {
@@ -88,6 +92,19 @@ export function TerminalPanel({ className }: { className?: string }) {
             </pre>
           </div>
         ))}
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/10 px-5 py-4 text-sm text-slate-200/80">
+        <span>Prefer a hosted setup? Deploy NodeBooks straight to Heroku.</span>
+        <a href={HEROKU_DEPLOY_URL} target="_blank" rel="noreferrer" className="inline-flex">
+          <Image
+            src="https://www.herokucdn.com/deploy/button.svg"
+            alt="Deploy to Heroku"
+            width={190}
+            height={60}
+            className="h-10 w-auto"
+            unoptimized
+          />
+        </a>
       </div>
     </div>
   );
