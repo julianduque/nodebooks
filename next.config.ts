@@ -1,0 +1,37 @@
+import type { NextConfig } from "next";
+
+const repositoryBasePath = "/nodebooks";
+const isProduction = process.env.NODE_ENV === "production";
+
+const basePathInput = process.env.NEXT_PUBLIC_BASE_PATH
+  ? ensureLeadingSlash(process.env.NEXT_PUBLIC_BASE_PATH)
+  : isProduction
+    ? repositoryBasePath
+    : "";
+
+const assetPrefixInput = process.env.NEXT_PUBLIC_ASSET_PREFIX
+  ? ensureLeadingSlash(process.env.NEXT_PUBLIC_ASSET_PREFIX)
+  : isProduction
+    ? repositoryBasePath
+    : "";
+
+function ensureLeadingSlash(value: string) {
+  if (!value) {
+    return value;
+  }
+  return value.startsWith("/") ? value.replace(/\/+$/, "") : `/${value.replace(/\/+$/, "")}`;
+}
+
+const config: NextConfig = {
+  output: "export",
+  reactStrictMode: true,
+  trailingSlash: true,
+  basePath: basePathInput || undefined,
+  assetPrefix: assetPrefixInput || undefined,
+  images: {
+    unoptimized: true,
+  },
+  typedRoutes: true,
+};
+
+export default config;

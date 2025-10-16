@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://julianduque.github.io/nodebooks/sitemap.xml
