@@ -1,5 +1,13 @@
 # @nodebooks/cli
 
+## 0.2.3
+
+### Patch Changes
+
+- Fix client embedding in @nodebooks/server
+- Updated dependencies
+  - @nodebooks/server@0.3.1
+
 ## 0.2.2
 
 ### Patch Changes

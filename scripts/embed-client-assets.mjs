@@ -1,4 +1,4 @@
-import { access, cp, mkdir, rm } from "node:fs/promises";
+import { access, cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
@@ -63,6 +63,18 @@ const copyClientAssets = async () => {
       source: path.join(clientDir, "public"),
       destination: path.join(backendClientDir, "public"),
     },
+    {
+      source: path.join(clientDir, "app"),
+      destination: path.join(backendClientDir, "app"),
+    },
+    {
+      source: path.join(clientDir, "components"),
+      destination: path.join(backendClientDir, "components"),
+    },
+    {
+      source: path.join(clientDir, "lib"),
+      destination: path.join(backendClientDir, "lib"),
+    },
   ];
 
   for (const { source, destination } of directoriesToCopy) {
@@ -87,6 +99,43 @@ const main = async () => {
   const cacheDir = path.join(backendClientDir, ".next", "cache");
   if (await exists(cacheDir)) {
     await rm(cacheDir, { recursive: true, force: true });
+  }
+
+  const requiredServerFilesPath = path.join(
+    backendClientDir,
+    ".next",
+    "required-server-files.json"
+  );
+  if (await exists(requiredServerFilesPath)) {
+    try {
+      const raw = await readFile(requiredServerFilesPath, "utf8");
+      const data = JSON.parse(raw);
+      if (data.config) {
+        data.config.outputFileTracingRoot = ".";
+        if (data.config.turbopack) {
+          data.config.turbopack = {
+            ...data.config.turbopack,
+            root: ".",
+          };
+        }
+        const experimental = data.config.experimental;
+        if (experimental?.turbopack) {
+          experimental.turbopack = {
+            ...experimental.turbopack,
+            root: ".",
+          };
+        }
+      }
+      delete data.appDir;
+      delete data.relativeAppDir;
+      await writeFile(
+        requiredServerFilesPath,
+        `${JSON.stringify(data, null, 2)}\n`,
+        "utf8"
+      );
+    } catch (error) {
+      console.warn("Failed to rewrite required-server-files.json", error);
+    }
   }
 };
 
