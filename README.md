@@ -16,6 +16,26 @@ NodeBooks is a JS/TS notebook environment. It supports editing Markdown and code
 - 💾 Persistence: SQLite (bundled) and PostgreSQL
 - 🌍 Multi-user collaboration
 
+## CLI (nbks)
+
+The `@nodebooks/cli` workspace exposes an `nbks` binary for configuring and running the server locally. 
+
+```bash
+npx @nodebooks/cli
+```
+
+or install it with:
+
+```bash
+npm install -g @nodebooks/cli
+```
+
+- Configuration lives at `~/.config/nodebooks/nodebooks.toml` (respects `XDG_CONFIG_HOME` on Linux).
+- The default SQLite database path resolves to:
+  - `~/Library/Application Support/nodebooks/nodebooks.sqlite` on macOS
+  - `%APPDATA%\nodebooks\data\nodebooks.sqlite` on Windows
+  - `$XDG_DATA_HOME/nodebooks/nodebooks.sqlite` (or `~/.local/share/nodebooks/nodebooks.sqlite`) on Linux
+
 ## Project Layout
 
 ```
@@ -39,7 +59,7 @@ nodebooks/
 - Node 22.6+
 - pnpm 10 (Corepack-enabled Node images work out of the box)
 
-## Install
+## Install dependencies
 
 ```bash
 pnpm install
@@ -55,37 +75,6 @@ pnpm install
   - Terminal 1 (API): `pnpm api:dev` (Fastify on http://localhost:4000)
   - Terminal 2 (UI): `pnpm ui:dev` (Next.js on http://localhost:3000)
   - The UI dev script is preconfigured with `NEXT_PUBLIC_API_BASE_URL=http://localhost:4000/api`.
-
-## CLI (nbks)
-
-The `@nodebooks/cli` workspace exposes an `nbks` binary for configuring and running the server locally. Once published it will also be installable via `npx nbks`, but you can exercise it in-repo today:
-
-```bash
-# Build the CLI (emits dist/index.js with the nbks entrypoint)
-pnpm --filter @nodebooks/cli build
-
-# Open the interactive config wizard to set persistence, theme, AI, admin user
-pnpm --filter @nodebooks/cli exec nbks config
-
-# Start the NodeBooks server using the saved config
-pnpm --filter @nodebooks/cli exec nbks
-
-# Reset the admin password (prompt for a value or auto-generate one)
-pnpm --filter @nodebooks/cli exec nbks reset
-```
-
-- Configuration lives at `~/.config/nodebooks/nodebooks.toml` (respects `XDG_CONFIG_HOME` on Linux). The CLI keeps sensitive values (like passwords or API keys) out of source control.
-- The default SQLite database path resolves to:
-  - `~/Library/Application Support/nodebooks/nodebooks.sqlite` on macOS
-  - `%APPDATA%\nodebooks\data\nodebooks.sqlite` on Windows
-  - `$XDG_DATA_HOME/nodebooks/nodebooks.sqlite` (or `~/.local/share/nodebooks/nodebooks.sqlite`) on Linux
-- When you run `nbks`, it synchronizes the admin user defined in the config with the chosen persistence store before launching `@nodebooks/server`.
-
-## Accounts & Invitations
-
-- When the server starts with no users, visit `/signup` to create the initial admin account.
-- Admins can open the share dialog (the “Invite” button in any notebook) to send role-based invitations.
-- Invitations generate signup tokens; recipients redeem them at `/signup?token=...` to choose a password before logging in.
 
 ## Production
 
