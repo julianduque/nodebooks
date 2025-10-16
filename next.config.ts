@@ -1,6 +1,6 @@
 import type { NextConfig } from "next";
 
-const repositoryBasePath = "/nodebooks";
+const repositoryBasePath = "";
 const isProduction = process.env.NODE_ENV === "production";
 
 const basePathInput = process.env.NEXT_PUBLIC_BASE_PATH
