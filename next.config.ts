@@ -24,6 +24,7 @@ function ensureLeadingSlash(value: string) {
 
 const config: NextConfig = {
   output: "export",
+  distDir: "docs",
   reactStrictMode: true,
   trailingSlash: true,
   basePath: basePathInput || undefined,

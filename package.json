@@ -16,7 +16,7 @@
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "export": "next build && node -e \"require('fs').writeFileSync('out/.nojekyll', '')\"",
+    "export": "next build && node -e \"require('fs').writeFileSync('docs/.nojekyll', '')\"",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },
