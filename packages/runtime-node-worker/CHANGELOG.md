@@ -1,5 +1,14 @@
 # @nodebooks/runtime-node-worker
 
+## 0.2.1
+
+### Patch Changes
+
+- Refactor the way the client application is embedded in the @nodebooks/server
+- Updated dependencies
+  - @nodebooks/runtime-protocol@0.2.1
+  - @nodebooks/runtime-node@0.2.1
+
 ## 0.2.0
 
 ### Minor Changes

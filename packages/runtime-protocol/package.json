@@ -1,6 +1,6 @@
 {
   "name": "@nodebooks/runtime-protocol",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Shared message contracts for communication between NodeBooks runtimes and the server.",
   "author": "Julián Duque <julianduquej@gmail.com>",
   "license": "MIT",
@@ -17,15 +17,15 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "zod": "^4.1.11",
-    "@nodebooks/notebook-schema": "workspace:*"
+    "@nodebooks/notebook-schema": "workspace:*",
+    "zod": "^4.1.11"
   },
   "publishConfig": {
     "access": "public"
   },
   "devDependencies": {
-    "typescript": "^5.9.2",
     "@types/node": "^24.5.2",
+    "typescript": "^5.9.2",
     "vitest": "^3.2.4"
   }
 }

@@ -1,6 +1,6 @@
 {
   "name": "@nodebooks/runtime-node-worker",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Worker entrypoint that runs notebook executions in isolated Node.js processes.",
   "author": "Julián Duque <julianduquej@gmail.com>",
   "license": "MIT",
@@ -19,16 +19,16 @@
   },
   "dependencies": {
     "@nodebooks/config": "workspace:*",
+    "@nodebooks/notebook-schema": "workspace:*",
     "@nodebooks/runtime-node": "workspace:*",
-    "@nodebooks/runtime-protocol": "workspace:*",
-    "@nodebooks/notebook-schema": "workspace:*"
+    "@nodebooks/runtime-protocol": "workspace:*"
   },
   "publishConfig": {
     "access": "public"
   },
   "devDependencies": {
-    "typescript": "^5.9.2",
     "@types/node": "^24.5.2",
+    "typescript": "^5.9.2",
     "vitest": "^3.2.4"
   }
 }

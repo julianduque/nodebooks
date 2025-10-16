@@ -10,6 +10,7 @@ import type * as FastifyCookieNamespace from "@fastify/cookie";
 import next from "next";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Socket } from "node:net";
+import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
@@ -505,7 +506,15 @@ export const createServer = async ({ logger }: CreateServerOptions = {}) => {
     const hostnameForNext = host === "0.0.0.0" ? "localhost" : host;
     const __filename = fileURLToPath(import.meta.url);
     const __dirname = path.dirname(__filename);
-    const uiDir = path.join(__dirname, "../../client");
+    const embeddedClientDir = path.resolve(__dirname, "..", "client");
+    const workspaceClientDir = path.resolve(__dirname, "../../client");
+    let uiDir = workspaceClientDir;
+    try {
+      await fs.access(embeddedClientDir);
+      uiDir = embeddedClientDir;
+    } catch {
+      // Fallback to workspace client when running from the monorepo.
+    }
 
     // Switch CWD so Next/PostCSS/Tailwind resolve client configs correctly.
     // Keeping CWD at the client root avoids missing CSS during dev.

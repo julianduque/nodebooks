@@ -1,5 +1,13 @@
 # @nodebooks/cli
 
+## 0.2.4
+
+### Patch Changes
+
+- Refactor the way the client application is embedded in the @nodebooks/server
+- Updated dependencies
+  - @nodebooks/server@0.3.2
+
 ## 0.2.3
 
 ### Patch Changes

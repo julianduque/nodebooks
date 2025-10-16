@@ -1,5 +1,11 @@
 # @nodebooks/runtime-protocol
 
+## 0.2.1
+
+### Patch Changes
+
+- Refactor the way the client application is embedded in the @nodebooks/server
+
 ## 0.2.0
 
 ### Minor Changes

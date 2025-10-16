@@ -1,5 +1,16 @@
 # @nodebooks/server
 
+## 0.3.2
+
+### Patch Changes
+
+- Refactor the way the client application is embedded in the @nodebooks/server
+- Updated dependencies
+  - @nodebooks/runtime-node-worker@0.2.1
+  - @nodebooks/runtime-protocol@0.2.1
+  - @nodebooks/runtime-host@0.2.1
+  - @nodebooks/runtime-node@0.2.1
+
 ## 0.3.1
 
 ### Patch Changes

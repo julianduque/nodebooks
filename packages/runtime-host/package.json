@@ -1,6 +1,6 @@
 {
   "name": "@nodebooks/runtime-host",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Host process utilities that coordinate the NodeBooks execution runtimes.",
   "author": "Julián Duque <julianduquej@gmail.com>",
   "license": "MIT",
@@ -18,16 +18,16 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@nodebooks/runtime-protocol": "workspace:*",
     "@nodebooks/notebook-schema": "workspace:*",
-    "@nodebooks/runtime-node-worker": "workspace:*"
+    "@nodebooks/runtime-node-worker": "workspace:*",
+    "@nodebooks/runtime-protocol": "workspace:*"
   },
   "publishConfig": {
     "access": "public"
   },
   "devDependencies": {
-    "typescript": "^5.9.2",
     "@types/node": "^24.5.2",
+    "typescript": "^5.9.2",
     "vitest": "^3.2.4"
   }
 }

@@ -1,6 +1,6 @@
 {
   "name": "@nodebooks/cli",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Command-line interface for installing and managing NodeBooks.",
   "author": "Julián Duque <julianduquej@gmail.com>",
   "license": "MIT",
