@@ -64,6 +64,7 @@ interface CellCardProps {
   active: boolean;
   onActivate: () => void;
   aiEnabled: boolean;
+  terminalCellsEnabled: boolean;
   dependencies?: Record<string, string>;
   pendingTerminalPersist?: boolean;
   readOnly: boolean;
@@ -128,6 +129,7 @@ const CellCard = ({
   active: _active,
   onActivate,
   aiEnabled,
+  terminalCellsEnabled,
   dependencies,
   pendingTerminalPersist = false,
   readOnly,
@@ -1080,6 +1082,7 @@ const CellCard = ({
             onAdd={onAddBelow}
             className="ml-auto flex flex-wrap items-center gap-1 text-[11px] [&>button]:h-8 [&>button]:w-auto [&>button]:rounded-lg sm:border-l sm:border-border/60 sm:pl-2 sm:[&>button]:min-w-[6.5rem]"
             disabled={readOnly}
+            terminalCellsEnabled={terminalCellsEnabled}
           />
         </div>
       </div>

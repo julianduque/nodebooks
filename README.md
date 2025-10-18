@@ -2,7 +2,7 @@
 
 ![NodeBooks Logo](./apps/client/public/assets/nodebooks-logo-64x64.png)
 
-NodeBooks is a JS/TS notebook environment. It supports editing Markdown and code cells, executing TypeScript/JavaScript, and streaming outputs to the browser in real time.
+NodeBooks ([nbks](https://nbks.dev)) is a JS/TS notebook environment. It supports editing Markdown and code cells, executing TypeScript/JavaScript, and streaming outputs to the browser in real time.
 
 ## Features
 
@@ -18,7 +18,7 @@ NodeBooks is a JS/TS notebook environment. It supports editing Markdown and code
 
 ## CLI (nbks)
 
-The `@nodebooks/cli` workspace exposes an `nbks` binary for configuring and running the server locally. 
+The `@nodebooks/cli` workspace exposes an `nbks` binary for configuring and running the server locally.
 
 ```bash
 npx @nodebooks/cli
@@ -92,7 +92,9 @@ pnpm start
 
 - `PORT` – Port to bind (default `4000`).
 - `HOST` – Host to bind (default `0.0.0.0`).
-- `NODEBOOKS_SQLITE_PATH` – Path to the SQLite file for notebooks storage.
+- `NODEBOOKS_TERMINALS_ENABLED` – Enable terminal cells (default `0`). Supported values:
+  - `1` – Enable terminal cells.
+  - `0` – Disable terminal cells.
 - `NODEBOOKS_KERNEL_TIMEOUT_MS` – Kernel execution timeout in ms (default `10000`).
 - `NODEBOOKS_KERNEL_WS_HEARTBEAT_MS` – Server→client WebSocket ping interval in ms to keep connections alive behind proxies with idle timeouts (default `25000`).
 - `NODEBOOKS_THEME` – Theme to use for the UI (default `light`). Supported values:
@@ -103,6 +105,7 @@ pnpm start
   - `postgres` – Use PostgreSQL via `DATABASE_URL`.
   - `in-memory` – Ephemeral storage useful for local smoke tests.
 - `DATABASE_URL` – PostgreSQL connection string used when `NODEBOOKS_PERSISTENCE=postgres`.
+- `NODEBOOKS_SQLITE_PATH` – Path to the SQLite file for notebooks storage.
 
 ## Docker
 
