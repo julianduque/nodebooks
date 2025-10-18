@@ -90,6 +90,7 @@ const SettingsUpdateSchema = z
       })
       .optional(),
     aiEnabled: z.boolean().optional(),
+    terminalCellsEnabled: z.boolean().optional(),
     ai: AiSettingsSchema.optional(),
   })
   .strict();
@@ -119,7 +120,8 @@ export const registerSettingsRoutes = async (
       return { error: "Invalid settings payload" };
     }
 
-    const { theme, kernelTimeoutMs, ai, aiEnabled } = result.data;
+    const { theme, kernelTimeoutMs, ai, aiEnabled, terminalCellsEnabled } =
+      result.data;
     const updates: SettingsUpdate = {};
     if (theme !== undefined) {
       updates.theme = theme;
@@ -129,6 +131,9 @@ export const registerSettingsRoutes = async (
     }
     if (aiEnabled !== undefined) {
       updates.aiEnabled = aiEnabled;
+    }
+    if (terminalCellsEnabled !== undefined) {
+      updates.terminalCellsEnabled = terminalCellsEnabled;
     }
     if (ai !== undefined) {
       updates.ai = ai;

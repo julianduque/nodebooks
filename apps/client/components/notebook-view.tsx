@@ -97,6 +97,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
   const [depError, setDepError] = useState<string | null>(null);
   const [depOutputs, setDepOutputs] = useState<NotebookOutput[]>([]);
   const [aiEnabled, setAiEnabled] = useState(false);
+  const [terminalCellsEnabled, setTerminalCellsEnabled] = useState(false);
   const [socketGeneration, bumpSocketGeneration] = useReducer(
     (current: number) => current + 1,
     0
@@ -476,43 +477,49 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     setPendingTerminalIds(new Set());
   }, [notebook?.id, currentUser?.id]);
 
-  const refreshAiAvailability = useCallback(async () => {
+  const refreshNotebookFeatures = useCallback(async () => {
     try {
       const response = await fetch(`${API_BASE_URL}/settings`, {
         cache: "no-store",
       });
       if (response.status === 403) {
         setAiEnabled(false);
+        setTerminalCellsEnabled(false);
         return;
       }
       if (!response.ok) {
         throw new Error(`Request failed with status ${response.status}`);
       }
       const payload = await response.json();
-      const enabled =
+      const aiAvailable =
         typeof payload?.data?.aiEnabled === "boolean"
           ? payload.data.aiEnabled
           : false;
-      setAiEnabled(enabled);
+      const terminalsAvailable =
+        typeof payload?.data?.terminalCellsEnabled === "boolean"
+          ? payload.data.terminalCellsEnabled
+          : false;
+      setAiEnabled(aiAvailable);
+      setTerminalCellsEnabled(terminalsAvailable);
     } catch (error) {
-      console.error("Failed to load AI availability", error);
+      console.error("Failed to load notebook feature availability", error);
     }
   }, []);
 
   useEffect(() => {
-    void refreshAiAvailability();
-  }, [refreshAiAvailability]);
+    void refreshNotebookFeatures();
+  }, [refreshNotebookFeatures]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
       return;
     }
     const handleFocus = () => {
-      void refreshAiAvailability();
+      void refreshNotebookFeatures();
     };
     const handleVisibility = () => {
       if (!document.hidden) {
-        void refreshAiAvailability();
+        void refreshNotebookFeatures();
       }
     };
     window.addEventListener("focus", handleFocus);
@@ -521,7 +528,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
       window.removeEventListener("focus", handleFocus);
       document.removeEventListener("visibilitychange", handleVisibility);
     };
-  }, [refreshAiAvailability]);
+  }, [refreshNotebookFeatures]);
 
   useEffect(() => {
     if (typeof document === "undefined") {
@@ -1487,6 +1494,13 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
       if (!ensureEditable()) {
         return;
       }
+      if (
+        (type === "terminal" || type === "command") &&
+        !terminalCellsEnabled
+      ) {
+        setActionError("Terminal cells are disabled for this workspace.");
+        return;
+      }
       const nextCell =
         type === "code"
           ? createCodeCell({ language: "ts" })
@@ -1523,6 +1537,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
       saveNotebookNow,
       clearPendingSave,
       markTerminalPendingPersistence,
+      terminalCellsEnabled,
     ]
   );
 
@@ -2395,6 +2410,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         activeCellId={activeCellId}
         themeMode={theme}
         aiEnabled={aiEnabled}
+        terminalCellsEnabled={terminalCellsEnabled}
         readOnly={!canEditNotebook}
         readOnlyMessage={readOnlyMessage}
         pendingTerminalIds={pendingTerminalIds}

@@ -32,6 +32,7 @@ export interface ServerConfig {
   theme: "light" | "dark";
   kernelTimeoutMs: number;
   kernelWsHeartbeatMs?: number;
+  terminalCellsEnabled: boolean;
   persistence: {
     driver: PersistenceDriver;
     sqlitePath?: string;
@@ -44,6 +45,7 @@ export interface GlobalSettings {
   theme?: ThemeMode;
   kernelTimeoutMs?: number;
   aiEnabled?: boolean;
+  terminalCellsEnabled?: boolean;
   ai?: Partial<AiConfig>;
   [key: string]: unknown;
 }

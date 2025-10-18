@@ -25,10 +25,11 @@ describe("@nodebooks/config – loadServerConfig", () => {
     expect(cfg.theme).toBe("light");
     expect(cfg.kernelTimeoutMs).toBe(10_000);
     expect(cfg.kernelWsHeartbeatMs).toBeUndefined();
+    expect(cfg.terminalCellsEnabled).toBe(false);
     expect(cfg.persistence.driver).toBe("sqlite");
     expect(cfg.persistence.sqlitePath).toBe(".data/nodebooks.sqlite");
     expect(cfg.persistence.databaseUrl).toBeUndefined();
-    expect(cfg.ai.enabled).toBe(true);
+    expect(cfg.ai.enabled).toBe(false);
     expect(cfg.ai.provider).toBe("openai");
     expect(cfg.ai.openai?.model).toBe("gpt-4o-mini");
   });
@@ -72,13 +73,16 @@ describe("@nodebooks/config – loadServerConfig", () => {
     runtime.__NODEBOOKS_SETTINGS__ = {
       theme: "dark",
       kernelTimeoutMs: 42_000,
+      terminalCellsEnabled: true,
     };
     const cfg = loadServerConfig({
       NODEBOOKS_THEME: "light",
       NODEBOOKS_KERNEL_TIMEOUT_MS: "5000",
+      NODEBOOKS_TERMINALS_ENABLED: "0",
     } as NodeJS.ProcessEnv);
     expect(cfg.theme).toBe("dark");
     expect(cfg.kernelTimeoutMs).toBe(42_000);
+    expect(cfg.terminalCellsEnabled).toBe(true);
   });
 
   it("honors explicit override argument", () => {
@@ -86,11 +90,13 @@ describe("@nodebooks/config – loadServerConfig", () => {
       {
         NODEBOOKS_THEME: "light",
         NODEBOOKS_KERNEL_TIMEOUT_MS: "5000",
+        NODEBOOKS_TERMINALS_ENABLED: "1",
       } as NodeJS.ProcessEnv,
-      { theme: "dark", kernelTimeoutMs: 33_000 }
+      { theme: "dark", kernelTimeoutMs: 33_000, terminalCellsEnabled: false }
     );
     expect(cfg.theme).toBe("dark");
     expect(cfg.kernelTimeoutMs).toBe(33_000);
+    expect(cfg.terminalCellsEnabled).toBe(false);
   });
 });
 

@@ -367,6 +367,21 @@ export const createTerminalUpgradeHandler = (
     }
 
     const finalize = async () => {
+      const cfg = loadServerConfig();
+      if (!cfg.terminalCellsEnabled) {
+        try {
+          socket.write("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
+        } catch (err) {
+          void err;
+        }
+        try {
+          socket.destroy();
+        } catch (err) {
+          void err;
+        }
+        return;
+      }
+
       let authResult: TerminalUpgradeAuthResult | null = null;
       if (typeof options.authenticate === "function") {
         try {
