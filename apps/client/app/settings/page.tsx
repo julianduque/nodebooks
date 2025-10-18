@@ -42,6 +42,7 @@ interface SettingsPayload {
   theme: ThemeMode;
   kernelTimeoutMs: number;
   aiEnabled: boolean;
+  terminalCellsEnabled: boolean;
   ai: AiSettingsPayload;
 }
 
@@ -50,6 +51,7 @@ type SavingSection =
   | "kernel"
   | "ai"
   | "aiEnabled"
+  | "terminalCells"
   | "password"
   | null;
 type SettingsTab = "profile" | "runtime" | "ai" | "users";
@@ -131,10 +133,15 @@ const parseSettings = (value: unknown): SettingsPayload | null => {
   const ai = parseAiSettings(record.ai);
   const aiEnabled =
     typeof record.aiEnabled === "boolean" ? record.aiEnabled : false;
+  const terminalCellsEnabled =
+    typeof record.terminalCellsEnabled === "boolean"
+      ? record.terminalCellsEnabled
+      : false;
   return {
     theme: record.theme,
     kernelTimeoutMs: record.kernelTimeoutMs,
     aiEnabled,
+    terminalCellsEnabled,
     ai,
   };
 };
@@ -219,7 +226,7 @@ const KernelSection = ({
   );
 };
 
-const AiToggleButton = ({
+const SettingsToggle = ({
   enabled,
   onToggle,
   disabled,
@@ -282,7 +289,55 @@ const AiEnabledSection = ({
         >
           {enabled ? "Enabled" : "Disabled"}
         </span>
-        <AiToggleButton
+        <SettingsToggle
+          enabled={enabled}
+          onToggle={onToggle}
+          disabled={saving}
+        />
+      </div>
+    </div>
+  );
+};
+
+const TerminalCellsSection = ({
+  enabled,
+  onToggle,
+  saving,
+}: {
+  enabled: boolean;
+  onToggle: (value: boolean) => void;
+  saving: boolean;
+}) => {
+  return (
+    <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="space-y-1">
+        <h3 className="text-sm font-semibold text-foreground">
+          Terminal cells
+        </h3>
+        <p className="text-sm text-muted-foreground">
+          {enabled
+            ? "Notebook authors can add Terminal and Command cells."
+            : "Keep disabled to hide Terminal and Command cells from notebooks."}
+        </p>
+        {enabled ? (
+          <p className="text-xs font-semibold text-amber-600 dark:text-amber-400">
+            Warning: Terminal sessions are not sandboxed and run as the
+            NodeBooks host user.
+          </p>
+        ) : null}
+      </div>
+      <div className="flex items-center gap-3">
+        <span
+          className={cn(
+            "text-xs font-medium",
+            enabled
+              ? "text-emerald-600 dark:text-emerald-400"
+              : "text-muted-foreground"
+          )}
+        >
+          {enabled ? "Enabled" : "Disabled"}
+        </span>
+        <SettingsToggle
           enabled={enabled}
           onToggle={onToggle}
           disabled={saving}
@@ -527,6 +582,7 @@ const SettingsPage = () => {
   const [themeValue, setThemeValue] = useState<ThemeMode>(theme);
   const [kernelTimeout, setKernelTimeout] = useState("10000");
   const [aiEnabled, setAiEnabled] = useState(true);
+  const [terminalCellsEnabled, setTerminalCellsEnabled] = useState(false);
   const [aiProvider, setAiProvider] = useState<AiProvider>("openai");
   const [openaiModel, setOpenaiModel] = useState("");
   const [openaiApiKey, setOpenaiApiKey] = useState("");
@@ -606,6 +662,7 @@ const SettingsPage = () => {
       setThemeValue(parsed.theme);
       setKernelTimeout(String(parsed.kernelTimeoutMs));
       setAiEnabled(parsed.aiEnabled);
+      setTerminalCellsEnabled(parsed.terminalCellsEnabled);
       setAiProvider(parsed.ai.provider);
       setOpenaiModel(parsed.ai.openai.model ?? "");
       setOpenaiKeyConfigured(parsed.ai.openai.apiKeyConfigured);
@@ -687,6 +744,7 @@ const SettingsPage = () => {
       setThemeValue(data.theme);
       setKernelTimeout(String(data.kernelTimeoutMs));
       setAiEnabled(data.aiEnabled);
+      setTerminalCellsEnabled(data.terminalCellsEnabled);
       setAiProvider(data.ai.provider);
       setOpenaiModel(data.ai.openai.model ?? "");
       setOpenaiKeyConfigured(data.ai.openai.apiKeyConfigured);
@@ -784,6 +842,55 @@ const SettingsPage = () => {
     resetFeedback,
     savingSection,
   ]);
+
+  const handleTerminalCellsToggle = useCallback(
+    async (next: boolean) => {
+      if (savingSection === "terminalCells" || next === terminalCellsEnabled) {
+        return;
+      }
+      setSavingSection("terminalCells");
+      resetFeedback();
+      try {
+        const response = await fetch(`${API_BASE_URL}/settings`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ terminalCellsEnabled: next }),
+        });
+        if (!response.ok) {
+          throw new Error(`Request failed with status ${response.status}`);
+        }
+        const payload = await response.json();
+        const parsed = parseSettings(payload?.data);
+        if (!parsed) {
+          throw new Error("Received malformed settings payload");
+        }
+        applyResponse(parsed);
+        pushFeedback(
+          "runtime",
+          "success",
+          next
+            ? "Terminal cells enabled. Sessions run as the NodeBooks host user."
+            : "Terminal cells disabled."
+        );
+      } catch (err) {
+        console.error(err);
+        pushFeedback(
+          "runtime",
+          "error",
+          "Unable to update terminal cell availability."
+        );
+      } finally {
+        setSavingSection(null);
+      }
+    },
+    [
+      applyResponse,
+      pushFeedback,
+      resetFeedback,
+      savingSection,
+      terminalCellsEnabled,
+    ]
+  );
 
   const handleAiSave = useCallback(async () => {
     if (savingSection === "ai") {
@@ -1137,6 +1244,14 @@ const SettingsPage = () => {
             <Card className="mt-4">
               <CardContent className="space-y-6 px-6 py-6">
                 <FeedbackBanner scope="runtime" />
+                <TerminalCellsSection
+                  enabled={terminalCellsEnabled}
+                  onToggle={(next) => {
+                    void handleTerminalCellsToggle(next);
+                  }}
+                  saving={savingSection === "terminalCells" || loading}
+                />
+                <Separator />
                 <KernelSection
                   value={kernelTimeout}
                   onChange={setKernelTimeout}

@@ -104,6 +104,12 @@ export const createServer = async ({ logger }: CreateServerOptions = {}) => {
     pluginTimeout: isDev ? 120_000 : undefined,
   });
 
+  if (cfg.terminalCellsEnabled) {
+    app.log.warn(
+      "Terminal cells are enabled. Terminal sessions run unsandboxed as the NodeBooks host user."
+    );
+  }
+
   await app.register(fastifyCookie);
   await app.register(cors, {
     origin: true,

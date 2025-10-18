@@ -14,10 +14,12 @@ const AddCellMenu = ({
   onAdd,
   className,
   disabled = false,
+  terminalCellsEnabled = false,
 }: {
   onAdd: (type: NotebookCell["type"]) => void | Promise<void>;
   className?: string;
   disabled?: boolean;
+  terminalCellsEnabled?: boolean;
 }) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -54,10 +56,10 @@ const AddCellMenu = ({
   }, [menuOpen]);
 
   useEffect(() => {
-    if (disabled && menuOpen) {
+    if ((disabled || !terminalCellsEnabled) && menuOpen) {
       setMenuOpen(false);
     }
-  }, [disabled, menuOpen]);
+  }, [disabled, menuOpen, terminalCellsEnabled]);
 
   useEffect(() => {
     if (!menuOpen) {
@@ -89,7 +91,10 @@ const AddCellMenu = ({
   }, [menuOpen]);
 
   const handleAdd = (type: NotebookCell["type"]) => {
-    if (disabled) {
+    if (
+      disabled ||
+      (!terminalCellsEnabled && (type === "terminal" || type === "command"))
+    ) {
       return;
     }
     setMenuOpen(false);
@@ -124,57 +129,61 @@ const AddCellMenu = ({
         <Plus className="h-4 w-4" />
         Code
       </Button>
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        className="gap-2"
-        onClick={() => {
-          if (disabled) return;
-          setMenuOpen((open) => !open);
-        }}
-        ref={triggerRef}
-        disabled={disabled}
-        aria-expanded={menuOpen}
-        aria-haspopup="menu"
-      >
-        <Zap className="h-4 w-4" />
-        {SPECIAL_CELL_LABEL}
-      </Button>
-      {menuOpen && menuPosition && typeof document !== "undefined"
-        ? createPortal(
-            <div
-              className="z-[1000] rounded-md border border-slate-700 bg-slate-900/95 p-1 text-sm shadow-lg"
-              ref={(node) => {
-                menuRef.current = node;
-              }}
-              style={{
-                position: "absolute",
-                top: menuPosition.top,
-                left: menuPosition.left,
-                width: menuPosition.width,
-              }}
-            >
-              <button
-                type="button"
-                className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-slate-200 hover:bg-slate-800"
-                onClick={() => handleAdd("terminal")}
-              >
-                <Terminal className="h-4 w-4" />
-                Terminal
-              </button>
-              <button
-                type="button"
-                className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-slate-200 hover:bg-slate-800"
-                onClick={() => handleAdd("command")}
-              >
-                <Zap className="h-4 w-4" />
-                Command
-              </button>
-            </div>,
-            document.body
-          )
-        : null}
+      {terminalCellsEnabled ? (
+        <>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="gap-2"
+            onClick={() => {
+              if (disabled) return;
+              setMenuOpen((open) => !open);
+            }}
+            ref={triggerRef}
+            disabled={disabled}
+            aria-expanded={menuOpen}
+            aria-haspopup="menu"
+          >
+            <Zap className="h-4 w-4" />
+            {SPECIAL_CELL_LABEL}
+          </Button>
+          {menuOpen && menuPosition && typeof document !== "undefined"
+            ? createPortal(
+                <div
+                  className="z-[1000] rounded-md border border-slate-700 bg-slate-900/95 p-1 text-sm shadow-lg"
+                  ref={(node) => {
+                    menuRef.current = node;
+                  }}
+                  style={{
+                    position: "absolute",
+                    top: menuPosition.top,
+                    left: menuPosition.left,
+                    width: menuPosition.width,
+                  }}
+                >
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-slate-200 hover:bg-slate-800"
+                    onClick={() => handleAdd("terminal")}
+                  >
+                    <Terminal className="h-4 w-4" />
+                    Terminal
+                  </button>
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-slate-200 hover:bg-slate-800"
+                    onClick={() => handleAdd("command")}
+                  >
+                    <Zap className="h-4 w-4" />
+                    Command
+                  </button>
+                </div>,
+                document.body
+              )
+            : null}
+        </>
+      ) : null}
     </div>
   );
 };

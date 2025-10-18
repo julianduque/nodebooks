@@ -34,5 +34,5 @@ RUN pnpm build
 ENV NODE_ENV=production
 EXPOSE 4000
 
-# 3) Launch the Fastify server (serves API + Next.js client)
+# Launch the Fastify server (serves API + Next.js client)
 CMD ["pnpm", "--filter", "@nodebooks/server", "start"]

@@ -21,6 +21,7 @@ const ENV_KEYS = {
   herokuInferenceKey: "NODEBOOKS_HEROKU_INFERENCE_KEY",
   herokuInferenceUrl: "NODEBOOKS_HEROKU_INFERENCE_URL",
   aiEnabled: "NODEBOOKS_AI_ENABLED",
+  terminalCellsEnabled: "NODEBOOKS_TERMINALS_ENABLED",
 } as const;
 
 const normalizeTheme = (value: unknown): ThemeMode | undefined => {
@@ -47,7 +48,7 @@ const normalizeAiString = (value: unknown): string | undefined => {
   return trimmed.length > 0 ? trimmed : undefined;
 };
 
-const normalizeAiEnabled = (value: unknown): boolean | undefined => {
+const normalizeBooleanSetting = (value: unknown): boolean | undefined => {
   if (value === null) {
     return undefined;
   }
@@ -103,6 +104,7 @@ export interface SettingsSnapshot {
   theme: ThemeMode;
   kernelTimeoutMs: number;
   aiEnabled: boolean;
+  terminalCellsEnabled: boolean;
   ai: {
     provider: AiProvider;
     openai: { model: string | null; apiKeyConfigured: boolean };
@@ -118,6 +120,7 @@ export interface SettingsUpdate {
   theme?: ThemeMode;
   kernelTimeoutMs?: number;
   aiEnabled?: boolean;
+  terminalCellsEnabled?: boolean;
   ai?: AiSettings | null;
 }
 
@@ -137,6 +140,7 @@ export class SettingsService {
     herokuInferenceKey: process.env[ENV_KEYS.herokuInferenceKey],
     herokuInferenceUrl: process.env[ENV_KEYS.herokuInferenceUrl],
     aiEnabled: process.env[ENV_KEYS.aiEnabled],
+    terminalCellsEnabled: process.env[ENV_KEYS.terminalCellsEnabled],
   };
 
   constructor(private readonly store: SettingsStore) {
@@ -157,6 +161,7 @@ export class SettingsService {
       theme: cfg.theme,
       kernelTimeoutMs: cfg.kernelTimeoutMs,
       aiEnabled: cfg.ai.enabled,
+      terminalCellsEnabled: cfg.terminalCellsEnabled,
       ai: {
         provider: cfg.ai.provider,
         openai: {
@@ -183,6 +188,9 @@ export class SettingsService {
     }
     if (update.aiEnabled !== undefined) {
       await this.applyAiEnabled(update.aiEnabled);
+    }
+    if (update.terminalCellsEnabled !== undefined) {
+      await this.applyTerminalCellsEnabled(update.terminalCellsEnabled);
     }
     if (update.ai !== undefined) {
       await this.applyAi(update.ai);
@@ -220,11 +228,20 @@ export class SettingsService {
       delete normalized.kernelTimeoutMs;
     }
 
-    const aiEnabled = normalizeAiEnabled(normalized.aiEnabled);
+    const aiEnabled = normalizeBooleanSetting(normalized.aiEnabled);
     if (aiEnabled !== undefined) {
       normalized.aiEnabled = aiEnabled;
     } else {
       delete normalized.aiEnabled;
+    }
+
+    const terminalCellsEnabled = normalizeBooleanSetting(
+      normalized.terminalCellsEnabled
+    );
+    if (terminalCellsEnabled !== undefined) {
+      normalized.terminalCellsEnabled = terminalCellsEnabled;
+    } else {
+      delete normalized.terminalCellsEnabled;
     }
 
     const ai = normalizeAiSettings(normalized.ai);
@@ -260,7 +277,7 @@ export class SettingsService {
   }
 
   private async applyAiEnabled(value: boolean) {
-    const enabled = normalizeAiEnabled(value);
+    const enabled = normalizeBooleanSetting(value);
     if (enabled === undefined) {
       delete this.settings.aiEnabled;
       await this.store.delete("aiEnabled");
@@ -268,6 +285,23 @@ export class SettingsService {
     }
     this.settings.aiEnabled = enabled;
     await this.store.set("aiEnabled", enabled);
+  }
+
+  private async applyTerminalCellsEnabled(value: boolean) {
+    const enabled = normalizeBooleanSetting(value);
+    if (enabled === undefined) {
+      delete this.settings.terminalCellsEnabled;
+      await this.store.delete("terminalCellsEnabled");
+      return;
+    }
+    const previous = this.settings.terminalCellsEnabled;
+    this.settings.terminalCellsEnabled = enabled;
+    await this.store.set("terminalCellsEnabled", enabled);
+    if (!previous && enabled) {
+      console.warn(
+        "Terminal cells are enabled. Terminal sessions run unsandboxed as the NodeBooks host user."
+      );
+    }
   }
 
   private async applyAi(value: AiSettings | null) {
@@ -300,13 +334,26 @@ export class SettingsService {
       delete snapshot.kernelTimeoutMs;
     }
 
-    const aiEnabled = normalizeAiEnabled(snapshot.aiEnabled);
+    const aiEnabled = normalizeBooleanSetting(snapshot.aiEnabled);
     if (aiEnabled !== undefined) {
       process.env[ENV_KEYS.aiEnabled] = aiEnabled ? "true" : "false";
       snapshot.aiEnabled = aiEnabled;
     } else {
       this.restoreInitialEnv("aiEnabled");
       delete snapshot.aiEnabled;
+    }
+
+    const terminalCellsEnabled = normalizeBooleanSetting(
+      snapshot.terminalCellsEnabled
+    );
+    if (terminalCellsEnabled !== undefined) {
+      process.env[ENV_KEYS.terminalCellsEnabled] = terminalCellsEnabled
+        ? "true"
+        : "false";
+      snapshot.terminalCellsEnabled = terminalCellsEnabled;
+    } else {
+      this.restoreInitialEnv("terminalCellsEnabled");
+      delete snapshot.terminalCellsEnabled;
     }
 
     const ai = normalizeAiSettings(snapshot.ai);

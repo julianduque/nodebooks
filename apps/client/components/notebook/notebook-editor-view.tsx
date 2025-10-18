@@ -33,6 +33,7 @@ export interface NotebookEditorViewProps {
   activeCellId: string | null;
   themeMode: ThemeMode;
   aiEnabled: boolean;
+  terminalCellsEnabled: boolean;
   readOnly: boolean;
   readOnlyMessage?: string;
   pendingTerminalIds: Set<string>;
@@ -66,6 +67,7 @@ const NotebookEditorView = ({
   activeCellId,
   themeMode,
   aiEnabled,
+  terminalCellsEnabled,
   readOnly,
   readOnlyMessage,
   pendingTerminalIds,
@@ -191,14 +193,16 @@ const NotebookEditorView = ({
                   Start building your notebook
                 </p>
                 <p className="text-sm text-muted-foreground">
-                  Add a Markdown note, run JavaScript or TypeScript, or open a
-                  terminal session to begin.
+                  {terminalCellsEnabled
+                    ? "Add a Markdown note, run JavaScript or TypeScript, or open a terminal session to begin."
+                    : "Add a Markdown note or run JavaScript or TypeScript to begin."}
                 </p>
               </div>
               <AddCellMenu
                 onAdd={(type) => onAddCell(type)}
                 className="mt-0 flex justify-center gap-2 text-[13px]"
                 disabled={readOnly}
+                terminalCellsEnabled={terminalCellsEnabled}
               />
             </>
           )}
@@ -289,6 +293,7 @@ const NotebookEditorView = ({
                     onAddCell(type, index + 1);
                   }}
                   aiEnabled={aiEnabled}
+                  terminalCellsEnabled={terminalCellsEnabled}
                   dependencies={notebook.env.packages}
                   pendingTerminalPersist={pendingTerminalIds.has(cell.id)}
                   readOnly={readOnly}
