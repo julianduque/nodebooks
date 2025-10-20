@@ -1596,6 +1596,10 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
       }
 
       if (cell.type === "command") {
+        if (!terminalCellsEnabled) {
+          setActionError("Terminal cells are disabled for this workspace.");
+          return;
+        }
         const metadata = (cell.metadata ?? {}) as CommandCellMetadata;
         const commandText = (cell.command ?? "").trim();
         if (!commandText) {
