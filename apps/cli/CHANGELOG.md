@@ -1,5 +1,13 @@
 # @nodebooks/cli
 
+## 0.2.5
+
+### Patch Changes
+
+- Updated dependencies
+  - @nodebooks/server@0.3.3
+  - @nodebooks/config@0.2.1
+
 ## 0.2.4
 
 ### Patch Changes

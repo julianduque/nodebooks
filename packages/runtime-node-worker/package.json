@@ -1,6 +1,6 @@
 {
   "name": "@nodebooks/runtime-node-worker",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Worker entrypoint that runs notebook executions in isolated Node.js processes.",
   "author": "Julián Duque <julianduquej@gmail.com>",
   "license": "MIT",

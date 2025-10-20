@@ -1,6 +1,6 @@
 {
   "name": "@nodebooks/config",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Shared configuration loaders and helpers for NodeBooks services.",
   "author": "Julián Duque <julianduquej@gmail.com>",
   "license": "MIT",

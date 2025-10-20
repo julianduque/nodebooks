@@ -1,5 +1,15 @@
 # @nodebooks/runtime-node-worker
 
+## 0.2.2
+
+### Patch Changes
+
+- Updated dependencies
+  - @nodebooks/config@0.2.1
+  - @nodebooks/notebook-schema@0.2.1
+  - @nodebooks/runtime-node@0.2.2
+  - @nodebooks/runtime-protocol@0.2.2
+
 ## 0.2.1
 
 ### Patch Changes

@@ -1,5 +1,14 @@
 # @nodebooks/runtime-node
 
+## 0.2.2
+
+### Patch Changes
+
+- Updated dependencies
+  - @nodebooks/config@0.2.1
+  - @nodebooks/notebook-schema@0.2.1
+  - @nodebooks/ui@0.2.1
+
 ## 0.2.1
 
 ### Patch Changes

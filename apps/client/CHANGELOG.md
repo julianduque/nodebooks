@@ -1,5 +1,15 @@
 # @nodebooks/client
 
+## 0.2.1
+
+### Patch Changes
+
+- Add terminal cells as optional
+- Updated dependencies
+  - @nodebooks/config@0.2.1
+  - @nodebooks/notebook-schema@0.2.1
+  - @nodebooks/ui@0.2.1
+
 ## 0.2.0
 
 ### Minor Changes

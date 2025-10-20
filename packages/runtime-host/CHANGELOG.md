@@ -1,5 +1,14 @@
 # @nodebooks/runtime-host
 
+## 0.2.2
+
+### Patch Changes
+
+- Updated dependencies
+  - @nodebooks/notebook-schema@0.2.1
+  - @nodebooks/runtime-node-worker@0.2.2
+  - @nodebooks/runtime-protocol@0.2.2
+
 ## 0.2.1
 
 ### Patch Changes

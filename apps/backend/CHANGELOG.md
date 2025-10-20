@@ -1,5 +1,19 @@
 # @nodebooks/server
 
+## 0.3.3
+
+### Patch Changes
+
+- Add terminal cells as optional
+- Updated dependencies
+  - @nodebooks/config@0.2.1
+  - @nodebooks/notebook-schema@0.2.1
+  - @nodebooks/runtime-node@0.2.2
+  - @nodebooks/runtime-node-worker@0.2.2
+  - @nodebooks/runtime-host@0.2.2
+  - @nodebooks/runtime-protocol@0.2.2
+  - @nodebooks/ui@0.2.1
+
 ## 0.3.2
 
 ### Patch Changes

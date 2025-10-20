@@ -1,6 +1,6 @@
 {
   "name": "@nodebooks/runtime-protocol",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Shared message contracts for communication between NodeBooks runtimes and the server.",
   "author": "Julián Duque <julianduquej@gmail.com>",
   "license": "MIT",
