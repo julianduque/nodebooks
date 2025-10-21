@@ -27,6 +27,7 @@ import { registerNotebookSharingRoutes } from "./routes/notebook-sharing.js";
 import { registerProjectRoutes } from "./routes/projects.js";
 import { registerPublicViewRoutes } from "./routes/public.js";
 import { registerProjectSharingRoutes } from "./routes/project-sharing.js";
+import { registerHttpRoutes } from "./routes/http.js";
 import { createKernelUpgradeHandler } from "./kernel/router.js";
 import { createTerminalUpgradeHandler } from "./terminal/router.js";
 import { NotebookCollaborationService } from "./notebooks/collaboration.js";
@@ -591,6 +592,7 @@ export const createServer = async ({ logger }: CreateServerOptions = {}) => {
       registerPublicViewRoutes(api, { store, projects });
       registerNotebookSharingRoutes(api, { auth: authService });
       registerProjectSharingRoutes(api, { auth: authService });
+      registerHttpRoutes(api, store, collaborators);
       registerDependencyRoutes(api, store, collaborators);
       registerSessionRoutes(api, kernelSessions, store, collaborators);
       registerTemplateRoutes(api);

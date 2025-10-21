@@ -4,10 +4,12 @@ import {
   createMarkdownCell,
   createTerminalCell,
   createCommandCell,
+  createHttpCell,
   ensureNotebookRuntimeVersion,
   NotebookEnvSchema,
   type CodeCell,
   type CommandCell,
+  type HttpCell,
   type MarkdownCell,
   type TerminalCell,
   type Notebook,
@@ -17,6 +19,7 @@ import {
   type NotebookFileCell,
   type NotebookFileCodeCell,
   type NotebookFileCommandCell,
+  type NotebookFileHttpCell,
   type NotebookFileLegacyShellCell,
   type NotebookFileNotebook,
   type NotebookFileTerminalCell,
@@ -69,6 +72,16 @@ const cloneCells = (cells: NotebookFileCell[]): NotebookCell[] => {
         notes: commandCell.notes ?? "",
       });
       result.push(command);
+      continue;
+    }
+    if (cell.type === "http") {
+      const httpCell = cell as NotebookFileHttpCell;
+      const http = createHttpCell({
+        metadata: httpCell.metadata ?? {},
+        request: httpCell.request ?? {},
+        response: httpCell.response,
+      });
+      result.push(http);
       continue;
     }
     const codeCell = cell as NotebookFileCodeCell;
@@ -176,6 +189,22 @@ const serializeCommandCell = (cell: CommandCell): NotebookFileCell => {
   return result;
 };
 
+const serializeHttpCell = (cell: HttpCell): NotebookFileCell => {
+  const result: NotebookFileCell = {
+    type: "http",
+  };
+  if (!isEmptyRecord(cell.metadata)) {
+    result.metadata = cell.metadata;
+  }
+  if (cell.request) {
+    result.request = cell.request;
+  }
+  if (cell.response) {
+    result.response = cell.response;
+  }
+  return result;
+};
+
 const serializeCells = (cells: NotebookCell[]): NotebookFileCell[] => {
   return cells.map((cell) => {
     if (cell.type === "markdown") {
@@ -186,6 +215,9 @@ const serializeCells = (cells: NotebookCell[]): NotebookFileCell[] => {
     }
     if (cell.type === "command") {
       return serializeCommandCell(cell as CommandCell);
+    }
+    if (cell.type === "http") {
+      return serializeHttpCell(cell as HttpCell);
     }
     return serializeCodeCell(cell as CodeCell);
   });

@@ -7,6 +7,7 @@ import {
   createMarkdownCell,
   createTerminalCell,
   createCommandCell,
+  createHttpCell,
 } from "../src/index.js";
 
 describe("notebook schema", () => {
@@ -21,6 +22,7 @@ describe("notebook schema", () => {
     const markdown = createMarkdownCell({ source: "# Title" });
     const terminal = createTerminalCell();
     const command = createCommandCell({ command: "echo 'hi'" });
+    const http = createHttpCell();
     expect(code.id).not.toEqual(markdown.id);
     expect(code.type).toBe("code");
     expect(markdown.type).toBe("markdown");
@@ -28,6 +30,8 @@ describe("notebook schema", () => {
     expect(terminal.buffer).toBe("");
     expect(command.type).toBe("command");
     expect(command.command).toBe("echo 'hi'");
+    expect(http.type).toBe("http");
+    expect(http.request.method).toBe("GET");
   });
 
   it("validates kernel protocol messages", () => {

@@ -193,9 +193,9 @@ const NotebookEditorView = ({
                   Start building your notebook
                 </p>
                 <p className="text-sm text-muted-foreground">
-                  {terminalCellsEnabled
-                    ? "Add a Markdown note, run JavaScript or TypeScript, or open a terminal session to begin."
-                    : "Add a Markdown note or run JavaScript or TypeScript to begin."}
+          {terminalCellsEnabled
+            ? "Add a Markdown note, run JavaScript or TypeScript, send an HTTP request, or open a terminal session to begin."
+            : "Add a Markdown note, run JavaScript or TypeScript, or send an HTTP request to begin."}
                 </p>
               </div>
               <AddCellMenu
@@ -245,7 +245,11 @@ const NotebookEditorView = ({
             {isEmpty ? renderEmptyState() : null}
             {notebook.cells.map((cell, index) => {
               const cellCanRun =
-                cell.type === "command" ? !readOnly : socketReady && !readOnly;
+                cell.type === "command"
+                  ? !readOnly
+                  : cell.type === "http"
+                    ? !readOnly
+                    : socketReady && !readOnly;
               return (
                 <CellCard
                   key={cell.id}
@@ -295,6 +299,7 @@ const NotebookEditorView = ({
                   aiEnabled={aiEnabled}
                   terminalCellsEnabled={terminalCellsEnabled}
                   dependencies={notebook.env.packages}
+                  variables={notebook.env.variables ?? {}}
                   pendingTerminalPersist={pendingTerminalIds.has(cell.id)}
                   readOnly={readOnly}
                 />

@@ -1,7 +1,7 @@
 "use client";
 
 import clsx from "clsx";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FocusEvent, SyntheticEvent } from "react";
 import { Button } from "../ui/button";
 import {
@@ -12,10 +12,12 @@ import {
   Loader2,
   Pencil,
   Play,
+  Copy,
   Sparkles,
   Settings as SettingsIcon,
   Trash2,
   XCircle,
+  Code,
 } from "lucide-react";
 import {
   Dialog,
@@ -25,12 +27,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import type { NotebookCell } from "@nodebooks/notebook-schema";
+import { createCodeCell, type NotebookCell } from "@nodebooks/notebook-schema";
 import { clientConfig } from "@nodebooks/config/client";
 import CodeCellView from "./code-cell-view";
 import MarkdownCellView from "./markdown-cell-view";
 import CommandCellView from "./command-cell-view";
 import TerminalCellView from "./terminal-cell-view";
+import HttpCellView from "./http-cell-view";
 import AddCellMenu from "./add-cell-menu";
 import type { AttachmentMetadata } from "@/components/notebook/attachment-utils";
 import {
@@ -66,6 +69,7 @@ interface CellCardProps {
   aiEnabled: boolean;
   terminalCellsEnabled: boolean;
   dependencies?: Record<string, string>;
+  variables?: Record<string, string>;
   pendingTerminalPersist?: boolean;
   readOnly: boolean;
 }
@@ -98,6 +102,15 @@ const FONT_SIZE_PRESET_STRINGS = new Set<string>(
   FONT_SIZE_PRESETS.map((size) => String(size))
 );
 
+type HttpCellType = Extract<NotebookCell, { type: "http" }>;
+
+interface HttpExecutionDetails {
+  method: string;
+  url: string | null;
+  headers: { name: string; value: string }[];
+  body?: string;
+}
+
 const fontSizeSelectionForValue = (value: string): FontSizeSelection => {
   if (value.length === 0) {
     return "default";
@@ -108,6 +121,235 @@ const fontSizeSelectionForValue = (value: string): FontSizeSelection => {
 };
 
 const API_BASE_URL = clientConfig().apiBaseUrl;
+
+const HTTP_VARIABLE_PATTERN = /\{\{\s*([A-Z0-9_]+)\s*\}\}/gi;
+
+const substituteHttpVariables = (
+  value: string,
+  variables: Record<string, string>
+) => {
+  if (typeof value !== "string" || value.length === 0) {
+    return "";
+  }
+  HTTP_VARIABLE_PATTERN.lastIndex = 0;
+  return value.replace(HTTP_VARIABLE_PATTERN, (_, rawKey: string) => {
+    const key = rawKey.trim();
+    if (!key) {
+      return "";
+    }
+    const exact = variables[key] ?? variables[key.toUpperCase()] ?? "";
+    return exact;
+  });
+};
+
+const buildHttpExecutionDetails = (
+  cell: HttpCellType,
+  variables: Record<string, string>
+): HttpExecutionDetails | null => {
+  const request = cell.request ?? {
+    method: "GET",
+    url: "",
+    headers: [],
+    query: [],
+    body: { mode: "none", text: "", contentType: "application/json" },
+  };
+
+  const method = (request.method ?? "GET").toUpperCase();
+
+  const headers = (request.headers ?? [])
+    .filter((header) => header?.enabled !== false)
+    .map((header) => {
+      const name = substituteHttpVariables(header?.name ?? "", variables).trim();
+      const value = substituteHttpVariables(header?.value ?? "", variables);
+      return { name, value };
+    })
+    .filter((header) => header.name.length > 0);
+
+  const query = (request.query ?? [])
+    .filter((param) => param?.enabled !== false)
+    .map((param) => ({
+      name: substituteHttpVariables(param?.name ?? "", variables),
+      value: substituteHttpVariables(param?.value ?? "", variables),
+    }))
+    .filter((param) => param.name.trim().length > 0);
+
+  const rawUrl = substituteHttpVariables(request.url ?? "", variables).trim();
+  let urlString: string | null = rawUrl || null;
+  if (rawUrl) {
+    try {
+      const url = new URL(rawUrl);
+      query.forEach((param) => {
+        url.searchParams.append(param.name, param.value);
+      });
+      urlString = url.toString();
+    } catch {
+      if (query.length > 0) {
+        const queryString = query
+          .map(
+            (param) =>
+              `${encodeURIComponent(param.name)}=${encodeURIComponent(param.value)}`
+          )
+          .join("&");
+        urlString = `${rawUrl}${rawUrl.includes("?") ? "&" : "?"}${queryString}`;
+      }
+    }
+  }
+
+  let body: string | undefined;
+  if (request.body?.mode === "json") {
+    const substituted = substituteHttpVariables(
+      request.body?.text ?? "",
+      variables
+    ).trim();
+    if (substituted.length > 0) {
+      try {
+        body = JSON.stringify(JSON.parse(substituted));
+      } catch {
+        body = substituted;
+      }
+    }
+  } else if (request.body?.mode === "text") {
+    body = substituteHttpVariables(request.body?.text ?? "", variables);
+  }
+
+  if (["GET", "HEAD"].includes(method)) {
+    body = undefined;
+  }
+
+  return {
+    method,
+    url: urlString,
+    headers,
+    body,
+  };
+};
+
+const escapeCurlValue = (value: string) => {
+  return value.replace(/'/g, "'\\''");
+};
+
+const buildHttpCurlCommand = (details: HttpExecutionDetails | null) => {
+  if (!details || !details.url) {
+    return null;
+  }
+  const parts = [`curl -X ${details.method}`];
+  details.headers.forEach((header) => {
+    parts.push(`-H '${escapeCurlValue(`${header.name}: ${header.value}`)}'`);
+  });
+  if (details.body && details.body.length > 0) {
+    parts.push(`--data '${escapeCurlValue(details.body)}'`);
+  }
+  parts.push(`'${escapeCurlValue(details.url)}'`);
+  return parts.join(" ");
+};
+
+const sanitizeTemplateLiteral = (value: string) => {
+  const escaped = (value ?? "")
+    .replace(/\\/g, "\\\\")
+    .replace(/`/g, "\\`")
+    .replace(/\$\{/g, "\\${");
+  HTTP_VARIABLE_PATTERN.lastIndex = 0;
+  return escaped.replace(HTTP_VARIABLE_PATTERN, (_, rawKey: string) => {
+    const key = rawKey.trim();
+    if (!key) {
+      return "";
+    }
+    return "${process.env." + key + ' ?? ""}';
+  });
+};
+
+const toTemplateLiteral = (value: string) => {
+  return `\`${sanitizeTemplateLiteral(value ?? "")}\``;
+};
+
+const buildHttpCodeSnippet = (cell: HttpCellType) => {
+  const request = cell.request ?? {
+    method: "GET",
+    url: "",
+    headers: [],
+    query: [],
+    body: { mode: "none", text: "", contentType: "application/json" },
+  };
+
+  const lines: string[] = [];
+  const rawUrl = (request.url ?? "").trim();
+  const urlLiteral = rawUrl ? toTemplateLiteral(rawUrl) : "`https://example.com`";
+  lines.push(`const url = new URL(${urlLiteral});`);
+
+  (request.query ?? [])
+    .filter((param) => param?.enabled !== false)
+    .filter((param) => (param?.name ?? "").trim().length > 0)
+    .forEach((param) => {
+      lines.push(
+        `url.searchParams.append(${toTemplateLiteral(param?.name ?? "")}, ${toTemplateLiteral(
+          param?.value ?? ""
+        )});`
+      );
+    });
+
+  const headerLines = (request.headers ?? [])
+    .filter((header) => header?.enabled !== false)
+    .filter((header) => (header?.name ?? "").trim().length > 0)
+    .map(
+      (header) =>
+        `headers.set(${toTemplateLiteral(header?.name ?? "")}, ${toTemplateLiteral(
+          header?.value ?? ""
+        )});`
+    );
+
+  if (headerLines.length > 0) {
+    lines.push("", "const headers = new Headers();");
+    lines.push(...headerLines);
+  }
+
+  const bodyMode = request.body?.mode ?? "none";
+  const bodyText = request.body?.text ?? "";
+  let bodyDeclaration: string | null = null;
+  let bodyUsage: string | null = null;
+  if (bodyMode === "json" && bodyText.trim().length > 0) {
+    bodyDeclaration = `const payload = JSON.parse(${toTemplateLiteral(bodyText)});`;
+    bodyUsage = "JSON.stringify(payload)";
+  } else if (bodyMode === "text" && bodyText.length > 0) {
+    bodyDeclaration = `const body = ${toTemplateLiteral(bodyText)};`;
+    bodyUsage = "body";
+  }
+
+  if (bodyDeclaration) {
+    lines.push("", bodyDeclaration);
+  }
+
+  const optionEntries: string[] = [
+    `  method: ${JSON.stringify((request.method ?? "GET").toUpperCase())}`,
+  ];
+  if (headerLines.length > 0) {
+    optionEntries.push("  headers");
+  }
+  if (bodyUsage) {
+    optionEntries.push(`  body: ${bodyUsage}`);
+  }
+
+  lines.push(
+    "",
+    "const response = await fetch(url, {",
+    ...optionEntries.map((entry) => `${entry},`),
+    "});",
+    "",
+    "if (!response.ok) {",
+    "  throw new Error(`Request failed: ${response.status} ${response.statusText}`);",
+    "}",
+    "",
+    "const contentType = response.headers.get(\"content-type\");",
+    "if (contentType && contentType.includes(\"application/json\")) {",
+    "  const data = await response.json();",
+    "  console.log(data);",
+    "} else {",
+    "  const text = await response.text();",
+    "  console.log(text);",
+    "}"
+  );
+
+  return lines.join("\n");
+};
 
 const CellCard = ({
   cell,
@@ -131,6 +373,7 @@ const CellCard = ({
   aiEnabled,
   terminalCellsEnabled,
   dependencies,
+  variables,
   pendingTerminalPersist = false,
   readOnly,
 }: CellCardProps) => {
@@ -139,14 +382,17 @@ const CellCard = ({
   const isMarkdown = cell.type === "markdown";
   const isTerminal = cell.type === "terminal";
   const isCommand = cell.type === "command";
-  const showAiActions = aiEnabled && !isTerminal && !isCommand && !readOnly;
+  const isHttp = cell.type === "http";
+  const showAiActions = aiEnabled && !isTerminal && !isCommand && !isHttp && !readOnly;
   const isReadOnly = readOnly;
   const codeLanguage = isCode ? cell.language : undefined;
   const cellContent = isTerminal
     ? (cell.buffer ?? "")
     : isCommand
       ? [cell.command ?? "", cell.notes ?? ""].filter(Boolean).join("\n\n")
-      : (cell.source ?? "");
+      : isHttp
+        ? JSON.stringify(cell.request ?? {})
+        : (cell.source ?? "");
   const [showConfig, setShowConfig] = useState(false);
   const [timeoutDraft, setTimeoutDraft] = useState("");
   const [timeoutError, setTimeoutError] = useState<string | null>(null);
@@ -179,6 +425,8 @@ const CellCard = ({
   const [aiGenerating, setAiGenerating] = useState(false);
   const aiControllerRef = useRef<AbortController | null>(null);
   const aiCloseIntentRef = useRef<"auto" | null>(null);
+  const [curlCopied, setCurlCopied] = useState(false);
+  const curlCopyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (!aiEnabled && aiOpen) {
@@ -187,6 +435,25 @@ const CellCard = ({
       setAiPrompt("");
     }
   }, [aiEnabled, aiOpen]);
+
+  useEffect(() => {
+    return () => {
+      if (curlCopyTimerRef.current) {
+        clearTimeout(curlCopyTimerRef.current);
+        curlCopyTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  const httpVariables = useMemo(() => variables ?? {}, [variables]);
+  const httpDetails = useMemo(
+    () =>
+      cell.type === "http"
+        ? buildHttpExecutionDetails(cell as HttpCellType, httpVariables)
+        : null,
+    [cell, httpVariables]
+  );
+  const httpCurl = useMemo(() => buildHttpCurlCommand(httpDetails), [httpDetails]);
 
   const openConfig = useCallback(() => {
     if (isCode) {
@@ -740,6 +1007,55 @@ const CellCard = ({
     updateCellSource,
   ]);
 
+  const handleCopyCurl = useCallback(async () => {
+    if (!httpCurl) {
+      return;
+    }
+    try {
+      if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(httpCurl);
+      } else if (typeof document !== "undefined") {
+        const textarea = document.createElement("textarea");
+        textarea.value = httpCurl;
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textarea);
+      } else {
+        return;
+      }
+      setCurlCopied(true);
+      if (curlCopyTimerRef.current) {
+        clearTimeout(curlCopyTimerRef.current);
+      }
+      curlCopyTimerRef.current = setTimeout(() => {
+        setCurlCopied(false);
+        curlCopyTimerRef.current = null;
+      }, 2000);
+    } catch {
+      setCurlCopied(false);
+    }
+  }, [httpCurl]);
+
+  const handleConvertHttpToCode = useCallback(() => {
+    if (cell.type !== "http") {
+      return;
+    }
+    const snippet = buildHttpCodeSnippet(cell as HttpCellType);
+    onChange(
+      () =>
+        createCodeCell({
+          id: cell.id,
+          language: "ts",
+          source: snippet,
+        }),
+      { persist: true }
+    );
+  }, [cell, onChange]);
+
   const stopToolbarPropagation = useCallback((event: SyntheticEvent) => {
     event.stopPropagation();
   }, []);
@@ -855,6 +1171,47 @@ const CellCard = ({
             disabled={isReadOnly}
           >
             <SettingsIcon className="h-4 w-4" />
+          </Button>
+        </>
+      ) : isHttp ? (
+        <>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onRun}
+            disabled={isReadOnly || !canRun || isRunning}
+            aria-label="Send request"
+            title="Send request"
+          >
+            {isRunning ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Play className="h-4 w-4" />
+            )}
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={handleCopyCurl}
+            aria-label="Copy cURL"
+            title="Copy cURL"
+            disabled={!httpCurl}
+          >
+            {curlCopied ? (
+              <Check className="h-4 w-4 text-emerald-400" />
+            ) : (
+              <Copy className="h-4 w-4" />
+            )}
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={handleConvertHttpToCode}
+            aria-label="Convert to code cell"
+            title="Convert to code cell"
+            disabled={isReadOnly}
+          >
+            <Code className="h-4 w-4" />
           </Button>
         </>
       ) : isMarkdown ? (
@@ -1055,6 +1412,14 @@ const CellCard = ({
           cell={cell}
           onChange={onChange}
           onRun={onRun}
+          readOnly={readOnly}
+        />
+      ) : cell.type === "http" ? (
+        <HttpCellView
+          cell={cell}
+          onChange={onChange}
+          variables={httpVariables}
+          isRunning={isRunning}
           readOnly={readOnly}
         />
       ) : (
