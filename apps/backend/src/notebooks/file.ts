@@ -78,7 +78,7 @@ const cloneCells = (cells: NotebookFileCell[]): NotebookCell[] => {
       const httpCell = cell as NotebookFileHttpCell;
       const http = createHttpCell({
         metadata: httpCell.metadata ?? {},
-        request: httpCell.request ?? {},
+        request: httpCell.request,
         response: httpCell.response,
       });
       result.push(http);

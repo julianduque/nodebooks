@@ -9,7 +9,6 @@ const workspaceRoot = path.resolve(__dirname, "..");
 const clientDir = path.join(workspaceRoot, "apps", "client");
 const backendDir = path.join(workspaceRoot, "apps", "backend");
 const backendClientDir = path.join(backendDir, "client");
-const backendTemplatesDir = path.join(backendDir, "templates");
 
 const exists = async (target) => {
   try {

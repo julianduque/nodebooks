@@ -22,7 +22,7 @@ export type DiagnosticPolicy =
   | { mode: "ignore-list"; ignore?: number[] }
   | { mode: "full" };
 
-let currentPolicy: DiagnosticPolicy = { mode: "ignore-list" };
+let currentPolicy: DiagnosticPolicy = { mode: "off" };
 
 export const getMonaco = () => monacoRef;
 

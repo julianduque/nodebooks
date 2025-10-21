@@ -83,8 +83,17 @@ const DEFAULT_ADD_ATTR: readonly string[] = [
   "data-footnote-backref",
 ];
 
-const mergeUnique = (base: readonly string[], extras?: readonly string[]) => {
-  if (!extras || extras.length === 0) {
+const mergeAddAttributes = (
+  base: readonly string[],
+  extras: DomPurifyConfig["ADD_ATTR"]
+): DomPurifyConfig["ADD_ATTR"] => {
+  if (!extras) {
+    return [...base];
+  }
+  if (typeof extras === "function") {
+    return extras;
+  }
+  if (extras.length === 0) {
     return [...base];
   }
   return Array.from(new Set([...base, ...extras]));
@@ -93,11 +102,14 @@ const mergeUnique = (base: readonly string[], extras?: readonly string[]) => {
 const createDomPurifyConfig = (config?: DomPurifyConfig): DomPurifyConfig => {
   const merged: DomPurifyConfig = {
     ...config,
-    ADD_ATTR: mergeUnique(DEFAULT_ADD_ATTR, config?.ADD_ATTR),
+    ADD_ATTR: mergeAddAttributes(DEFAULT_ADD_ATTR, config?.ADD_ATTR),
   };
 
   if (config?.ADD_TAGS) {
-    merged.ADD_TAGS = Array.from(new Set(config.ADD_TAGS));
+    merged.ADD_TAGS =
+      typeof config.ADD_TAGS === "function"
+        ? config.ADD_TAGS
+        : Array.from(new Set(config.ADD_TAGS));
   }
 
   if (!config?.USE_PROFILES) {

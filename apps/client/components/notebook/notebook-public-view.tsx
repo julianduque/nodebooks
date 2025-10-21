@@ -402,9 +402,7 @@ const PublicHttpCell = ({
   const queryParams = useMemo(
     () =>
       Array.isArray(request.query)
-        ? request.query.filter(
-            (param) => (param.name ?? "").trim().length > 0
-          )
+        ? request.query.filter((param) => (param.name ?? "").trim().length > 0)
         : [],
     [request.query]
   );
@@ -483,10 +481,15 @@ const PublicHttpCell = ({
             </p>
             <div className="rounded-md border border-border/60 bg-background/80 p-2 text-xs font-mono">
               {queryParams.map((param) => (
-                <div key={param.id ?? `${param.name}-${param.value}`} className="flex gap-2">
+                <div
+                  key={param.id ?? `${param.name}-${param.value}`}
+                  className="flex gap-2"
+                >
                   <span className="text-emerald-300">{param.name}</span>
                   <span className="text-muted-foreground">=</span>
-                  <span className="text-foreground break-all">{param.value}</span>
+                  <span className="text-foreground break-all">
+                    {param.value}
+                  </span>
                 </div>
               ))}
             </div>
@@ -499,10 +502,15 @@ const PublicHttpCell = ({
             </p>
             <div className="rounded-md border border-border/60 bg-background/80 p-2 text-xs font-mono">
               {requestHeaders.map((header) => (
-                <div key={header.id ?? `${header.name}-${header.value}`} className="flex gap-2">
+                <div
+                  key={header.id ?? `${header.name}-${header.value}`}
+                  className="flex gap-2"
+                >
                   <span className="text-sky-300">{header.name}</span>
                   <span className="text-muted-foreground">:</span>
-                  <span className="text-foreground break-all">{header.value}</span>
+                  <span className="text-foreground break-all">
+                    {header.value}
+                  </span>
                 </div>
               ))}
             </div>
@@ -527,7 +535,9 @@ const PublicHttpCell = ({
               Response
             </span>
             {timestampLabel ? (
-              <span className="text-xs text-muted-foreground">{timestampLabel}</span>
+              <span className="text-xs text-muted-foreground">
+                {timestampLabel}
+              </span>
             ) : null}
             {typeof response.durationMs === "number" ? (
               <span className="text-xs text-muted-foreground">
@@ -536,7 +546,9 @@ const PublicHttpCell = ({
             ) : null}
           </div>
           {response.error ? (
-            <p className="text-sm font-medium text-rose-400">{response.error}</p>
+            <p className="text-sm font-medium text-rose-400">
+              {response.error}
+            </p>
           ) : (
             <div className="space-y-2">
               {responseStatus ? (
@@ -556,10 +568,15 @@ const PublicHttpCell = ({
               </p>
               <div className="rounded-md border border-border/60 bg-background/60 p-2 text-xs font-mono">
                 {responseHeaders.map((header) => (
-                  <div key={header.id ?? `${header.name}-${header.value}`} className="flex gap-2">
+                  <div
+                    key={`${header.name}-${header.value}`}
+                    className="flex gap-2"
+                  >
                     <span className="text-emerald-300">{header.name}</span>
                     <span className="text-muted-foreground">:</span>
-                    <span className="text-foreground break-all">{header.value}</span>
+                    <span className="text-foreground break-all">
+                      {header.value}
+                    </span>
                   </div>
                 ))}
               </div>

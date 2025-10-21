@@ -36,7 +36,7 @@ const SetupPanel = ({
 }: SetupPanelProps) => {
   const [draft, setDraft] = useState("");
   const [typingMode, setTypingMode] = useState<"ignore" | "off" | "full">(
-    "ignore"
+    "off"
   );
   useEffect(() => {
     try {
@@ -182,7 +182,7 @@ const SetupPanel = ({
       <Separator className="my-2" />
       <div className="mt-3">
         <label className="block text-xs font-semibold uppercase tracking-[0.3em] text-muted-foreground">
-          Typing Mode
+          Editor Type Checking
         </label>
         <div className="mt-1">
           <select
@@ -196,8 +196,8 @@ const SetupPanel = ({
               else setDiagnosticPolicy({ mode: "ignore-list" });
             }}
           >
-            <option value="ignore">Ignore noisy errors</option>
             <option value="off">No diagnostics</option>
+            <option value="ignore">Ignore noisy errors</option>
             <option value="full">Full TypeScript checks</option>
           </select>
           <p className="mt-1 text-[11px] text-muted-foreground">

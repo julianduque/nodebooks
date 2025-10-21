@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import clsx from "clsx";
 import { Button } from "@/components/ui/button";
-import { Plus, Terminal, Zap } from "lucide-react";
+import { Globe, Plus, Terminal, Zap } from "lucide-react";
 import type { NotebookCell } from "@nodebooks/notebook-schema";
 
 const SPECIAL_CELL_LABEL = "Special";
@@ -129,16 +129,6 @@ const AddCellMenu = ({
         <Plus className="h-4 w-4" />
         Code
       </Button>
-      <Button
-        variant="outline"
-        size="sm"
-        className="gap-2"
-        onClick={() => handleAdd("http")}
-        disabled={disabled}
-      >
-        <Plus className="h-4 w-4" />
-        HTTP Request
-      </Button>
       {terminalCellsEnabled ? (
         <>
           <Button
@@ -175,6 +165,14 @@ const AddCellMenu = ({
                   <button
                     type="button"
                     className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-slate-200 hover:bg-slate-800"
+                    onClick={() => handleAdd("http")}
+                  >
+                    <Globe className="h-4 w-4" />
+                    HTTP Request
+                  </button>
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-slate-200 hover:bg-slate-800"
                     onClick={() => handleAdd("terminal")}
                   >
                     <Terminal className="h-4 w-4" />
@@ -193,7 +191,18 @@ const AddCellMenu = ({
               )
             : null}
         </>
-      ) : null}
+      ) : (
+        <Button
+          variant="outline"
+          size="sm"
+          className="gap-2"
+          onClick={() => handleAdd("http")}
+          disabled={disabled}
+        >
+          <Plus className="h-4 w-4" />
+          HTTP Request
+        </Button>
+      )}
     </div>
   );
 };

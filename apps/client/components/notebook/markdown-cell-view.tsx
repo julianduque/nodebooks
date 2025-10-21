@@ -21,6 +21,11 @@ import {
   renderMarkdownToHtml,
   waitNextTick,
 } from "./markdown-preview-utils";
+import {
+  MONACO_EDITOR_CONTAINER_CLASS,
+  MONACO_EDITOR_WRAPPER_CLASS,
+  MONACO_SECTION_PADDING_CLASS,
+} from "./monaco-styles";
 
 interface MarkdownCellViewProps {
   cell: Extract<NotebookCell, { type: "markdown" }>;
@@ -308,7 +313,7 @@ const MarkdownCellView = ({
         try {
           const dom = editor.getDomNode?.();
           const width =
-            dom?.parentElement?.clientWidth ?? dom?.clientWidth ?? 0;
+            dom?.clientWidth ?? dom?.parentElement?.clientWidth ?? 0;
           if (width > 0) {
             editor.layout({ width, height: h });
           }
@@ -363,9 +368,9 @@ const MarkdownCellView = ({
       ) : null}
       {isEditing ? (
         <div className="relative">
-          <div className="px-5 pt-5">
+          <div className={MONACO_EDITOR_WRAPPER_CLASS}>
             <MonacoEditor
-              className="rounded-xl border border-slate-800/70 bg-slate-950/80 shadow-inner overflow-hidden"
+              className={MONACO_EDITOR_CONTAINER_CLASS}
               key={editorKey}
               path={path ?? `${cell.id}.md`}
               height={editorHeight || 0}
@@ -402,13 +407,13 @@ const MarkdownCellView = ({
             />
           </div>
           <div
-            className="markdown-preview space-y-3 bg-card px-5 pb-5 pt-4 text-sm leading-7 text-card-foreground"
+            className={`markdown-preview space-y-3 bg-card ${MONACO_SECTION_PADDING_CLASS} pt-4 text-sm leading-7 text-card-foreground`}
             ref={setPreviewRef}
             dangerouslySetInnerHTML={{ __html: html }}
           />
         </div>
       ) : (
-        <div className="relative px-5 py-5">
+        <div className={`relative ${MONACO_EDITOR_WRAPPER_CLASS}`}>
           <div
             className="markdown-preview space-y-3 text-sm leading-7 text-card-foreground"
             ref={setPreviewRef}
@@ -418,7 +423,9 @@ const MarkdownCellView = ({
         </div>
       )}
       {uploadError ? (
-        <p className="px-5 pb-5 text-xs text-rose-500">{uploadError}</p>
+        <p className={`${MONACO_SECTION_PADDING_CLASS} text-xs text-rose-500`}>
+          {uploadError}
+        </p>
       ) : null}
     </div>
   );
