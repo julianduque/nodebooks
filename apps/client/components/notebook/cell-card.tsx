@@ -27,7 +27,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { createCodeCell, type NotebookCell } from "@nodebooks/notebook-schema";
+import type { NotebookCell } from "@nodebooks/notebook-schema";
 import { clientConfig } from "@nodebooks/config/client";
 import CodeCellView from "./code-cell-view";
 import MarkdownCellView from "./markdown-cell-view";
@@ -57,6 +57,7 @@ interface CellCardProps {
   onDelete: () => void;
   onAddBelow: (type: NotebookCell["type"]) => void | Promise<void>;
   onMove: (direction: "up" | "down") => void;
+  onCloneHttpToCode: (id: string, source: string) => void;
   isRunning: boolean;
   queued?: boolean;
   canRun: boolean;
@@ -159,7 +160,10 @@ const buildHttpExecutionDetails = (
   const headers = (request.headers ?? [])
     .filter((header) => header?.enabled !== false)
     .map((header) => {
-      const name = substituteHttpVariables(header?.name ?? "", variables).trim();
+      const name = substituteHttpVariables(
+        header?.name ?? "",
+        variables
+      ).trim();
       const value = substituteHttpVariables(header?.value ?? "", variables);
       return { name, value };
     })
@@ -273,7 +277,9 @@ const buildHttpCodeSnippet = (cell: HttpCellType) => {
 
   const lines: string[] = [];
   const rawUrl = (request.url ?? "").trim();
-  const urlLiteral = rawUrl ? toTemplateLiteral(rawUrl) : "`https://example.com`";
+  const urlLiteral = rawUrl
+    ? toTemplateLiteral(rawUrl)
+    : "`https://example.com`";
   lines.push(`const url = new URL(${urlLiteral});`);
 
   (request.query ?? [])
@@ -338,8 +344,8 @@ const buildHttpCodeSnippet = (cell: HttpCellType) => {
     "  throw new Error(`Request failed: ${response.status} ${response.statusText}`);",
     "}",
     "",
-    "const contentType = response.headers.get(\"content-type\");",
-    "if (contentType && contentType.includes(\"application/json\")) {",
+    'const contentType = response.headers.get("content-type");',
+    'if (contentType && contentType.includes("application/json")) {',
     "  const data = await response.json();",
     "  console.log(data);",
     "} else {",
@@ -361,6 +367,7 @@ const CellCard = ({
   onDelete,
   onAddBelow,
   onMove,
+  onCloneHttpToCode,
   isRunning,
   queued,
   canRun,
@@ -383,7 +390,8 @@ const CellCard = ({
   const isTerminal = cell.type === "terminal";
   const isCommand = cell.type === "command";
   const isHttp = cell.type === "http";
-  const showAiActions = aiEnabled && !isTerminal && !isCommand && !isHttp && !readOnly;
+  const showAiActions =
+    aiEnabled && !isTerminal && !isCommand && !isHttp && !readOnly;
   const isReadOnly = readOnly;
   const codeLanguage = isCode ? cell.language : undefined;
   const cellContent = isTerminal
@@ -453,7 +461,10 @@ const CellCard = ({
         : null,
     [cell, httpVariables]
   );
-  const httpCurl = useMemo(() => buildHttpCurlCommand(httpDetails), [httpDetails]);
+  const httpCurl = useMemo(
+    () => buildHttpCurlCommand(httpDetails),
+    [httpDetails]
+  );
 
   const openConfig = useCallback(() => {
     if (isCode) {
@@ -1045,16 +1056,8 @@ const CellCard = ({
       return;
     }
     const snippet = buildHttpCodeSnippet(cell as HttpCellType);
-    onChange(
-      () =>
-        createCodeCell({
-          id: cell.id,
-          language: "ts",
-          source: snippet,
-        }),
-      { persist: true }
-    );
-  }, [cell, onChange]);
+    onCloneHttpToCode(cell.id, snippet);
+  }, [cell, onCloneHttpToCode]);
 
   const stopToolbarPropagation = useCallback((event: SyntheticEvent) => {
     event.stopPropagation();
@@ -1181,7 +1184,7 @@ const CellCard = ({
             onClick={onRun}
             disabled={isReadOnly || !canRun || isRunning}
             aria-label="Send request"
-            title="Send request"
+            title="Send request (Shift+Enter)"
           >
             {isRunning ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -1421,6 +1424,7 @@ const CellCard = ({
           variables={httpVariables}
           isRunning={isRunning}
           readOnly={readOnly}
+          onRun={onRun}
         />
       ) : (
         <TerminalCellView

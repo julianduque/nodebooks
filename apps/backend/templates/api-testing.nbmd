@@ -43,6 +43,75 @@ notebook:
 
         - [`axios`](https://www.npmjs.com/package/axios) for HTTP requests
         - [`zod`](https://www.npmjs.com/package/zod) for schema validation
+    - type: markdown
+      source: |-
+        ## HTTP request catalog
+
+        Run these HTTP cells to explore the API surface. Update the variables
+        list or tweak headers, query params, and JSON payloads per request. Use
+        the `{{VARIABLE}}` helpers to substitute notebook environment values.
+    - type: http
+      request:
+        method: GET
+        url: "{{API_BASE_URL}}/status"
+        headers:
+          - id: status-auth
+            name: Authorization
+            value: "Bearer {{AUTH_TOKEN}}"
+            enabled: false
+        query: []
+        body:
+          mode: none
+          text: ""
+          contentType: application/json
+    - type: http
+      request:
+        method: GET
+        url: "{{API_BASE_URL}}/users"
+        headers:
+          - id: users-auth
+            name: Authorization
+            value: "Bearer {{AUTH_TOKEN}}"
+            enabled: false
+        query:
+          - id: users-limit
+            name: limit
+            value: "25"
+            enabled: true
+        body:
+          mode: none
+          text: ""
+          contentType: application/json
+    - type: http
+      request:
+        method: POST
+        url: "{{API_BASE_URL}}/users"
+        headers:
+          - id: create-auth
+            name: Authorization
+            value: "Bearer {{AUTH_TOKEN}}"
+            enabled: false
+          - id: create-content-type
+            name: Content-Type
+            value: application/json
+            enabled: true
+        query: []
+        body:
+          mode: json
+          text: |-
+            {
+              "email": "qa@example.com",
+              "name": "QA Agent",
+              "role": "tester"
+            }
+          contentType: application/json
+    - type: markdown
+      source: |-
+        ## Programmatic smoke tests
+
+        Drop into the runtime to orchestrate sequential checks, snapshot schemas,
+        and assertions. The helpers below use the same environment variables and
+        axios client configuration as the HTTP cells.
     - type: code
       language: ts
       source: |-
@@ -54,7 +123,7 @@ notebook:
           10
         );
 
-        const api = axios.create({
+        export const api = axios.create({
           baseURL: process.env.API_BASE_URL ?? "https://api.example.com",
           timeout,
           headers: {
@@ -65,13 +134,13 @@ notebook:
           },
         });
 
-        const StatusSchema = z.object({
+        export const StatusSchema = z.object({
           status: z.string(),
           uptime: z.number().nonnegative(),
           version: z.string().optional(),
         });
 
-        async function checkStatus() {
+        export async function checkStatus() {
           const response = await api.get("/status");
           const payload = StatusSchema.parse(response.data);
           console.log("Service status:", payload.status);
@@ -93,7 +162,7 @@ notebook:
           { method: "POST", path: "/users", description: "Create user" },
         ];
 
-        async function runSmokePlan() {
+        export async function runSmokePlan() {
           for (const step of smokePlan) {
             const response = await api.request({
               method: step.method,

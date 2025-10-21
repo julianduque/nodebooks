@@ -42,10 +42,10 @@ describe("AI routes", () => {
       payload: { cellType: "markdown", prompt: "Document the project" },
     });
 
-    expect(res.statusCode).toBe(500);
+    expect(res.statusCode).toBe(403);
     expect(res.headers["content-type"]).toContain("application/json");
     const body = JSON.parse(res.body) as { error?: string };
-    expect(body.error).toBe("AI assistant is not configured for OpenAI.");
+    expect(body.error).toBe("AI assistant is disabled.");
 
     await app.close();
   });

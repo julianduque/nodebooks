@@ -543,12 +543,13 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     document.title = `${notebook.name} · NodeBooks`;
   }, [notebook?.name]);
 
-  // Diagnostics policy via URL param: types=off|ignore|full
+  // Diagnostics policy via URL param: types=off|ignore|full (default: off)
   useEffect(() => {
     const mode = searchParams?.get("types");
     if (mode === "off") setDiagnosticPolicy({ mode: "off" });
     else if (mode === "full") setDiagnosticPolicy({ mode: "full" });
-    else setDiagnosticPolicy({ mode: "ignore-list" });
+    else if (mode === "ignore") setDiagnosticPolicy({ mode: "ignore-list" });
+    else setDiagnosticPolicy({ mode: "off" });
   }, [searchParams]);
 
   // Keep Monaco context in sync with the notebook (globals, models, module shims)
@@ -1545,6 +1546,32 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     ]
   );
 
+  const handleCloneHttpToCode = useCallback(
+    (id: string, source: string) => {
+      if (!ensureEditable()) {
+        return;
+      }
+      let createdId: string | null = null;
+      const nextNotebook = updateNotebook((current) => {
+        const position = current.cells.findIndex((cell) => cell.id === id);
+        if (position < 0) {
+          return current;
+        }
+        const nextCell = createCodeCell({ language: "ts", source });
+        createdId = nextCell.id;
+        const cells = [...current.cells];
+        cells.splice(position + 1, 0, nextCell);
+        return { ...current, cells };
+      });
+      if (!nextNotebook || !createdId) {
+        return;
+      }
+      setActiveCellId(createdId);
+      scheduleAutoSave({ markDirty: true });
+    },
+    [ensureEditable, scheduleAutoSave, updateNotebook]
+  );
+
   const handleDeleteCell = useCallback(
     (id: string) => {
       if (!ensureEditable()) {
@@ -1710,9 +1737,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
                 }),
               }
             );
-            const payload = (await response
-              .json()
-              .catch(() => ({}))) as {
+            const payload = (await response.json().catch(() => ({}))) as {
               error?: string;
               data?: { response?: HttpResponse };
             };
@@ -1813,6 +1838,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
       notebook,
       runningCellId,
       saveNotebookNow,
+      terminalCellsEnabled,
       updateNotebook,
       updateNotebookCell,
     ]
@@ -1975,7 +2001,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     );
 
     notebook.cells.forEach((cell) => {
-      if (cell.type === "code") {
+      if (cell.type === "code" || cell.type === "http") {
         handleRunCell(cell.id);
       }
     });
@@ -2426,12 +2452,23 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     canEditNotebook,
   ]);
 
-  const displayName = currentUser?.name?.trim()
-    ? currentUser.name
-    : (currentUser?.email ?? "Account");
-  const avatarUrl = currentUser?.email
-    ? gravatarUrlForEmail(currentUser.email, 96)
-    : null;
+  const shellUser = useMemo(() => {
+    if (!currentUser) {
+      return null;
+    }
+    const name = currentUser.name?.trim()
+      ? currentUser.name
+      : (currentUser.email ?? "Account");
+    const avatar = currentUser.email
+      ? gravatarUrlForEmail(currentUser.email, 96)
+      : null;
+    return {
+      name,
+      email: currentUser.email,
+      avatarUrl: avatar,
+      role: currentUser.role,
+    };
+  }, [currentUser]);
 
   const handleLogout = useCallback(async () => {
     try {
@@ -2459,16 +2496,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
       secondaryHeader={secondaryHeader}
       headerMain={topbarMain}
       headerRight={topbarRight}
-      user={
-        currentUser
-          ? {
-              name: displayName,
-              email: currentUser.email,
-              avatarUrl,
-              role: currentUser.role,
-            }
-          : null
-      }
+      user={shellUser}
       userLoading={currentUserLoading}
       onLogout={() => void handleLogout()}
     >
@@ -2495,6 +2523,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         onRunCell={handleRunCell}
         onMoveCell={handleMoveCell}
         onAddCell={handleAddCell}
+        onCloneHttpToCode={handleCloneHttpToCode}
         onActivateCell={setActiveCellId}
         onInterruptKernel={handleInterruptKernel}
         onAttachmentUploaded={handleAttachmentUploaded}

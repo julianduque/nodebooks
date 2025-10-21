@@ -49,6 +49,7 @@ export interface NotebookEditorViewProps {
   onRunCell(id: string): void;
   onMoveCell(id: string, direction: "up" | "down"): void;
   onAddCell(type: NotebookCell["type"], index?: number): void;
+  onCloneHttpToCode(id: string, source: string): void;
   onActivateCell(id: string): void;
   onInterruptKernel(): void;
   onAttachmentUploaded(attachment: AttachmentMetadata): void;
@@ -79,6 +80,7 @@ const NotebookEditorView = ({
   onRunCell,
   onMoveCell,
   onAddCell,
+  onCloneHttpToCode,
   onActivateCell,
   onInterruptKernel,
   onAttachmentUploaded,
@@ -193,9 +195,9 @@ const NotebookEditorView = ({
                   Start building your notebook
                 </p>
                 <p className="text-sm text-muted-foreground">
-          {terminalCellsEnabled
-            ? "Add a Markdown note, run JavaScript or TypeScript, send an HTTP request, or open a terminal session to begin."
-            : "Add a Markdown note, run JavaScript or TypeScript, or send an HTTP request to begin."}
+                  {terminalCellsEnabled
+                    ? "Add a Markdown note, run JavaScript or TypeScript, send an HTTP request, or open a terminal session to begin."
+                    : "Add a Markdown note, run JavaScript or TypeScript, or send an HTTP request to begin."}
                 </p>
               </div>
               <AddCellMenu
@@ -296,6 +298,7 @@ const NotebookEditorView = ({
                     if (readOnly) return;
                     onAddCell(type, index + 1);
                   }}
+                  onCloneHttpToCode={onCloneHttpToCode}
                   aiEnabled={aiEnabled}
                   terminalCellsEnabled={terminalCellsEnabled}
                   dependencies={notebook.env.packages}

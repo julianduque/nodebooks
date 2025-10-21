@@ -1298,8 +1298,6 @@ export class NotebookRuntime {
     await ensureEntryModule(entryPath);
 
     if (Object.keys(packages).length === 0) {
-      // Emit a note when clearing deps so callers can see activity in cell output.
-      this.console.proxy.log("[env] Clearing all dependencies (no packages)");
       await fsPromises.rm(nodeModulesPath, { recursive: true, force: true });
       await fsPromises.rm(lockfilePath, { force: true });
       await fsPromises.writeFile(

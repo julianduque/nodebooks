@@ -72,7 +72,7 @@ describe("settings routes", () => {
       data: {
         theme: "light",
         kernelTimeoutMs: 10_000,
-        aiEnabled: true,
+        aiEnabled: false,
         terminalCellsEnabled: false,
         ai: {
           provider: "openai",
@@ -100,7 +100,7 @@ describe("settings routes", () => {
       data: {
         theme: "dark",
         kernelTimeoutMs: 15_000,
-        aiEnabled: true,
+        aiEnabled: false,
         terminalCellsEnabled: false,
         ai: {
           provider: "openai",
@@ -118,7 +118,7 @@ describe("settings routes", () => {
     expect(settingsService.getSnapshot()).toEqual({
       theme: "dark",
       kernelTimeoutMs: 15_000,
-      aiEnabled: true,
+      aiEnabled: false,
       terminalCellsEnabled: false,
       ai: {
         provider: "openai",
@@ -145,7 +145,7 @@ describe("settings routes", () => {
     expect(settingsService.getSnapshot()).toEqual({
       theme: "light",
       kernelTimeoutMs: 10_000,
-      aiEnabled: true,
+      aiEnabled: false,
       terminalCellsEnabled: false,
       ai: {
         provider: "openai",

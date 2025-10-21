@@ -10,10 +10,7 @@ import {
   type HttpResponse,
   type Notebook,
 } from "@nodebooks/notebook-schema";
-import type {
-  NotebookCollaboratorStore,
-  NotebookStore,
-} from "../types.js";
+import type { NotebookCollaboratorStore, NotebookStore } from "../types.js";
 import { ensureNotebookAccess } from "../notebooks/permissions.js";
 
 const VARIABLE_PATTERN = /\{\{\s*([A-Z0-9_]+)\s*\}\}/gi;
@@ -51,7 +48,9 @@ const isPrivateIp = (hostname: string) => {
       normalized.startsWith("feb")
     );
   }
-  const parts = hostname.split(".").map((segment) => Number.parseInt(segment, 10));
+  const parts = hostname
+    .split(".")
+    .map((segment) => Number.parseInt(segment, 10));
   if (parts.length !== 4 || parts.some((part) => Number.isNaN(part))) {
     return false;
   }
@@ -126,7 +125,9 @@ const normalizeRequest = (
   request: HttpRequest,
   variables: Record<string, string>
 ) => {
-  const enabledHeaders = (request.headers ?? []).filter((header) => header.enabled);
+  const enabledHeaders = (request.headers ?? []).filter(
+    (header) => header.enabled
+  );
   const headers: HttpHeader[] = enabledHeaders
     .map((header) => ({
       ...header,
@@ -158,7 +159,10 @@ const normalizeRequest = (
   let bodyText: string | undefined;
   const mode = request.body?.mode ?? "none";
   if (mode === "json") {
-    const substituted = substituteVariables(request.body?.text ?? "", variables).trim();
+    const substituted = substituteVariables(
+      request.body?.text ?? "",
+      variables
+    ).trim();
     if (substituted.length > 0) {
       try {
         bodyText = JSON.stringify(JSON.parse(substituted));
@@ -194,7 +198,12 @@ const normalizeRequest = (
     url: finalUrl,
     headers,
     bodyText: shouldSendBody ? bodyText : undefined,
-    curl: buildCurlCommand(method, finalUrl.toString(), headers, shouldSendBody ? bodyText : undefined),
+    curl: buildCurlCommand(
+      method,
+      finalUrl.toString(),
+      headers,
+      shouldSendBody ? bodyText : undefined
+    ),
   };
 };
 
@@ -272,10 +281,7 @@ const buildResponsePayload = async (
   });
 };
 
-const buildErrorResponse = (
-  message: string,
-  curl: string
-): HttpResponse => {
+const buildErrorResponse = (message: string, curl: string): HttpResponse => {
   return HttpResponseSchema.parse({
     error: message,
     timestamp: new Date().toISOString(),
@@ -331,13 +337,16 @@ export const registerHttpRoutes = (
 
     const init: RequestInit = {
       method: normalized.method,
-      headers: normalized.headers.reduce<Record<string, string>>((acc, header) => {
-        if (!header.enabled) return acc;
-        const name = header.name.trim();
-        if (!name) return acc;
-        acc[name] = header.value ?? "";
-        return acc;
-      }, {}),
+      headers: normalized.headers.reduce<Record<string, string>>(
+        (acc, header) => {
+          if (!header.enabled) return acc;
+          const name = header.name.trim();
+          if (!name) return acc;
+          acc[name] = header.value ?? "";
+          return acc;
+        },
+        {}
+      ),
       body: normalized.bodyText,
     };
 
@@ -355,7 +364,9 @@ export const registerHttpRoutes = (
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "HTTP request failed";
-      return { data: { response: buildErrorResponse(message, normalized.curl) } };
+      return {
+        data: { response: buildErrorResponse(message, normalized.curl) },
+      };
     }
   });
 };

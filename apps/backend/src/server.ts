@@ -238,7 +238,7 @@ export const createServer = async ({ logger }: CreateServerOptions = {}) => {
 
   const signupSchema = z.object({
     token: z.string().min(1).optional(),
-    email: z.string().email(),
+    email: z.email(),
     password: z.string().min(8),
     name: z.string().trim().min(1).max(120),
   });
@@ -323,7 +323,7 @@ export const createServer = async ({ logger }: CreateServerOptions = {}) => {
   });
 
   const loginSchema = z.object({
-    email: z.string().email(),
+    email: z.email(),
     password: z.string().min(1),
   });
 
@@ -517,10 +517,14 @@ export const createServer = async ({ logger }: CreateServerOptions = {}) => {
     const workspaceClientDir = path.resolve(__dirname, "../../client");
     let uiDir = workspaceClientDir;
     try {
-      await fs.access(embeddedClientDir);
-      uiDir = embeddedClientDir;
+      await fs.access(workspaceClientDir);
     } catch {
-      // Fallback to workspace client when running from the monorepo.
+      try {
+        await fs.access(embeddedClientDir);
+        uiDir = embeddedClientDir;
+      } catch {
+        // Neither workspace nor embedded client is available; keep default.
+      }
     }
 
     // Switch CWD so Next/PostCSS/Tailwind resolve client configs correctly.

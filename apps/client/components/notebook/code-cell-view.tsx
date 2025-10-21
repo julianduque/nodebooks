@@ -13,6 +13,10 @@ import {
   DEFAULT_CODE_EDITOR_SETTINGS,
   type MonacoEditorSettings,
 } from "./editor-preferences";
+import {
+  MONACO_EDITOR_CONTAINER_CLASS,
+  MONACO_EDITOR_WRAPPER_CLASS,
+} from "./monaco-styles";
 
 interface CodeCellViewProps {
   cell: Extract<NotebookCell, { type: "code" }>;
@@ -110,7 +114,7 @@ const CodeCellView = ({
       setEditorHeight(h);
       try {
         const dom = editor.getDomNode?.();
-        const width = dom?.parentElement?.clientWidth ?? dom?.clientWidth ?? 0;
+        const width = dom?.clientWidth ?? dom?.parentElement?.clientWidth ?? 0;
         if (width > 0) {
           editor.layout({ width, height: h });
         }
@@ -199,9 +203,9 @@ const CodeCellView = ({
       </div>
 
       {!hideEditor ? (
-        <div className="px-2 pb-2 pt-2">
+        <div className={MONACO_EDITOR_WRAPPER_CLASS}>
           <MonacoEditor
-            className="rounded-xl border border-slate-800/70 bg-slate-950/80 shadow-inner overflow-hidden"
+            className={MONACO_EDITOR_CONTAINER_CLASS}
             key={editorKey}
             path={path ?? `${cell.id}.${cell.language === "ts" ? "ts" : "js"}`}
             height={editorHeight || 0}
