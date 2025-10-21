@@ -548,6 +548,83 @@ export const NotebookOutputSchema = z.discriminatedUnion("type", [
   ErrorOutputSchema,
 ]);
 
+export const HttpMethodSchema = z.enum([
+  "GET",
+  "POST",
+  "PUT",
+  "PATCH",
+  "DELETE",
+  "HEAD",
+  "OPTIONS",
+]);
+export type HttpMethod = z.infer<typeof HttpMethodSchema>;
+
+export const HttpHeaderSchema = z.object({
+  id: z.string(),
+  name: z.string().default(""),
+  value: z.string().default(""),
+  enabled: z.boolean().default(true),
+});
+export type HttpHeader = z.infer<typeof HttpHeaderSchema>;
+
+export const HttpQueryParamSchema = z.object({
+  id: z.string(),
+  name: z.string().default(""),
+  value: z.string().default(""),
+  enabled: z.boolean().default(true),
+});
+export type HttpQueryParam = z.infer<typeof HttpQueryParamSchema>;
+
+export const HttpRequestBodySchema = z.object({
+  mode: z.enum(["none", "json", "text"]).default("none"),
+  text: z.string().default(""),
+  contentType: z.string().default("application/json"),
+});
+export type HttpRequestBody = z.infer<typeof HttpRequestBodySchema>;
+
+export const HttpRequestSchema = z.object({
+  method: HttpMethodSchema.default("GET"),
+  url: z.string().default(""),
+  headers: z.array(HttpHeaderSchema).default([]),
+  query: z.array(HttpQueryParamSchema).default([]),
+  body: HttpRequestBodySchema.default({
+    mode: "none",
+    text: "",
+    contentType: "application/json",
+  }),
+});
+export type HttpRequest = z.infer<typeof HttpRequestSchema>;
+
+export const HttpResponseHeaderSchema = z.object({
+  name: z.string(),
+  value: z.string(),
+});
+export type HttpResponseHeader = z.infer<typeof HttpResponseHeaderSchema>;
+
+export const HttpResponseBodySchema = z.object({
+  type: z.enum(["json", "text", "binary"]).default("text"),
+  text: z.string().optional(),
+  json: z.unknown().optional(),
+  size: z.number().int().nonnegative().optional(),
+  contentType: z.string().optional(),
+  encoding: z.enum(["utf8", "base64"]).optional(),
+});
+export type HttpResponseBody = z.infer<typeof HttpResponseBodySchema>;
+
+export const HttpResponseSchema = z.object({
+  status: z.number().int().nonnegative().optional(),
+  statusText: z.string().optional(),
+  ok: z.boolean().optional(),
+  url: z.string().optional(),
+  durationMs: z.number().nonnegative().optional(),
+  timestamp: z.string().optional(),
+  headers: z.array(HttpResponseHeaderSchema).default([]),
+  body: HttpResponseBodySchema.optional(),
+  error: z.string().optional(),
+  curl: z.string().optional(),
+});
+export type HttpResponse = z.infer<typeof HttpResponseSchema>;
+
 export const MarkdownCellSchema = z.object({
   id: z.string(),
   type: z.literal("markdown"),
@@ -605,11 +682,22 @@ export const CodeCellSchema = z.object({
   execution: OutputExecutionSchema.optional(),
 });
 
+const DEFAULT_HTTP_REQUEST = HttpRequestSchema.parse({});
+
+export const HttpCellSchema = z.object({
+  id: z.string(),
+  type: z.literal("http"),
+  metadata: z.record(z.string(), z.unknown()).default({}),
+  request: HttpRequestSchema.default(DEFAULT_HTTP_REQUEST),
+  response: HttpResponseSchema.optional(),
+});
+
 export const NOTEBOOK_CELL_SCHEMAS = {
   markdown: MarkdownCellSchema,
   terminal: TerminalCellSchema,
   command: CommandCellSchema,
   code: CodeCellSchema,
+  http: HttpCellSchema,
 } as const;
 
 export type NotebookCellType = keyof typeof NOTEBOOK_CELL_SCHEMAS;
@@ -624,6 +712,7 @@ const NOTEBOOK_CELL_SCHEMA_LIST = Object.values(NOTEBOOK_CELL_SCHEMAS) as [
   typeof TerminalCellSchema,
   typeof CommandCellSchema,
   typeof CodeCellSchema,
+  typeof HttpCellSchema,
 ];
 
 const NOTEBOOK_CELL_SCHEMA_LIST_WITH_LEGACY = [
@@ -685,12 +774,20 @@ export const NotebookFileCodeCellSchema = z.object({
   outputs: z.array(NotebookOutputSchema).optional(),
 });
 
+export const NotebookFileHttpCellSchema = z.object({
+  type: z.literal("http"),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+  request: HttpRequestSchema.optional(),
+  response: HttpResponseSchema.optional(),
+});
+
 export const NOTEBOOK_FILE_CELL_SCHEMAS = {
   markdown: NotebookFileMarkdownCellSchema,
   terminal: NotebookFileTerminalCellSchema,
   command: NotebookFileCommandCellSchema,
   legacyShell: NotebookFileLegacyShellCellSchema,
   code: NotebookFileCodeCellSchema,
+  http: NotebookFileHttpCellSchema,
 } as const;
 
 export type NotebookFileCellType = keyof typeof NOTEBOOK_FILE_CELL_SCHEMAS;
@@ -707,6 +804,7 @@ const NOTEBOOK_FILE_CELL_SCHEMA_LIST = Object.values(
   typeof NotebookFileCommandCellSchema,
   typeof NotebookFileLegacyShellCellSchema,
   typeof NotebookFileCodeCellSchema,
+  typeof NotebookFileHttpCellSchema,
 ];
 
 export const NotebookFileCellSchema = z.discriminatedUnion(
@@ -758,6 +856,7 @@ export type Notebook = z.infer<typeof NotebookSchema>;
 export type NotebookCell = z.infer<typeof NotebookCellSchema>;
 export type NotebookEnv = z.infer<typeof NotebookEnvSchema>;
 export type CodeCell = z.infer<typeof CodeCellSchema>;
+export type HttpCell = z.infer<typeof HttpCellSchema>;
 export type MarkdownCell = z.infer<typeof MarkdownCellSchema>;
 export type TerminalCell = z.infer<typeof TerminalCellSchema>;
 export type CommandCell = z.infer<typeof CommandCellSchema>;
@@ -781,6 +880,7 @@ export type NotebookFileLegacyShellCell = z.infer<
   typeof NotebookFileLegacyShellCellSchema
 >;
 export type NotebookFileCodeCell = z.infer<typeof NotebookFileCodeCellSchema>;
+export type NotebookFileHttpCell = z.infer<typeof NotebookFileHttpCellSchema>;
 export type NotebookFileCell = z.infer<typeof NotebookFileCellSchema>;
 export type NotebookFileNotebook = z.infer<typeof NotebookFileNotebookSchema>;
 export type NotebookFileSummary = z.infer<typeof NotebookFileSummarySchema>;
@@ -865,6 +965,24 @@ export const createCodeCell = (partial?: Partial<CodeCell>): CodeCell => {
     metadata: partial?.metadata ?? {},
     outputs: partial?.outputs ?? [],
     execution: partial?.execution,
+  });
+};
+
+export const createHttpCell = (partial?: Partial<HttpCell>): HttpCell => {
+  const request = partial?.request
+    ? HttpRequestSchema.parse(partial.request)
+    : HttpRequestSchema.parse({});
+  const response =
+    partial?.response === undefined
+      ? undefined
+      : HttpResponseSchema.parse(partial.response);
+
+  return HttpCellSchema.parse({
+    id: partial?.id ?? createId(),
+    type: "http",
+    metadata: partial?.metadata ?? {},
+    request,
+    response,
   });
 };
 

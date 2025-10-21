@@ -16,6 +16,8 @@ import {
   createMarkdownCell,
   createCommandCell,
   createTerminalCell,
+  createHttpCell,
+  type HttpResponse,
   type KernelExecuteRequest,
   type KernelServerMessage,
   type KernelInterruptRequest,
@@ -1508,7 +1510,9 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
             ? createTerminalCell()
             : type === "command"
               ? createCommandCell()
-              : createMarkdownCell({ source: "" });
+              : type === "http"
+                ? createHttpCell()
+                : createMarkdownCell({ source: "" });
       const updatedNotebook = updateNotebook((current) => {
         const cells = [...current.cells];
         if (typeof index === "number") {
@@ -1687,6 +1691,71 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
           );
         }
         setActionError(null);
+        return;
+      }
+
+      if (cell.type === "http") {
+        setActionError(null);
+        setRunningCellId(id);
+        void (async () => {
+          try {
+            const response = await fetch(
+              `${API_BASE_URL}/notebooks/${notebook.id}/http`,
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  cellId: id,
+                  request: cell.request ?? {},
+                }),
+              }
+            );
+            const payload = (await response
+              .json()
+              .catch(() => ({}))) as {
+              error?: string;
+              data?: { response?: HttpResponse };
+            };
+            if (!response.ok) {
+              const message =
+                typeof payload?.error === "string"
+                  ? payload.error
+                  : `Failed to execute HTTP request (status ${response.status})`;
+              setActionError(message);
+              return;
+            }
+
+            const httpResponse = payload?.data?.response;
+            if (httpResponse) {
+              updateNotebookCell(
+                id,
+                (current) => {
+                  if (current.type !== "http") {
+                    return current;
+                  }
+                  return { ...current, response: httpResponse };
+                },
+                { persist: true }
+              );
+            } else if (payload?.error) {
+              setActionError(payload.error);
+            }
+          } catch (error) {
+            setActionError(
+              error instanceof Error
+                ? error.message
+                : "Failed to execute HTTP request"
+            );
+          } finally {
+            setRunningCellId((current) => {
+              if (current !== id) {
+                return current;
+              }
+              const kernelRunningId = runningRef.current;
+              return kernelRunningId ?? null;
+            });
+          }
+        })();
         return;
       }
 
