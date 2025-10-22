@@ -3,8 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Pencil, Trash2 } from "lucide-react";
-import type { Notebook } from "@nodebooks/notebook-schema";
+import { Database, Pencil, Trash2 } from "lucide-react";
+import type { Notebook, SqlConnection } from "@nodebooks/notebook-schema";
 import {
   Dialog,
   DialogContent,
@@ -17,21 +17,36 @@ import { Separator } from "@/components/ui/separator";
 
 interface SetupPanelProps {
   env: Notebook["env"];
+  sql: Notebook["sql"];
   onRemoveDependency: (name: string) => Promise<void> | void;
   onAddDependencies: (raw: string) => Promise<void> | void;
   depBusy?: boolean;
   onAddVariable: (name: string, value: string) => Promise<void> | void;
   onRemoveVariable: (name: string) => Promise<void> | void;
+  onAddSqlConnection: (input: {
+    driver: SqlConnection["driver"];
+    name: string;
+    connectionString: string;
+  }) => Promise<void> | void;
+  onUpdateSqlConnection: (
+    id: string,
+    updates: { name?: string; connectionString?: string }
+  ) => Promise<void> | void;
+  onRemoveSqlConnection: (id: string) => Promise<void> | void;
   canEdit: boolean;
 }
 
 const SetupPanel = ({
   env,
+  sql,
   onRemoveDependency,
   onAddDependencies,
   depBusy = false,
   onAddVariable,
   onRemoveVariable,
+  onAddSqlConnection,
+  onUpdateSqlConnection,
+  onRemoveSqlConnection,
   canEdit,
 }: SetupPanelProps) => {
   const [draft, setDraft] = useState("");
@@ -55,6 +70,16 @@ const SetupPanel = ({
   const [editOriginalName, setEditOriginalName] = useState<string | null>(null);
   const [formName, setFormName] = useState("");
   const [formValue, setFormValue] = useState("");
+  const [connectionModalOpen, setConnectionModalOpen] = useState(false);
+  const [editingConnectionId, setEditingConnectionId] = useState<string | null>(
+    null
+  );
+  const [connectionName, setConnectionName] = useState("");
+  const [connectionDriver, setConnectionDriver] = useState<
+    SqlConnection["driver"]
+  >("postgres");
+  const [connectionString, setConnectionString] = useState("");
+  const [connectionError, setConnectionError] = useState<string | null>(null);
   const dependencies = useMemo(
     () =>
       Object.entries(env.packages ?? {})
@@ -69,6 +94,37 @@ const SetupPanel = ({
         .map(([name, value]) => ({ name, value: String(value ?? "") })),
     [env.variables]
   );
+  const connections = useMemo(
+    () => (sql.connections ?? []).map((conn) => conn),
+    [sql.connections]
+  );
+  const describeDriver = (driver: SqlConnection["driver"]) => {
+    switch (driver) {
+      case "postgres":
+        return "PostgreSQL";
+      default:
+        return driver;
+    }
+  };
+
+  const openConnectionModal = (connection?: SqlConnection) => {
+    if (!canEdit) {
+      return;
+    }
+    if (connection) {
+      setEditingConnectionId(connection.id);
+      setConnectionName(connection.name ?? "");
+      setConnectionDriver(connection.driver);
+      setConnectionString(connection.config?.connectionString ?? "");
+    } else {
+      setEditingConnectionId(null);
+      setConnectionName("");
+      setConnectionDriver("postgres");
+      setConnectionString("");
+    }
+    setConnectionError(null);
+    setConnectionModalOpen(true);
+  };
   return (
     <div className="flex h-full flex-col gap-2">
       <p className="text-xs font-semibold uppercase tracking-[0.3em] text-muted-foreground">
@@ -180,6 +236,85 @@ const SetupPanel = ({
         </div>
       </div>
       <Separator className="my-2" />
+      <div className="mt-2">
+        <p className="text-xs font-semibold uppercase tracking-[0.3em] text-muted-foreground">
+          Database Connections
+        </p>
+        <div className="mt-2 flex items-center justify-between">
+          <p className="text-[11px] text-muted-foreground">
+            Share connection details across SQL cells.
+          </p>
+          {canEdit ? (
+            <Button
+              type="button"
+              variant="default"
+              size="sm"
+              className="px-3 text-[11px]"
+              onClick={() => openConnectionModal()}
+            >
+              Add Connection
+            </Button>
+          ) : null}
+        </div>
+        <div className="mt-2">
+          {connections.length === 0 ? (
+            <p className="text-xs text-muted-foreground">
+              No connections configured.
+            </p>
+          ) : (
+            <ul className="space-y-1">
+              {connections.map((connection) => (
+                <li
+                  key={connection.id}
+                  className="flex items-start justify-between rounded-md border border-border bg-background px-3 py-2"
+                >
+                  <div className="flex flex-col gap-1 text-sm">
+                    <div className="flex items-center gap-2 text-foreground">
+                      <Database className="h-3.5 w-3.5 text-muted-foreground" />
+                      <span className="font-medium">
+                        {connection.name?.trim().length
+                          ? connection.name
+                          : "Untitled Connection"}
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {describeDriver(connection.driver)}
+                      {connection.config?.connectionString
+                        ? ` · ${connection.config.connectionString}`
+                        : " · No connection string"}
+                    </p>
+                  </div>
+                  {canEdit ? (
+                    <div className="flex items-center gap-2 pl-3">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="text-muted-foreground hover:text-foreground"
+                        onClick={() => openConnectionModal(connection)}
+                        aria-label="Edit connection"
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="text-rose-500 hover:text-rose-600"
+                        onClick={() => void onRemoveSqlConnection(connection.id)}
+                        aria-label="Remove connection"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+      <Separator className="my-2" />
       <div className="mt-3">
         <label className="block text-xs font-semibold uppercase tracking-[0.3em] text-muted-foreground">
           Editor Type Checking
@@ -224,6 +359,53 @@ const SetupPanel = ({
             await onRemoveVariable(editOriginalName);
           }
           setVarModalOpen(false);
+        }}
+        readOnly={!canEdit}
+      />
+      <ConnectionDialog
+        open={connectionModalOpen}
+        mode={editingConnectionId ? "edit" : "create"}
+        name={connectionName}
+        driver={connectionDriver}
+        connectionString={connectionString}
+        error={connectionError}
+        onNameChange={setConnectionName}
+        onDriverChange={setConnectionDriver}
+        onConnectionStringChange={setConnectionString}
+        onCancel={() => {
+          setConnectionModalOpen(false);
+          setConnectionError(null);
+        }}
+        onSubmit={async () => {
+          if (!canEdit) {
+            return;
+          }
+          const trimmedString = connectionString.trim();
+          if (!trimmedString) {
+            setConnectionError("Connection string is required");
+            return;
+          }
+          const trimmedName = connectionName.trim();
+          try {
+            if (editingConnectionId) {
+              await onUpdateSqlConnection(editingConnectionId, {
+                name: trimmedName,
+                connectionString: trimmedString,
+              });
+            } else {
+              await onAddSqlConnection({
+                driver: connectionDriver,
+                name: trimmedName,
+                connectionString: trimmedString,
+              });
+            }
+            setConnectionModalOpen(false);
+            setConnectionError(null);
+          } catch (err) {
+            setConnectionError(
+              err instanceof Error ? err.message : "Failed to save connection"
+            );
+          }
         }}
         readOnly={!canEdit}
       />
@@ -381,6 +563,96 @@ const VariableDialog = ({
             </Button>
           </DialogFooter>
         </form>
+      </DialogContent>
+    </Dialog>
+  );
+};
+
+interface ConnectionDialogProps {
+  open: boolean;
+  mode: "create" | "edit";
+  name: string;
+  driver: SqlConnection["driver"];
+  connectionString: string;
+  error: string | null;
+  onNameChange: (value: string) => void;
+  onDriverChange: (driver: SqlConnection["driver"]) => void;
+  onConnectionStringChange: (value: string) => void;
+  onCancel: () => void;
+  onSubmit: () => void;
+  readOnly: boolean;
+}
+
+const ConnectionDialog = ({
+  open,
+  mode,
+  name,
+  driver,
+  connectionString,
+  error,
+  onNameChange,
+  onDriverChange,
+  onConnectionStringChange,
+  onCancel,
+  onSubmit,
+  readOnly,
+}: ConnectionDialogProps) => {
+  const title = mode === "edit" ? "Edit Connection" : "Add Connection";
+  return (
+    <Dialog open={open} onOpenChange={(val) => (!val ? onCancel() : undefined)}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+        </DialogHeader>
+        <div className="mt-1 space-y-3">
+          <label className="block text-xs font-medium text-muted-foreground">
+            Name
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => onNameChange(e.target.value)}
+              placeholder="Production database"
+              className="mt-1 w-full rounded-md border border-input bg-background px-2 py-1 text-[13px] text-foreground focus:outline-none"
+              disabled={readOnly}
+            />
+          </label>
+          <label className="block text-xs font-medium text-muted-foreground">
+            Driver
+            <select
+              value={driver}
+              onChange={(e) =>
+                onDriverChange(e.target.value as SqlConnection["driver"])
+              }
+              className="mt-1 w-full rounded-md border border-input bg-background px-2 py-1 text-[13px] text-foreground focus:outline-none"
+              disabled
+            >
+              <option value="postgres">PostgreSQL</option>
+            </select>
+            <span className="mt-1 block text-[11px] text-muted-foreground">
+              Additional drivers will be supported in future releases.
+            </span>
+          </label>
+          <label className="block text-xs font-medium text-muted-foreground">
+            Connection string
+            <textarea
+              value={connectionString}
+              onChange={(e) => onConnectionStringChange(e.target.value)}
+              placeholder="postgres://user:password@host:5432/database"
+              className="mt-1 w-full rounded-md border border-input bg-background px-2 py-2 text-[13px] text-foreground focus:outline-none"
+              rows={3}
+              disabled={readOnly}
+            />
+          </label>
+          {error ? <p className="text-xs text-rose-500">{error}</p> : null}
+        </div>
+        <DialogFooter className="mt-4">
+          <Button type="button" variant="outline" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button type="button" onClick={onSubmit} disabled={readOnly}>
+            {mode === "edit" ? "Save" : "Add"}
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

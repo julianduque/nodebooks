@@ -67,6 +67,7 @@ const handleRun = async (payload: IpcRunCell) => {
       notebookId: payload.notebookId,
       env: payload.env,
       timeoutMs: payload.timeoutMs,
+      globals: payload.globals,
       onStream: (stream) => {
         if (current?.cancelled) return;
         if (stream.name === "stdout") stdoutBuf += stream.text;

@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import clsx from "clsx";
 import { Button } from "@/components/ui/button";
-import { Globe, Plus, Terminal, Zap } from "lucide-react";
+import { Database, Globe, Plus, Terminal, Zap } from "lucide-react";
 import type { NotebookCell } from "@nodebooks/notebook-schema";
 
 const SPECIAL_CELL_LABEL = "Special";
@@ -173,6 +173,14 @@ const AddCellMenu = ({
                   <button
                     type="button"
                     className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-slate-200 hover:bg-slate-800"
+                    onClick={() => handleAdd("sql")}
+                  >
+                    <Database className="h-4 w-4" />
+                    SQL Query
+                  </button>
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-slate-200 hover:bg-slate-800"
                     onClick={() => handleAdd("terminal")}
                   >
                     <Terminal className="h-4 w-4" />
@@ -192,16 +200,28 @@ const AddCellMenu = ({
             : null}
         </>
       ) : (
-        <Button
-          variant="outline"
-          size="sm"
-          className="gap-2"
-          onClick={() => handleAdd("http")}
-          disabled={disabled}
-        >
-          <Plus className="h-4 w-4" />
-          HTTP Request
-        </Button>
+        <>
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-2"
+            onClick={() => handleAdd("http")}
+            disabled={disabled}
+          >
+            <Plus className="h-4 w-4" />
+            HTTP Request
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-2"
+            onClick={() => handleAdd("sql")}
+            disabled={disabled}
+          >
+            <Database className="h-4 w-4" />
+            SQL Query
+          </Button>
+        </>
       )}
     </div>
   );

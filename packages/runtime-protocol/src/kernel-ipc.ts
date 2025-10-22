@@ -14,6 +14,7 @@ export const IpcRunCellSchema = z.object({
   notebookId: z.string(),
   env: NotebookEnvSchema,
   timeoutMs: z.number().int().positive().max(600_000).optional(),
+  globals: z.record(z.string(), z.unknown()).optional(),
 });
 
 export const IpcCancelSchema = z.object({

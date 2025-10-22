@@ -2,6 +2,7 @@ import type {
   Notebook,
   NotebookCell,
   NotebookOutput,
+  SqlConnection,
 } from "@nodebooks/notebook-schema";
 
 import AddCellMenu from "@/components/notebook/add-cell-menu";
@@ -50,11 +51,13 @@ export interface NotebookEditorViewProps {
   onMoveCell(id: string, direction: "up" | "down"): void;
   onAddCell(type: NotebookCell["type"], index?: number): void;
   onCloneHttpToCode(id: string, source: string): void;
+  onCloneSqlToCode(id: string, source: string): void;
   onActivateCell(id: string): void;
   onInterruptKernel(): void;
   onAttachmentUploaded(attachment: AttachmentMetadata): void;
   onClearDepOutputs(): void;
   onAbortInstall(): void;
+  sqlConnections: SqlConnection[];
 }
 
 const NotebookEditorView = ({
@@ -81,11 +84,13 @@ const NotebookEditorView = ({
   onMoveCell,
   onAddCell,
   onCloneHttpToCode,
+  onCloneSqlToCode,
   onActivateCell,
   onInterruptKernel,
   onAttachmentUploaded,
   onClearDepOutputs,
   onAbortInstall,
+  sqlConnections,
 }: NotebookEditorViewProps) => {
   if (loading) {
     return (
@@ -247,11 +252,9 @@ const NotebookEditorView = ({
             {isEmpty ? renderEmptyState() : null}
             {notebook.cells.map((cell, index) => {
               const cellCanRun =
-                cell.type === "command"
+                cell.type === "command" || cell.type === "http" || cell.type === "sql"
                   ? !readOnly
-                  : cell.type === "http"
-                    ? !readOnly
-                    : socketReady && !readOnly;
+                  : socketReady && !readOnly;
               return (
                 <CellCard
                   key={cell.id}
@@ -299,12 +302,14 @@ const NotebookEditorView = ({
                     onAddCell(type, index + 1);
                   }}
                   onCloneHttpToCode={onCloneHttpToCode}
+                  onCloneSqlToCode={onCloneSqlToCode}
                   aiEnabled={aiEnabled}
                   terminalCellsEnabled={terminalCellsEnabled}
                   dependencies={notebook.env.packages}
                   variables={notebook.env.variables ?? {}}
                   pendingTerminalPersist={pendingTerminalIds.has(cell.id)}
                   readOnly={readOnly}
+                  sqlConnections={sqlConnections}
                 />
               );
             })}

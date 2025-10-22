@@ -17,6 +17,7 @@ import {
   createCommandCell,
   createTerminalCell,
   createHttpCell,
+  createSqlCell,
   type HttpResponse,
   type KernelExecuteRequest,
   type KernelServerMessage,
@@ -24,6 +25,8 @@ import {
   type Notebook,
   type NotebookCell,
   type NotebookOutput,
+  type SqlConnection,
+  type SqlResult,
 } from "@nodebooks/notebook-schema";
 import type {
   NotebookSessionSummary,
@@ -70,6 +73,8 @@ const normalizeNotebookState = (
   const { accessRole, ...rest } = raw as NotebookWithAccess;
   return { notebook: rest as Notebook, role: accessRole };
 };
+
+const SQL_IDENTIFIER_PATTERN = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 
 type CommandCellMetadata = {
   terminalTargetId?: string;
@@ -1513,7 +1518,9 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
               ? createCommandCell()
               : type === "http"
                 ? createHttpCell()
-                : createMarkdownCell({ source: "" });
+                : type === "sql"
+                  ? createSqlCell()
+                  : createMarkdownCell({ source: "" });
       const updatedNotebook = updateNotebook((current) => {
         const cells = [...current.cells];
         if (typeof index === "number") {
@@ -1547,6 +1554,32 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
   );
 
   const handleCloneHttpToCode = useCallback(
+    (id: string, source: string) => {
+      if (!ensureEditable()) {
+        return;
+      }
+      let createdId: string | null = null;
+      const nextNotebook = updateNotebook((current) => {
+        const position = current.cells.findIndex((cell) => cell.id === id);
+        if (position < 0) {
+          return current;
+        }
+        const nextCell = createCodeCell({ language: "ts", source });
+        createdId = nextCell.id;
+        const cells = [...current.cells];
+        cells.splice(position + 1, 0, nextCell);
+        return { ...current, cells };
+      });
+      if (!nextNotebook || !createdId) {
+        return;
+      }
+      setActiveCellId(createdId);
+      scheduleAutoSave({ markDirty: true });
+    },
+    [ensureEditable, scheduleAutoSave, updateNotebook]
+  );
+
+  const handleCloneSqlToCode = useCallback(
     (id: string, source: string) => {
       if (!ensureEditable()) {
         return;
@@ -1721,6 +1754,116 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         return;
       }
 
+      if (cell.type === "sql") {
+        const connectionId = cell.connectionId?.trim();
+        if (!connectionId) {
+          setActionError("Select a database connection before running this cell.");
+          return;
+        }
+        const connection = (notebook.sql?.connections ?? []).find(
+          (candidate) => candidate.id === connectionId
+        );
+        if (!connection) {
+          setActionError("Database connection not found. Check the Setup panel.");
+          return;
+        }
+        const queryText = (cell.query ?? "").trim();
+        if (!queryText) {
+          setActionError("Enter a SQL query before running this cell.");
+          return;
+        }
+        const assignTrimmed = (cell.assignVariable ?? "").trim();
+        const assignVariable = assignTrimmed.length > 0 ? assignTrimmed : undefined;
+        if (assignVariable && !SQL_IDENTIFIER_PATTERN.test(assignVariable)) {
+          setActionError("Assignment target must be a valid identifier.");
+          return;
+        }
+
+        setActionError(null);
+        setRunningCellId(id);
+        void (async () => {
+          try {
+            const response = await fetch(
+              `${API_BASE_URL}/notebooks/${notebook.id}/sql`,
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  cellId: id,
+                  connectionId,
+                  query: queryText,
+                  assignVariable,
+                }),
+              }
+            );
+            const payload = (await response.json().catch(() => ({}))) as {
+              error?: string;
+              data?: { result?: SqlResult };
+            };
+            const sqlResult = payload?.data?.result;
+            if (sqlResult) {
+              updateNotebookCell(
+                id,
+                (current) => {
+                  if (current.type !== "sql") {
+                    return current;
+                  }
+                  return { ...current, result: sqlResult };
+                },
+                { persist: true }
+              );
+            }
+            if (!response.ok) {
+              const message =
+                typeof payload?.error === "string"
+                  ? payload.error
+                  : `Failed to execute SQL query (status ${response.status})`;
+              setActionError(message);
+              return;
+            }
+            if (payload?.error) {
+              setActionError(payload.error);
+            } else {
+              setActionError(null);
+            }
+          } catch (error) {
+            const message =
+              error instanceof Error
+                ? error.message
+                : "Failed to execute SQL query";
+            setActionError(message);
+            updateNotebookCell(
+              id,
+              (current) => {
+                if (current.type !== "sql") {
+                  return current;
+                }
+                return {
+                  ...current,
+                  result: {
+                    error: message,
+                    assignedVariable: assignVariable,
+                    rows: [],
+                    columns: [],
+                    timestamp: new Date().toISOString(),
+                  },
+                };
+              },
+              { persist: true }
+            );
+          } finally {
+            setRunningCellId((current) => {
+              if (current !== id) {
+                return current;
+              }
+              const kernelRunningId = runningRef.current;
+              return kernelRunningId ?? null;
+            });
+          }
+        })();
+        return;
+      }
+
       if (cell.type === "http") {
         setActionError(null);
         setRunningCellId(id);
@@ -1822,12 +1965,15 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         },
         { persist: false }
       );
+      const globalsMap =
+        sqlGlobals && Object.keys(sqlGlobals).length > 0 ? sqlGlobals : undefined;
       const payload: KernelExecuteRequest = {
         type: "execute_request",
         cellId: id,
         code: cell.source,
         language: cell.language,
         timeoutMs: cell.metadata.timeoutMs,
+        globals: globalsMap,
       };
       socket.send(JSON.stringify(payload));
     },
@@ -1836,6 +1982,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
       ensureEditable,
       markTerminalPendingPersistence,
       notebook,
+      sqlGlobals,
       runningCellId,
       saveNotebookNow,
       terminalCellsEnabled,
@@ -2215,8 +2362,9 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
           variables: { ...current.env.variables, [key]: String(value) },
         },
       }));
+      scheduleAutoSave({ markDirty: true });
     },
-    [ensureEditable, notebook, updateNotebook]
+    [ensureEditable, notebook, updateNotebook, scheduleAutoSave]
   );
 
   const handleRemoveVariable = useCallback(
@@ -2232,8 +2380,115 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         delete nextVars[key];
         return { ...current, env: { ...current.env, variables: nextVars } };
       });
+      scheduleAutoSave({ markDirty: true });
     },
-    [ensureEditable, notebook, updateNotebook]
+    [ensureEditable, notebook, updateNotebook, scheduleAutoSave]
+  );
+
+  const handleAddSqlConnection = useCallback(
+    ({
+      driver,
+      name,
+      connectionString,
+    }: {
+      driver: SqlConnection["driver"];
+      name: string;
+      connectionString: string;
+    }) => {
+      if (!notebook) return;
+      if (!ensureEditable()) {
+        return;
+      }
+      const connectionId =
+        typeof crypto !== "undefined" && "randomUUID" in crypto
+          ? crypto.randomUUID()
+          : `sql_${Math.random().toString(36).slice(2, 10)}`;
+      updateNotebook((current) => {
+        const existing = current.sql?.connections ?? [];
+        const nextConnections = [
+          ...existing,
+          {
+            id: connectionId,
+            driver,
+            name: name.trim(),
+            config: { connectionString },
+          },
+        ];
+        return {
+          ...current,
+          sql: { ...(current.sql ?? { connections: [] }), connections: nextConnections },
+        };
+      });
+      scheduleAutoSave({ markDirty: true });
+    },
+    [ensureEditable, notebook, updateNotebook, scheduleAutoSave]
+  );
+
+  const handleUpdateSqlConnection = useCallback(
+    (
+      id: string,
+      updates: { name?: string; connectionString?: string }
+    ) => {
+      if (!notebook) return;
+      if (!ensureEditable()) {
+        return;
+      }
+      updateNotebook((current) => {
+        const existing = current.sql?.connections ?? [];
+        const index = existing.findIndex((conn) => conn.id === id);
+        if (index === -1) {
+          return current;
+        }
+        const nextConnections = [...existing];
+        const target = nextConnections[index]!;
+        nextConnections[index] = {
+          ...target,
+          name: updates.name !== undefined ? updates.name : target.name,
+          config: {
+            ...target.config,
+            connectionString:
+              updates.connectionString !== undefined
+                ? updates.connectionString
+                : target.config?.connectionString ?? "",
+          },
+        };
+        return {
+          ...current,
+          sql: { ...(current.sql ?? { connections: [] }), connections: nextConnections },
+        };
+      });
+      scheduleAutoSave({ markDirty: true });
+    },
+    [ensureEditable, notebook, updateNotebook, scheduleAutoSave]
+  );
+
+  const handleRemoveSqlConnection = useCallback(
+    (id: string) => {
+      if (!notebook) return;
+      if (!ensureEditable()) {
+        return;
+      }
+      updateNotebook((current) => {
+        const existing = current.sql?.connections ?? [];
+        if (!existing.some((conn) => conn.id === id)) {
+          return current;
+        }
+        const nextConnections = existing.filter((conn) => conn.id !== id);
+        const nextCells = current.cells.map((cell) => {
+          if (cell.type === "sql" && cell.connectionId === id) {
+            return { ...cell, connectionId: undefined };
+          }
+          return cell;
+        });
+        return {
+          ...current,
+          sql: { ...(current.sql ?? { connections: [] }), connections: nextConnections },
+          cells: nextCells,
+        };
+      });
+      scheduleAutoSave({ markDirty: true });
+    },
+    [ensureEditable, notebook, updateNotebook, scheduleAutoSave]
   );
 
   const handleOutlineJump = useCallback((cellId: string) => {
@@ -2248,6 +2503,34 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     () => buildOutlineItems(notebook),
     [notebook]
   );
+
+  const sqlGlobals = useMemo(() => {
+    if (!notebook) {
+      return {} as Record<string, unknown>;
+    }
+    const map: Record<string, unknown> = {};
+    for (const cell of notebook.cells) {
+      if (cell.type !== "sql") {
+        continue;
+      }
+      const name = (cell.assignVariable ?? "").trim();
+      if (!name || !SQL_IDENTIFIER_PATTERN.test(name)) {
+        continue;
+      }
+      const result = cell.result;
+      if (!result || result.error) {
+        continue;
+      }
+      map[name] = {
+        rows: result.rows ?? [],
+        columns: result.columns ?? [],
+        rowCount: result.rowCount,
+        durationMs: result.durationMs,
+        timestamp: result.timestamp,
+      };
+    }
+    return map;
+  }, [notebook]);
 
   const topbarMain = useMemo(() => {
     if (!notebook) return null;
@@ -2354,11 +2637,15 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         ) : sidebarView === "setup" ? (
           <SetupPanel
             env={notebook.env}
+            sql={notebook.sql}
             onRemoveDependency={handleRemoveDependency}
             onAddDependencies={(raw) => handleInstallDependencyInline(raw)}
             depBusy={depBusy}
             onAddVariable={handleAddVariable}
             onRemoveVariable={handleRemoveVariable}
+            onAddSqlConnection={handleAddSqlConnection}
+            onUpdateSqlConnection={handleUpdateSqlConnection}
+            onRemoveSqlConnection={handleRemoveSqlConnection}
             canEdit={canEditNotebook}
           />
         ) : (
@@ -2524,11 +2811,13 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         onMoveCell={handleMoveCell}
         onAddCell={handleAddCell}
         onCloneHttpToCode={handleCloneHttpToCode}
+        onCloneSqlToCode={handleCloneSqlToCode}
         onActivateCell={setActiveCellId}
         onInterruptKernel={handleInterruptKernel}
         onAttachmentUploaded={handleAttachmentUploaded}
         onClearDepOutputs={handleClearDepOutputs}
         onAbortInstall={handleAbortInstall}
+        sqlConnections={notebook?.sql?.connections ?? []}
       />
       <PublishDialog
         open={publishDialogOpen}

@@ -394,6 +394,7 @@ const handleExecuteRequest = async ({
       notebookId: notebook.id,
       env: notebook.env,
       timeoutMs: effectiveTimeoutMs,
+      globals: message.globals,
       onStream: (stream: {
         type: "stream";
         name: "stdout" | "stderr";

@@ -27,13 +27,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import type { NotebookCell } from "@nodebooks/notebook-schema";
+import type { NotebookCell, SqlConnection } from "@nodebooks/notebook-schema";
 import { clientConfig } from "@nodebooks/config/client";
 import CodeCellView from "./code-cell-view";
 import MarkdownCellView from "./markdown-cell-view";
 import CommandCellView from "./command-cell-view";
 import TerminalCellView from "./terminal-cell-view";
 import HttpCellView from "./http-cell-view";
+import SqlCellView from "./sql-cell-view";
 import AddCellMenu from "./add-cell-menu";
 import type { AttachmentMetadata } from "@/components/notebook/attachment-utils";
 import {
@@ -58,6 +59,7 @@ interface CellCardProps {
   onAddBelow: (type: NotebookCell["type"]) => void | Promise<void>;
   onMove: (direction: "up" | "down") => void;
   onCloneHttpToCode: (id: string, source: string) => void;
+  onCloneSqlToCode: (id: string, source: string) => void;
   isRunning: boolean;
   queued?: boolean;
   canRun: boolean;
@@ -73,6 +75,7 @@ interface CellCardProps {
   variables?: Record<string, string>;
   pendingTerminalPersist?: boolean;
   readOnly: boolean;
+  sqlConnections: SqlConnection[];
 }
 
 type CodeCellMetadata = Record<string, unknown> & {
@@ -104,6 +107,8 @@ const FONT_SIZE_PRESET_STRINGS = new Set<string>(
 );
 
 type HttpCellType = Extract<NotebookCell, { type: "http" }>;
+
+type SqlCellType = Extract<NotebookCell, { type: "sql" }>;
 
 interface HttpExecutionDetails {
   method: string;
@@ -357,6 +362,50 @@ const buildHttpCodeSnippet = (cell: HttpCellType) => {
   return lines.join("\n");
 };
 
+const sanitizeSqlTemplateLiteral = (value: string) => {
+  return (value ?? "")
+    .replace(/\\/g, "\\\\")
+    .replace(/`/g, "\\`");
+};
+
+const toSqlTemplateLiteral = (value: string) => {
+  return `\`${sanitizeSqlTemplateLiteral(value)}\``;
+};
+
+const SQL_IDENTIFIER_PATTERN = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
+
+const buildSqlCodeSnippet = (
+  cell: SqlCellType,
+  connections: SqlConnection[]
+) => {
+  const connection = cell.connectionId
+    ? connections.find((item) => item.id === cell.connectionId)
+    : undefined;
+  const query = (cell.query ?? "").trim() || "select 1";
+  const assign = (cell.assignVariable ?? "").trim();
+  const assignTarget = SQL_IDENTIFIER_PATTERN.test(assign) ? assign : null;
+  const connectionString = connection?.config?.connectionString?.trim();
+
+  const lines: string[] = [];
+  lines.push('import { Client } from "pg";');
+  lines.push("", "const client = new Client({");
+  if (connectionString) {
+    lines.push(`  connectionString: ${JSON.stringify(connectionString)},`);
+  } else {
+    lines.push(
+      '  // connectionString: "postgres://user:password@host:5432/database"'
+    );
+  }
+  lines.push("});", "", "await client.connect();", "try {");
+  lines.push(`  const result = await client.query(${toSqlTemplateLiteral(query)});`);
+  if (assignTarget) {
+    lines.push(`  const ${assignTarget} = result.rows;`);
+  }
+  lines.push("  console.log(result.rows);", "} finally {", "  await client.end();", "}");
+
+  return lines.join("\n");
+};
+
 const CellCard = ({
   cell,
   notebookId,
@@ -368,6 +417,7 @@ const CellCard = ({
   onAddBelow,
   onMove,
   onCloneHttpToCode,
+  onCloneSqlToCode,
   isRunning,
   queued,
   canRun,
@@ -383,6 +433,7 @@ const CellCard = ({
   variables,
   pendingTerminalPersist = false,
   readOnly,
+  sqlConnections,
 }: CellCardProps) => {
   void _active;
   const isCode = cell.type === "code";
@@ -390,8 +441,9 @@ const CellCard = ({
   const isTerminal = cell.type === "terminal";
   const isCommand = cell.type === "command";
   const isHttp = cell.type === "http";
+  const isSql = cell.type === "sql";
   const showAiActions =
-    aiEnabled && !isTerminal && !isCommand && !isHttp && !readOnly;
+    aiEnabled && !isTerminal && !isCommand && !isHttp && !isSql && !readOnly;
   const isReadOnly = readOnly;
   const codeLanguage = isCode ? cell.language : undefined;
   const cellContent = isTerminal
@@ -400,7 +452,9 @@ const CellCard = ({
       ? [cell.command ?? "", cell.notes ?? ""].filter(Boolean).join("\n\n")
       : isHttp
         ? JSON.stringify(cell.request ?? {})
-        : (cell.source ?? "");
+        : isSql
+          ? cell.query ?? ""
+          : (cell.source ?? "");
   const [showConfig, setShowConfig] = useState(false);
   const [timeoutDraft, setTimeoutDraft] = useState("");
   const [timeoutError, setTimeoutError] = useState<string | null>(null);
@@ -453,17 +507,18 @@ const CellCard = ({
     };
   }, []);
 
-  const httpVariables = useMemo(() => variables ?? {}, [variables]);
+  const httpVariables = useMemo(
+    () => (isHttp ? variables ?? {} : {}),
+    [isHttp, variables]
+  );
   const httpDetails = useMemo(
     () =>
-      cell.type === "http"
-        ? buildHttpExecutionDetails(cell as HttpCellType, httpVariables)
-        : null,
-    [cell, httpVariables]
+      isHttp ? buildHttpExecutionDetails(cell as HttpCellType, httpVariables) : null,
+    [cell, httpVariables, isHttp]
   );
   const httpCurl = useMemo(
-    () => buildHttpCurlCommand(httpDetails),
-    [httpDetails]
+    () => (isHttp ? buildHttpCurlCommand(httpDetails) : null),
+    [httpDetails, isHttp]
   );
 
   const openConfig = useCallback(() => {
@@ -1059,6 +1114,14 @@ const CellCard = ({
     onCloneHttpToCode(cell.id, snippet);
   }, [cell, onCloneHttpToCode]);
 
+  const handleConvertSqlToCode = useCallback(() => {
+    if (cell.type !== "sql") {
+      return;
+    }
+    const snippet = buildSqlCodeSnippet(cell as SqlCellType, sqlConnections);
+    onCloneSqlToCode(cell.id, snippet);
+  }, [cell, onCloneSqlToCode, sqlConnections]);
+
   const stopToolbarPropagation = useCallback((event: SyntheticEvent) => {
     event.stopPropagation();
   }, []);
@@ -1174,6 +1237,33 @@ const CellCard = ({
             disabled={isReadOnly}
           >
             <SettingsIcon className="h-4 w-4" />
+          </Button>
+        </>
+      ) : isSql ? (
+        <>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onRun}
+            disabled={isReadOnly || !canRun || isRunning}
+            aria-label="Run SQL query"
+            title="Run SQL query (Shift+Enter)"
+          >
+            {isRunning ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Play className="h-4 w-4" />
+            )}
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={handleConvertSqlToCode}
+            aria-label="Convert to code cell"
+            title="Convert to code cell"
+            disabled={isReadOnly}
+          >
+            <Code className="h-4 w-4" />
           </Button>
         </>
       ) : isHttp ? (
@@ -1425,6 +1515,15 @@ const CellCard = ({
           isRunning={isRunning}
           readOnly={readOnly}
           onRun={onRun}
+        />
+      ) : cell.type === "sql" ? (
+        <SqlCellView
+          cell={cell}
+          connections={sqlConnections}
+          onChange={onChange}
+          onRun={onRun}
+          isRunning={isRunning}
+          readOnly={readOnly}
         />
       ) : (
         <TerminalCellView
