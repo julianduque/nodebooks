@@ -8,6 +8,7 @@ import {
   createTerminalCell,
   createCommandCell,
   createHttpCell,
+  createSqlCell,
 } from "../src/index.js";
 
 describe("notebook schema", () => {
@@ -23,6 +24,7 @@ describe("notebook schema", () => {
     const terminal = createTerminalCell();
     const command = createCommandCell({ command: "echo 'hi'" });
     const http = createHttpCell();
+    const sql = createSqlCell({ query: "select 1" });
     expect(code.id).not.toEqual(markdown.id);
     expect(code.type).toBe("code");
     expect(markdown.type).toBe("markdown");
@@ -32,6 +34,8 @@ describe("notebook schema", () => {
     expect(command.command).toBe("echo 'hi'");
     expect(http.type).toBe("http");
     expect(http.request.method).toBe("GET");
+    expect(sql.type).toBe("sql");
+    expect(sql.query).toBe("select 1");
   });
 
   it("validates kernel protocol messages", () => {

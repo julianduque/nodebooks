@@ -15,6 +15,7 @@ export interface ExecuteOptions {
   onStream?: (output: StreamOutput) => void;
   onDisplay?: (output: DisplayDataOutput) => void;
   timeoutMs?: number;
+  globals?: Record<string, unknown>;
 }
 
 export interface ExecuteResult {
@@ -44,6 +45,7 @@ export class WorkerClient {
         notebookId: opts.notebookId,
         env: opts.env,
         timeoutMs: opts.timeoutMs,
+        globals: opts.globals,
         onStdout: (text) =>
           opts.onStream?.({ type: "stream", name: "stdout", text }),
         onStderr: (text) =>

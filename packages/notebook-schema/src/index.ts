@@ -692,12 +692,65 @@ export const HttpCellSchema = z.object({
   response: HttpResponseSchema.optional(),
 });
 
+export const SqlDriverSchema = z.enum(["postgres"]);
+export type SqlDriver = z.infer<typeof SqlDriverSchema>;
+
+const SqlPostgresConnectionSchema = z.object({
+  id: z.string(),
+  driver: z.literal("postgres"),
+  name: z.string().default(""),
+  config: z
+    .object({
+      connectionString: z.string().default(""),
+    })
+    .default({ connectionString: "" }),
+});
+
+export const SqlConnectionSchema = z.discriminatedUnion("driver", [
+  SqlPostgresConnectionSchema,
+]);
+export type SqlConnection = z.infer<typeof SqlConnectionSchema>;
+
+export const NotebookSqlSchema = z.object({
+  connections: z.array(SqlConnectionSchema).default([]),
+});
+export type NotebookSql = z.infer<typeof NotebookSqlSchema>;
+
+export const SqlColumnSchema = z.object({
+  name: z.string(),
+  dataType: z.string().optional(),
+});
+export type SqlColumn = z.infer<typeof SqlColumnSchema>;
+
+export const SqlResultSchema = z.object({
+  rowCount: z.number().int().nonnegative().optional(),
+  durationMs: z.number().nonnegative().optional(),
+  columns: z.array(SqlColumnSchema).default([]),
+  rows: z.array(z.record(z.string(), z.unknown())).default([]),
+  assignedVariable: z.string().optional(),
+  timestamp: z.string().optional(),
+  error: z.string().optional(),
+});
+export type SqlResult = z.infer<typeof SqlResultSchema>;
+
+export const SqlCellSchema = z.object({
+  id: z.string(),
+  type: z.literal("sql"),
+  metadata: z.record(z.string(), z.unknown()).default({}),
+  connectionId: z.string().optional(),
+  query: z.string().default(""),
+  assignVariable: z.string().optional(),
+  result: SqlResultSchema.optional(),
+});
+export type SqlCell = z.infer<typeof SqlCellSchema>;
+
 export const NOTEBOOK_CELL_SCHEMAS = {
   markdown: MarkdownCellSchema,
   terminal: TerminalCellSchema,
   command: CommandCellSchema,
   code: CodeCellSchema,
   http: HttpCellSchema,
+  sql: SqlCellSchema,
 } as const;
 
 export type NotebookCellType = keyof typeof NOTEBOOK_CELL_SCHEMAS;
@@ -713,6 +766,7 @@ const NOTEBOOK_CELL_SCHEMA_LIST = Object.values(NOTEBOOK_CELL_SCHEMAS) as [
   typeof CommandCellSchema,
   typeof CodeCellSchema,
   typeof HttpCellSchema,
+  typeof SqlCellSchema,
 ];
 
 const NOTEBOOK_CELL_SCHEMA_LIST_WITH_LEGACY = [
@@ -781,6 +835,15 @@ export const NotebookFileHttpCellSchema = z.object({
   response: HttpResponseSchema.optional(),
 });
 
+export const NotebookFileSqlCellSchema = z.object({
+  type: z.literal("sql"),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+  connectionId: z.string().optional(),
+  query: z.string().optional(),
+  assignVariable: z.string().optional(),
+  result: SqlResultSchema.optional(),
+});
+
 export const NOTEBOOK_FILE_CELL_SCHEMAS = {
   markdown: NotebookFileMarkdownCellSchema,
   terminal: NotebookFileTerminalCellSchema,
@@ -788,6 +851,7 @@ export const NOTEBOOK_FILE_CELL_SCHEMAS = {
   legacyShell: NotebookFileLegacyShellCellSchema,
   code: NotebookFileCodeCellSchema,
   http: NotebookFileHttpCellSchema,
+  sql: NotebookFileSqlCellSchema,
 } as const;
 
 export type NotebookFileCellType = keyof typeof NOTEBOOK_FILE_CELL_SCHEMAS;
@@ -805,6 +869,7 @@ const NOTEBOOK_FILE_CELL_SCHEMA_LIST = Object.values(
   typeof NotebookFileLegacyShellCellSchema,
   typeof NotebookFileCodeCellSchema,
   typeof NotebookFileHttpCellSchema,
+  typeof NotebookFileSqlCellSchema,
 ];
 
 export const NotebookFileCellSchema = z.discriminatedUnion(
@@ -815,6 +880,7 @@ export const NotebookFileCellSchema = z.discriminatedUnion(
 export const NotebookFileNotebookSchema = z.object({
   name: z.string().optional(),
   env: NotebookFileEnvSchema.optional(),
+  sql: NotebookSqlSchema.optional(),
   cells: z.array(NotebookFileCellSchema).default([]),
 });
 
@@ -843,6 +909,7 @@ export const NotebookSchema = z.object({
   id: z.string(),
   name: z.string(),
   env: NotebookEnvSchema,
+  sql: NotebookSqlSchema.default({ connections: [] }),
   cells: z.array(NotebookCellSchema),
   createdAt: z.string(),
   updatedAt: z.string(),
@@ -881,6 +948,7 @@ export type NotebookFileLegacyShellCell = z.infer<
 >;
 export type NotebookFileCodeCell = z.infer<typeof NotebookFileCodeCellSchema>;
 export type NotebookFileHttpCell = z.infer<typeof NotebookFileHttpCellSchema>;
+export type NotebookFileSqlCell = z.infer<typeof NotebookFileSqlCellSchema>;
 export type NotebookFileCell = z.infer<typeof NotebookFileCellSchema>;
 export type NotebookFileNotebook = z.infer<typeof NotebookFileNotebookSchema>;
 export type NotebookFileSummary = z.infer<typeof NotebookFileSummarySchema>;
@@ -919,9 +987,11 @@ export const normalizeNotebookEnvVersion = <
 };
 
 export const ensureNotebookRuntimeVersion = (notebook: Notebook): Notebook => {
+  const normalizedSql = NotebookSqlSchema.parse(notebook.sql ?? {});
   return {
     ...notebook,
     env: normalizeNotebookEnvVersion(notebook.env),
+    sql: normalizedSql,
     projectId: notebook.projectId ?? null,
     projectOrder:
       notebook.projectOrder === undefined ? null : notebook.projectOrder,
@@ -943,6 +1013,7 @@ export const createEmptyNotebook = (partial?: Partial<Notebook>): Notebook => {
     id: partial?.id ?? createId(),
     name: partial?.name ?? "Untitled Notebook",
     env: NotebookEnvSchema.parse(partial?.env ?? {}),
+    sql: NotebookSqlSchema.parse(partial?.sql ?? {}),
     cells: partial?.cells ?? [],
     createdAt: partial?.createdAt ?? now,
     updatedAt: partial?.updatedAt ?? now,
@@ -983,6 +1054,18 @@ export const createHttpCell = (partial?: Partial<HttpCell>): HttpCell => {
     metadata: partial?.metadata ?? {},
     request,
     response,
+  });
+};
+
+export const createSqlCell = (partial?: Partial<SqlCell>): SqlCell => {
+  return SqlCellSchema.parse({
+    id: partial?.id ?? createId(),
+    type: "sql",
+    metadata: partial?.metadata ?? {},
+    connectionId: partial?.connectionId,
+    query: partial?.query ?? "",
+    assignVariable: partial?.assignVariable,
+    result: partial?.result,
   });
 };
 
@@ -1074,6 +1157,7 @@ export const KernelExecuteRequestSchema = z.object({
   code: z.string(),
   language: z.enum(["js", "ts"]).default("js"),
   timeoutMs: z.number().int().positive().max(600_000).optional(),
+  globals: z.record(z.string(), z.unknown()).optional(),
 });
 
 export const KernelInterruptRequestSchema = z.object({

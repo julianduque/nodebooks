@@ -68,12 +68,34 @@ export interface ExecuteOptions {
   onStream?: (output: StreamOutput) => void;
   onDisplay?: (output: DisplayDataOutput) => void;
   timeoutMs?: number;
+  globals?: Record<string, unknown>;
 }
 
 export interface ExecuteResult {
   outputs: NotebookOutput[];
   execution: OutputExecution;
 }
+
+const isValidGlobalIdentifier = (value: string) =>
+  /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(value);
+
+const cloneForContext = <T>(value: T): T => {
+  const cloner = (globalThis as {
+    structuredClone?: <S>(input: S) => S;
+  }).structuredClone;
+  if (typeof cloner === "function") {
+    try {
+      return cloner(value);
+    } catch {
+      // fall through to JSON fallback
+    }
+  }
+  try {
+    return JSON.parse(JSON.stringify(value)) as T;
+  } catch {
+    return value;
+  }
+};
 
 // Best-effort rewrite to make top-level declarations idempotent and persistent.
 // Converts top-level `const/let/var x = ...` to `globalThis.x = ...` (dropping TS types),
@@ -984,6 +1006,7 @@ export class NotebookRuntime {
     onStream,
     onDisplay,
     timeoutMs,
+    globals,
   }: ExecuteOptions): Promise<ExecuteResult> {
     const outputs: NotebookOutput[] = [];
     const started = Date.now();
@@ -1007,6 +1030,23 @@ export class NotebookRuntime {
 
     try {
       await this.ensureEnvironment(notebookId, env);
+
+      if (globals && typeof globals === "object") {
+        for (const [key, value] of Object.entries(globals)) {
+          const trimmed = String(key).trim();
+          if (!isValidGlobalIdentifier(trimmed)) {
+            continue;
+          }
+          try {
+            const cloned = cloneForContext(value);
+            (this.context as Record<string, unknown>)[trimmed] = cloned;
+            (globalThis as Record<string, unknown>)[trimmed] = cloned;
+          } catch {
+            (this.context as Record<string, unknown>)[trimmed] = value;
+            (globalThis as Record<string, unknown>)[trimmed] = value;
+          }
+        }
+      }
 
       const rewritten = rewriteTopLevelDeclarations(code, cell.language);
       const wrapped =
