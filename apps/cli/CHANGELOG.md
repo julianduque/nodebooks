@@ -1,5 +1,13 @@
 # @nodebooks/cli
 
+## 0.3.2
+
+### Patch Changes
+
+- Guarantee the build is in production
+- Updated dependencies
+  - @nodebooks/server@0.4.2
+
 ## 0.3.1
 
 ### Patch Changes

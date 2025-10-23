@@ -1,5 +1,11 @@
 # @nodebooks/server
 
+## 0.4.2
+
+### Patch Changes
+
+- Guarantee the build is in production
+
 ## 0.4.1
 
 ### Patch Changes

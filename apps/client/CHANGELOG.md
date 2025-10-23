@@ -1,5 +1,11 @@
 # @nodebooks/client
 
+## 0.3.1
+
+### Patch Changes
+
+- Guarantee the build is in production
+
 ## 0.3.0
 
 ### Minor Changes
