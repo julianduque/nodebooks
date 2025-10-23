@@ -1,5 +1,18 @@
 # @nodebooks/runtime-node
 
+## 0.3.0
+
+### Minor Changes
+
+- Add support for SQL cells
+
+### Patch Changes
+
+- Updated dependencies
+  - @nodebooks/config@0.3.0
+  - @nodebooks/notebook-schema@0.3.0
+  - @nodebooks/ui@0.3.0
+
 ## 0.2.2
 
 ### Patch Changes

@@ -1,5 +1,11 @@
 # @nodebooks/notebook-schema
 
+## 0.3.0
+
+### Minor Changes
+
+- Add support for SQL cells
+
 ## 0.2.1
 
 ### Patch Changes

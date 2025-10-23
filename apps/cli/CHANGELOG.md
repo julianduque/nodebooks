@@ -1,5 +1,17 @@
 # @nodebooks/cli
 
+## 0.3.0
+
+### Minor Changes
+
+- Add support for SQL cells
+
+### Patch Changes
+
+- Updated dependencies
+  - @nodebooks/server@0.4.0
+  - @nodebooks/config@0.3.0
+
 ## 0.2.5
 
 ### Patch Changes
