@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Database, Pencil, Trash2 } from "lucide-react";
@@ -34,6 +34,7 @@ interface SetupPanelProps {
   ) => Promise<void> | void;
   onRemoveSqlConnection: (id: string) => Promise<void> | void;
   canEdit: boolean;
+  openConnectionTrigger?: number;
 }
 
 const SetupPanel = ({
@@ -48,6 +49,7 @@ const SetupPanel = ({
   onUpdateSqlConnection,
   onRemoveSqlConnection,
   canEdit,
+  openConnectionTrigger = 0,
 }: SetupPanelProps) => {
   const [draft, setDraft] = useState("");
   const [typingMode, setTypingMode] = useState<"ignore" | "off" | "full">(
@@ -75,9 +77,8 @@ const SetupPanel = ({
     null
   );
   const [connectionName, setConnectionName] = useState("");
-  const [connectionDriver, setConnectionDriver] = useState<
-    SqlConnection["driver"]
-  >("postgres");
+  const [connectionDriver, setConnectionDriver] =
+    useState<SqlConnection["driver"]>("postgres");
   const [connectionString, setConnectionString] = useState("");
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const dependencies = useMemo(
@@ -107,24 +108,37 @@ const SetupPanel = ({
     }
   };
 
-  const openConnectionModal = (connection?: SqlConnection) => {
+  const openConnectionModal = useCallback(
+    (connection?: SqlConnection) => {
+      if (!canEdit) {
+        return;
+      }
+      if (connection) {
+        setEditingConnectionId(connection.id);
+        setConnectionName(connection.name ?? "");
+        setConnectionDriver(connection.driver);
+        setConnectionString(connection.config?.connectionString ?? "");
+      } else {
+        setEditingConnectionId(null);
+        setConnectionName("");
+        setConnectionDriver("postgres");
+        setConnectionString("");
+      }
+      setConnectionError(null);
+      setConnectionModalOpen(true);
+    },
+    [canEdit]
+  );
+
+  useEffect(() => {
     if (!canEdit) {
       return;
     }
-    if (connection) {
-      setEditingConnectionId(connection.id);
-      setConnectionName(connection.name ?? "");
-      setConnectionDriver(connection.driver);
-      setConnectionString(connection.config?.connectionString ?? "");
-    } else {
-      setEditingConnectionId(null);
-      setConnectionName("");
-      setConnectionDriver("postgres");
-      setConnectionString("");
+    if (!openConnectionTrigger) {
+      return;
     }
-    setConnectionError(null);
-    setConnectionModalOpen(true);
-  };
+    openConnectionModal();
+  }, [canEdit, openConnectionModal, openConnectionTrigger]);
   return (
     <div className="flex h-full flex-col gap-2">
       <p className="text-xs font-semibold uppercase tracking-[0.3em] text-muted-foreground">
@@ -262,30 +276,39 @@ const SetupPanel = ({
               No connections configured.
             </p>
           ) : (
-            <ul className="space-y-1">
+            <ul className="space-y-2">
               {connections.map((connection) => (
                 <li
                   key={connection.id}
-                  className="flex items-start justify-between rounded-md border border-border bg-background px-3 py-2"
+                  className="flex flex-col gap-3 rounded-lg border border-border bg-muted/40 p-3 shadow-sm sm:flex-row sm:items-start sm:justify-between"
                 >
-                  <div className="flex flex-col gap-1 text-sm">
-                    <div className="flex items-center gap-2 text-foreground">
-                      <Database className="h-3.5 w-3.5 text-muted-foreground" />
-                      <span className="font-medium">
-                        {connection.name?.trim().length
-                          ? connection.name
-                          : "Untitled Connection"}
-                      </span>
+                  <div className="flex flex-1 flex-col gap-2 text-sm min-w-0">
+                    <div className="flex items-start gap-3">
+                      <div className="flex h-9 w-9 items-center justify-center rounded-md border border-border/60 bg-background/70 text-muted-foreground">
+                        <Database className="h-4 w-4" />
+                      </div>
+                      <div className="min-w-0 space-y-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="truncate text-sm font-semibold text-foreground">
+                            {connection.name?.trim().length
+                              ? connection.name
+                              : "Untitled Connection"}
+                          </span>
+                          <Badge
+                            variant="secondary"
+                            className="text-[10px] uppercase tracking-wide"
+                          >
+                            {describeDriver(connection.driver)}
+                          </Badge>
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          Available to SQL cells via connection picker.
+                        </p>
+                      </div>
                     </div>
-                    <p className="text-xs text-muted-foreground">
-                      {describeDriver(connection.driver)}
-                      {connection.config?.connectionString
-                        ? ` · ${connection.config.connectionString}`
-                        : " · No connection string"}
-                    </p>
                   </div>
                   {canEdit ? (
-                    <div className="flex items-center gap-2 pl-3">
+                    <div className="flex items-center gap-2">
                       <Button
                         type="button"
                         variant="ghost"
@@ -301,7 +324,9 @@ const SetupPanel = ({
                         variant="ghost"
                         size="icon"
                         className="text-rose-500 hover:text-rose-600"
-                        onClick={() => void onRemoveSqlConnection(connection.id)}
+                        onClick={() =>
+                          void onRemoveSqlConnection(connection.id)
+                        }
                         aria-label="Remove connection"
                       >
                         <Trash2 className="h-4 w-4" />

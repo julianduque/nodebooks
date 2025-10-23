@@ -134,6 +134,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
   );
   const [unpublishConfirmOpen, setUnpublishConfirmOpen] = useState(false);
   const [unpublishSubmitting, setUnpublishSubmitting] = useState(false);
+  const [addConnectionTrigger, setAddConnectionTrigger] = useState(0);
   const collabSocketRef = useRef<WebSocket | null>(null);
   const suppressCollabBroadcastRef = useRef(false);
   const activeCellIdRef = useRef<string | null>(null);
@@ -1648,6 +1649,34 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     [ensureEditable, updateNotebook]
   );
 
+  const sqlGlobals = useMemo(() => {
+    if (!notebook) {
+      return {} as Record<string, unknown>;
+    }
+    const map: Record<string, unknown> = {};
+    for (const cell of notebook.cells) {
+      if (cell.type !== "sql") {
+        continue;
+      }
+      const name = (cell.assignVariable ?? "").trim();
+      if (!name || !SQL_IDENTIFIER_PATTERN.test(name)) {
+        continue;
+      }
+      const result = cell.result;
+      if (!result || result.error) {
+        continue;
+      }
+      map[name] = {
+        rows: result.rows ?? [],
+        columns: result.columns ?? [],
+        rowCount: result.rowCount,
+        durationMs: result.durationMs,
+        timestamp: result.timestamp,
+      };
+    }
+    return map;
+  }, [notebook]);
+
   const handleRunCell = useCallback(
     (id: string) => {
       if (!notebook) return;
@@ -1757,14 +1786,18 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
       if (cell.type === "sql") {
         const connectionId = cell.connectionId?.trim();
         if (!connectionId) {
-          setActionError("Select a database connection before running this cell.");
+          setActionError(
+            "Select a database connection before running this cell."
+          );
           return;
         }
         const connection = (notebook.sql?.connections ?? []).find(
           (candidate) => candidate.id === connectionId
         );
         if (!connection) {
-          setActionError("Database connection not found. Check the Setup panel.");
+          setActionError(
+            "Database connection not found. Check the Setup panel."
+          );
           return;
         }
         const queryText = (cell.query ?? "").trim();
@@ -1773,7 +1806,8 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
           return;
         }
         const assignTrimmed = (cell.assignVariable ?? "").trim();
-        const assignVariable = assignTrimmed.length > 0 ? assignTrimmed : undefined;
+        const assignVariable =
+          assignTrimmed.length > 0 ? assignTrimmed : undefined;
         if (assignVariable && !SQL_IDENTIFIER_PATTERN.test(assignVariable)) {
           setActionError("Assignment target must be a valid identifier.");
           return;
@@ -1966,7 +2000,9 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         { persist: false }
       );
       const globalsMap =
-        sqlGlobals && Object.keys(sqlGlobals).length > 0 ? sqlGlobals : undefined;
+        sqlGlobals && Object.keys(sqlGlobals).length > 0
+          ? sqlGlobals
+          : undefined;
       const payload: KernelExecuteRequest = {
         type: "execute_request",
         cellId: id,
@@ -2416,7 +2452,10 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         ];
         return {
           ...current,
-          sql: { ...(current.sql ?? { connections: [] }), connections: nextConnections },
+          sql: {
+            ...(current.sql ?? { connections: [] }),
+            connections: nextConnections,
+          },
         };
       });
       scheduleAutoSave({ markDirty: true });
@@ -2425,10 +2464,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
   );
 
   const handleUpdateSqlConnection = useCallback(
-    (
-      id: string,
-      updates: { name?: string; connectionString?: string }
-    ) => {
+    (id: string, updates: { name?: string; connectionString?: string }) => {
       if (!notebook) return;
       if (!ensureEditable()) {
         return;
@@ -2449,12 +2485,15 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
             connectionString:
               updates.connectionString !== undefined
                 ? updates.connectionString
-                : target.config?.connectionString ?? "",
+                : (target.config?.connectionString ?? ""),
           },
         };
         return {
           ...current,
-          sql: { ...(current.sql ?? { connections: [] }), connections: nextConnections },
+          sql: {
+            ...(current.sql ?? { connections: [] }),
+            connections: nextConnections,
+          },
         };
       });
       scheduleAutoSave({ markDirty: true });
@@ -2482,7 +2521,10 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         });
         return {
           ...current,
-          sql: { ...(current.sql ?? { connections: [] }), connections: nextConnections },
+          sql: {
+            ...(current.sql ?? { connections: [] }),
+            connections: nextConnections,
+          },
           cells: nextCells,
         };
       });
@@ -2490,6 +2532,14 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     },
     [ensureEditable, notebook, updateNotebook, scheduleAutoSave]
   );
+
+  const handleRequestAddSqlConnection = useCallback(() => {
+    if (!ensureEditable()) {
+      return;
+    }
+    setSidebarView("setup");
+    setAddConnectionTrigger((current) => current + 1);
+  }, [ensureEditable]);
 
   const handleOutlineJump = useCallback((cellId: string) => {
     if (typeof document === "undefined") {
@@ -2503,34 +2553,6 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     () => buildOutlineItems(notebook),
     [notebook]
   );
-
-  const sqlGlobals = useMemo(() => {
-    if (!notebook) {
-      return {} as Record<string, unknown>;
-    }
-    const map: Record<string, unknown> = {};
-    for (const cell of notebook.cells) {
-      if (cell.type !== "sql") {
-        continue;
-      }
-      const name = (cell.assignVariable ?? "").trim();
-      if (!name || !SQL_IDENTIFIER_PATTERN.test(name)) {
-        continue;
-      }
-      const result = cell.result;
-      if (!result || result.error) {
-        continue;
-      }
-      map[name] = {
-        rows: result.rows ?? [],
-        columns: result.columns ?? [],
-        rowCount: result.rowCount,
-        durationMs: result.durationMs,
-        timestamp: result.timestamp,
-      };
-    }
-    return map;
-  }, [notebook]);
 
   const topbarMain = useMemo(() => {
     if (!notebook) return null;
@@ -2647,6 +2669,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
             onUpdateSqlConnection={handleUpdateSqlConnection}
             onRemoveSqlConnection={handleRemoveSqlConnection}
             canEdit={canEditNotebook}
+            openConnectionTrigger={addConnectionTrigger}
           />
         ) : (
           <div className="flex h-full flex-col overflow-hidden">
@@ -2734,9 +2757,13 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     handleRemoveDependency,
     depBusy,
     handleInstallDependencyInline,
+    handleAddSqlConnection,
+    handleUpdateSqlConnection,
+    handleRemoveSqlConnection,
     handleAddVariable,
     handleRemoveVariable,
     canEditNotebook,
+    addConnectionTrigger,
   ]);
 
   const shellUser = useMemo(() => {
@@ -2818,6 +2845,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         onClearDepOutputs={handleClearDepOutputs}
         onAbortInstall={handleAbortInstall}
         sqlConnections={notebook?.sql?.connections ?? []}
+        onRequestAddConnection={handleRequestAddSqlConnection}
       />
       <PublishDialog
         open={publishDialogOpen}
