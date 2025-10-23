@@ -516,16 +516,40 @@ export const createServer = async ({ logger }: CreateServerOptions = {}) => {
     const __dirname = path.dirname(__filename);
     const embeddedClientDir = path.resolve(__dirname, "..", "client");
     const workspaceClientDir = path.resolve(__dirname, "../../client");
-    let uiDir = workspaceClientDir;
-    try {
-      await fs.access(workspaceClientDir);
-    } catch {
+    const expectClientBuild = !isDev;
+    const hasClientAssets = async (dir: string) => {
       try {
-        await fs.access(embeddedClientDir);
-        uiDir = embeddedClientDir;
+        await fs.access(dir);
+        if (!expectClientBuild) {
+          return true;
+        }
+        await fs.access(path.join(dir, ".next"));
+        return true;
       } catch {
-        // Neither workspace nor embedded client is available; keep default.
+        return false;
       }
+    };
+
+    const preferWorkspace = isDev;
+    const clientCandidates = preferWorkspace
+      ? [workspaceClientDir, embeddedClientDir]
+      : [embeddedClientDir, workspaceClientDir];
+
+    let uiDir = clientCandidates[0];
+    let resolved = false;
+    for (const candidate of clientCandidates) {
+      if (await hasClientAssets(candidate)) {
+        uiDir = candidate;
+        resolved = true;
+        break;
+      }
+    }
+
+    if (!resolved && expectClientBuild) {
+      app.log.warn(
+        { candidatesTried: clientCandidates },
+        "Falling back to default Next.js client directory; production build assets were not found"
+      );
     }
 
     // Switch CWD so Next/PostCSS/Tailwind resolve client configs correctly.
