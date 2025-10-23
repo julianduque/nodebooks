@@ -1,4 +1,12 @@
-import { access, cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  access,
+  cp,
+  mkdir,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
@@ -92,9 +100,37 @@ const copyClientAssets = async () => {
   }
 };
 
+const ensureBuildId = async () => {
+  const buildIdFile = path.join(backendClientDir, ".next", "BUILD_ID");
+  try {
+    await access(buildIdFile);
+    return;
+  } catch {
+    // fall back to deriving from static assets
+  }
+
+  const staticDir = path.join(backendClientDir, ".next", "static");
+  try {
+    const entries = await readdir(staticDir, { withFileTypes: true });
+    const knownDirs = new Set(["chunks", "css", "media"]);
+    const buildIdDir = entries.find(
+      (entry) => entry.isDirectory() && !knownDirs.has(entry.name)
+    );
+    if (buildIdDir) {
+      await writeFile(buildIdFile, `${buildIdDir.name}\n`, "utf8");
+      return;
+    }
+  } catch (error) {
+    console.warn("Failed to derive Next.js build id", error);
+    return;
+  }
+  console.warn("Could not locate Next.js build id in static assets");
+};
+
 const main = async () => {
   await buildClientIfNeeded();
   await copyClientAssets();
+  await ensureBuildId();
   const cacheDir = path.join(backendClientDir, ".next", "cache");
   if (await exists(cacheDir)) {
     await rm(cacheDir, { recursive: true, force: true });

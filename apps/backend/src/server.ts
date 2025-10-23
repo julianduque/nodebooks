@@ -530,6 +530,33 @@ export const createServer = async ({ logger }: CreateServerOptions = {}) => {
       }
     };
 
+    const ensureBuildIdFile = async (dir: string) => {
+      const buildIdFile = path.join(dir, ".next", "BUILD_ID");
+      try {
+        await fs.access(buildIdFile);
+        return true;
+      } catch {
+        // continue
+      }
+      try {
+        const staticDir = path.join(dir, ".next", "static");
+        const knownDirs = new Set(["chunks", "css", "media"]);
+        const candidates = await fs.readdir(staticDir, {
+          withFileTypes: true,
+        });
+        const buildDir = candidates.find(
+          (entry) => entry.isDirectory() && !knownDirs.has(entry.name)
+        );
+        if (!buildDir) {
+          return false;
+        }
+        await fs.writeFile(buildIdFile, `${buildDir.name}\n`, "utf8");
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
     const preferWorkspace = isDev;
     const clientCandidates = preferWorkspace
       ? [workspaceClientDir, embeddedClientDir]
@@ -568,6 +595,15 @@ export const createServer = async ({ logger }: CreateServerOptions = {}) => {
       hostname: hostnameForNext,
       port,
     });
+    if (!isDev) {
+      const ensured = await ensureBuildIdFile(uiDir);
+      if (!ensured) {
+        app.log.warn(
+          { uiDir },
+          "Failed to ensure Next.js BUILD_ID file; the embedded UI may not start in production mode"
+        );
+      }
+    }
     nextHandle = nextApp.getRequestHandler();
     await nextApp.prepare();
 
