@@ -1,5 +1,11 @@
 # @nodebooks/server
 
+## 0.4.1
+
+### Patch Changes
+
+- Fixed the client embedding for CLI
+
 ## 0.4.0
 
 ### Minor Changes
