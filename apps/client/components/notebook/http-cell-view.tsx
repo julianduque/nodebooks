@@ -16,7 +16,6 @@ import type { HttpRequest, NotebookCell } from "@nodebooks/notebook-schema";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { AlertCallout } from "@nodebooks/ui";
 
 const VARIABLE_PATTERN = /\{\{\s*([A-Z0-9_]+)\s*\}\}/gi;
@@ -2152,7 +2151,7 @@ const HttpCellView = ({
                 </div>
                 {responseBodyContent.text !== null ? (
                   <div className="space-y-1">
-                    <ScrollArea className="max-h-64 rounded-md border border-border/60 bg-background">
+                    <div className="max-h-64 overflow-auto rounded-md border border-border/60 bg-background">
                       <div
                         role="button"
                         tabIndex={0}
@@ -2193,7 +2192,7 @@ const HttpCellView = ({
                           )}
                         </span>
                       </div>
-                    </ScrollArea>
+                    </div>
                     <p className="text-[10px] text-muted-foreground">
                       {responseCopied ? " • Copied!" : ""}
                     </p>
@@ -2245,7 +2244,7 @@ const HttpCellView = ({
                 <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   cURL Command
                 </p>
-                <ScrollArea className="max-h-48 rounded-md border border-border/60 bg-background">
+                <div className="max-h-48 overflow-auto rounded-md border border-border/60 bg-background">
                   <div
                     role="button"
                     tabIndex={0}
@@ -2264,7 +2263,7 @@ const HttpCellView = ({
                       )}
                     </span>
                   </div>
-                </ScrollArea>
+                </div>
                 <p className="text-[10px] text-muted-foreground">
                   {curlCopied ? " • Copied!" : ""}
                 </p>
