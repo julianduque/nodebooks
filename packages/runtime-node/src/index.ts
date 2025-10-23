@@ -586,6 +586,8 @@ export class NotebookRuntime {
   private currentEnvKey: string | null = null;
   // Per-runtime view of environment variables exposed to user code via process.env
   private exposedEnv: Record<string, string> = {};
+  // Track globals injected from SQL cells so we can remove stale variables.
+  private injectedGlobals = new Set<string>();
   // Track timers created during execution so we can await/cleanup them.
   private pendingTimeouts = new Set<unknown>();
   private pendingIntervals = new Set<unknown>();
@@ -1034,20 +1036,42 @@ export class NotebookRuntime {
       await this.ensureEnvironment(notebookId, env);
 
       if (globals && typeof globals === "object") {
+        const nextInjected = new Set<string>();
+        const entries: Array<[string, unknown]> = [];
         for (const [key, value] of Object.entries(globals)) {
           const trimmed = String(key).trim();
           if (!isValidGlobalIdentifier(trimmed)) {
             continue;
           }
-          try {
-            const cloned = cloneForContext(value);
-            (this.context as Record<string, unknown>)[trimmed] = cloned;
-            (globalThis as Record<string, unknown>)[trimmed] = cloned;
-          } catch {
-            (this.context as Record<string, unknown>)[trimmed] = value;
-            (globalThis as Record<string, unknown>)[trimmed] = value;
+          nextInjected.add(trimmed);
+          entries.push([trimmed, value]);
+        }
+
+        for (const existing of this.injectedGlobals) {
+          if (!nextInjected.has(existing)) {
+            delete (this.context as Record<string, unknown>)[existing];
+            delete (globalThis as Record<string, unknown>)[existing];
           }
         }
+
+        for (const [identifier, value] of entries) {
+          try {
+            const cloned = cloneForContext(value);
+            (this.context as Record<string, unknown>)[identifier] = cloned;
+            (globalThis as Record<string, unknown>)[identifier] = cloned;
+          } catch {
+            (this.context as Record<string, unknown>)[identifier] = value;
+            (globalThis as Record<string, unknown>)[identifier] = value;
+          }
+        }
+
+        this.injectedGlobals = nextInjected;
+      } else if (this.injectedGlobals.size > 0) {
+        for (const existing of this.injectedGlobals) {
+          delete (this.context as Record<string, unknown>)[existing];
+          delete (globalThis as Record<string, unknown>)[existing];
+        }
+        this.injectedGlobals.clear();
       }
 
       const rewritten = rewriteTopLevelDeclarations(code, cell.language);
