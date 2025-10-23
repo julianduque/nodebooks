@@ -14,6 +14,7 @@ export interface ExecuteOptions {
   code: string;
   notebookId: string;
   env: NotebookEnv;
+  globals?: Record<string, unknown>;
   timeoutMs?: number;
   onStdout?: (text: string) => void;
   onStderr?: (text: string) => void;
@@ -206,6 +207,7 @@ export class WorkerPool {
         notebookId: opts.notebookId,
         env: opts.env,
         timeoutMs: opts.timeoutMs ?? this.opts.perJobTimeoutMs,
+        globals: opts.globals,
       };
       // Track active job
       this.active.set(jobId, { worker, resolve, reject, bytes: 0 });
@@ -334,6 +336,7 @@ export class WorkerPool {
           notebookId: opts.notebookId,
           env: opts.env,
           timeoutMs: opts.timeoutMs ?? this.opts.perJobTimeoutMs,
+          globals: opts.globals,
         };
         child.send(payload);
       });

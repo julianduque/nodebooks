@@ -14,16 +14,20 @@ import type { SafeUser } from "../src/types.js";
 const mockConnect = vi.fn();
 const mockQuery = vi.fn();
 const mockEnd = vi.fn();
+const mockClientConfig = vi.fn();
 
 vi.mock("pg", async () => {
   const actual = await vi.importActual<{ types: unknown }>("pg");
   return {
     ...(actual ?? {}),
-    Client: vi.fn(() => ({
-      connect: mockConnect,
-      query: mockQuery,
-      end: mockEnd,
-    })),
+    Client: vi.fn((config?: unknown) => {
+      mockClientConfig(config);
+      return {
+        connect: mockConnect,
+        query: mockQuery,
+        end: mockEnd,
+      };
+    }),
     types: {
       builtins: {
         INT4: 23,
@@ -47,6 +51,7 @@ describe("SQL routes", () => {
     mockConnect.mockReset();
     mockQuery.mockReset();
     mockEnd.mockReset();
+    mockClientConfig.mockReset();
   });
 
   afterEach(() => {
@@ -108,6 +113,70 @@ describe("SQL routes", () => {
     expect(body.data?.result?.rows?.length).toBe(2);
     expect(body.data?.result?.assignedVariable).toBe("articles");
     expect(mockQuery).toHaveBeenCalledWith("select id, title from articles");
+    await app.close();
+  });
+
+  it("replaces environment variables in the connection string", async () => {
+    const store = new InMemoryNotebookStore([]);
+    const collaborators = new InMemoryNotebookCollaboratorStore();
+    const notebook = createEmptyNotebook({
+      id: "nb-sql-env",
+      env: {
+        runtime: "node",
+        version: "18.0.0",
+        variables: {
+          DB_HOST: "db.internal",
+          DB_NAME: "notebooks",
+        },
+      },
+      sql: {
+        connections: [
+          {
+            id: "conn-env",
+            driver: "postgres",
+            name: "Env",
+            config: {
+              connectionString:
+                "postgres://analytics:secret@{{DB_HOST}}/{{DB_NAME}}?sslmode=require",
+            },
+          },
+        ],
+      },
+    });
+    await store.save(notebook);
+
+    mockQuery.mockResolvedValue({
+      rows: [],
+      rowCount: 0,
+      fields: [],
+    });
+
+    const app = Fastify();
+    app.addHook("preHandler", (req, _reply, done) => {
+      (req as typeof req & { user: SafeUser }).user = createAdminUser();
+      done();
+    });
+
+    registerSqlRoutes(app, store, collaborators);
+    await app.ready();
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/notebooks/nb-sql-env/sql",
+      payload: {
+        cellId: "cell-1",
+        connectionId: "conn-env",
+        query: "select 1",
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(mockClientConfig).toHaveBeenCalledWith(
+      expect.objectContaining({
+        connectionString:
+          "postgres://analytics:secret@db.internal/notebooks?sslmode=require",
+      })
+    );
     await app.close();
   });
 

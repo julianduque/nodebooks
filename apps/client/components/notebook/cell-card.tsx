@@ -76,6 +76,7 @@ interface CellCardProps {
   pendingTerminalPersist?: boolean;
   readOnly: boolean;
   sqlConnections: SqlConnection[];
+  onRequestAddConnection: () => void;
 }
 
 type CodeCellMetadata = Record<string, unknown> & {
@@ -363,9 +364,7 @@ const buildHttpCodeSnippet = (cell: HttpCellType) => {
 };
 
 const sanitizeSqlTemplateLiteral = (value: string) => {
-  return (value ?? "")
-    .replace(/\\/g, "\\\\")
-    .replace(/`/g, "\\`");
+  return (value ?? "").replace(/\\/g, "\\\\").replace(/`/g, "\\`");
 };
 
 const toSqlTemplateLiteral = (value: string) => {
@@ -376,7 +375,8 @@ const SQL_IDENTIFIER_PATTERN = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 
 const buildSqlCodeSnippet = (
   cell: SqlCellType,
-  connections: SqlConnection[]
+  connections: SqlConnection[],
+  variables: Record<string, string> | undefined
 ) => {
   const connection = cell.connectionId
     ? connections.find((item) => item.id === cell.connectionId)
@@ -385,23 +385,56 @@ const buildSqlCodeSnippet = (
   const assign = (cell.assignVariable ?? "").trim();
   const assignTarget = SQL_IDENTIFIER_PATTERN.test(assign) ? assign : null;
   const connectionString = connection?.config?.connectionString?.trim();
+  const extractEnvPlaceholder = (value: string | undefined | null) => {
+    if (!value) return null;
+    const match = value.match(/\{\{\s*([A-Z0-9_]+)\s*\}\}/i);
+    if (!match) return null;
+    return match[1]?.toUpperCase() ?? null;
+  };
 
   const lines: string[] = [];
   lines.push('import { Client } from "pg";');
   lines.push("", "const client = new Client({");
+  const resolveFallbackEnvKey = () => {
+    if (variables) {
+      const keys = Object.keys(variables).map((key) => key.toUpperCase());
+      const preferred =
+        keys.find((key) => key === "DATABASE_URL") ??
+        keys.find((key) => key.endsWith("_DATABASE_URL")) ??
+        keys.find((key) => key.includes("DATABASE")) ??
+        keys.find((key) => key.includes("POSTGRES")) ??
+        keys.find((key) => key.includes("PG"));
+      if (preferred) {
+        return preferred;
+      }
+    }
+    return "DATABASE_URL";
+  };
+
   if (connectionString) {
-    lines.push(`  connectionString: ${JSON.stringify(connectionString)},`);
+    const envKey = extractEnvPlaceholder(connectionString);
+    if (envKey) {
+      lines.push(`  connectionString: process.env.${envKey} ?? "",`);
+    } else {
+      lines.push(`  connectionString: ${JSON.stringify(connectionString)},`);
+    }
   } else {
-    lines.push(
-      '  // connectionString: "postgres://user:password@host:5432/database"'
-    );
+    const fallbackEnv = resolveFallbackEnvKey();
+    lines.push(`  connectionString: process.env.${fallbackEnv} ?? "",`);
   }
   lines.push("});", "", "await client.connect();", "try {");
-  lines.push(`  const result = await client.query(${toSqlTemplateLiteral(query)});`);
+  lines.push(
+    `  const result = await client.query(${toSqlTemplateLiteral(query)});`
+  );
   if (assignTarget) {
     lines.push(`  const ${assignTarget} = result.rows;`);
   }
-  lines.push("  console.log(result.rows);", "} finally {", "  await client.end();", "}");
+  lines.push(
+    "  console.log(result.rows);",
+    "} finally {",
+    "  await client.end();",
+    "}"
+  );
 
   return lines.join("\n");
 };
@@ -434,6 +467,7 @@ const CellCard = ({
   pendingTerminalPersist = false,
   readOnly,
   sqlConnections,
+  onRequestAddConnection,
 }: CellCardProps) => {
   void _active;
   const isCode = cell.type === "code";
@@ -453,7 +487,7 @@ const CellCard = ({
       : isHttp
         ? JSON.stringify(cell.request ?? {})
         : isSql
-          ? cell.query ?? ""
+          ? (cell.query ?? "")
           : (cell.source ?? "");
   const [showConfig, setShowConfig] = useState(false);
   const [timeoutDraft, setTimeoutDraft] = useState("");
@@ -508,12 +542,14 @@ const CellCard = ({
   }, []);
 
   const httpVariables = useMemo(
-    () => (isHttp ? variables ?? {} : {}),
+    () => (isHttp ? (variables ?? {}) : {}),
     [isHttp, variables]
   );
   const httpDetails = useMemo(
     () =>
-      isHttp ? buildHttpExecutionDetails(cell as HttpCellType, httpVariables) : null,
+      isHttp
+        ? buildHttpExecutionDetails(cell as HttpCellType, httpVariables)
+        : null,
     [cell, httpVariables, isHttp]
   );
   const httpCurl = useMemo(
@@ -1118,9 +1154,13 @@ const CellCard = ({
     if (cell.type !== "sql") {
       return;
     }
-    const snippet = buildSqlCodeSnippet(cell as SqlCellType, sqlConnections);
+    const snippet = buildSqlCodeSnippet(
+      cell as SqlCellType,
+      sqlConnections,
+      variables
+    );
     onCloneSqlToCode(cell.id, snippet);
-  }, [cell, onCloneSqlToCode, sqlConnections]);
+  }, [cell, onCloneSqlToCode, sqlConnections, variables]);
 
   const stopToolbarPropagation = useCallback((event: SyntheticEvent) => {
     event.stopPropagation();
@@ -1524,6 +1564,7 @@ const CellCard = ({
           onRun={onRun}
           isRunning={isRunning}
           readOnly={readOnly}
+          onRequestAddConnection={onRequestAddConnection}
         />
       ) : (
         <TerminalCellView

@@ -80,9 +80,11 @@ const isValidGlobalIdentifier = (value: string) =>
   /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(value);
 
 const cloneForContext = <T>(value: T): T => {
-  const cloner = (globalThis as {
-    structuredClone?: <S>(input: S) => S;
-  }).structuredClone;
+  const cloner = (
+    globalThis as {
+      structuredClone?: <S>(input: S) => S;
+    }
+  ).structuredClone;
   if (typeof cloner === "function") {
     try {
       return cloner(value);

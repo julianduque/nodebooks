@@ -10,6 +10,21 @@ import {
 import type { NotebookCollaboratorStore, NotebookStore } from "../types.js";
 import { ensureNotebookAccess } from "../notebooks/permissions.js";
 
+const VARIABLE_PATTERN = /\{\{\s*([A-Z0-9_]+)\s*\}\}/gi;
+
+const substituteVariables = (
+  value: string,
+  variables: Record<string, string>
+) => {
+  if (!value) {
+    return "";
+  }
+  return value.replace(VARIABLE_PATTERN, (_, key: string) => {
+    const exact = variables[key] ?? variables[key.toUpperCase()] ?? "";
+    return exact;
+  });
+};
+
 const SqlExecutePayloadSchema = z.object({
   cellId: z.string(),
   connectionId: z.string(),
@@ -40,7 +55,9 @@ const buildPostgresClient = (connectionString: string) => {
   try {
     const url = new URL(connectionString);
     const sslParam =
-      url.searchParams.get("sslmode") ?? url.searchParams.get("ssl") ?? undefined;
+      url.searchParams.get("sslmode") ??
+      url.searchParams.get("ssl") ??
+      undefined;
     if (sslParam) {
       const normalized = sslParam.trim().toLowerCase();
       if (["disable", "false", "0"].includes(normalized)) {
@@ -65,110 +82,128 @@ const ensureNotebookSql = (notebook: Notebook) => {
   return NotebookSqlSchema.parse(notebook.sql ?? {});
 };
 
+const getNotebookVariables = (notebook: Notebook) => {
+  return notebook.env?.variables ?? {};
+};
+
 export const registerSqlRoutes = (
   app: FastifyInstance,
   store: NotebookStore,
   collaborators: NotebookCollaboratorStore
 ) => {
-  app.post(
-    "/notebooks/:id/sql",
-    async (request, reply): Promise<void> => {
-      const params = z.object({ id: z.string().min(1) }).safeParse(request.params);
-      if (!params.success) {
-        void reply.code(400).send({ error: "Invalid notebook id" });
-        return;
-      }
-      const notebook = await store.get(params.data.id);
-      if (!notebook) {
-        void reply.code(404).send({ error: "Notebook not found" });
-        return;
-      }
+  app.post("/notebooks/:id/sql", async (request, reply): Promise<void> => {
+    const params = z
+      .object({ id: z.string().min(1) })
+      .safeParse(request.params);
+    if (!params.success) {
+      void reply.code(400).send({ error: "Invalid notebook id" });
+      return;
+    }
+    const notebook = await store.get(params.data.id);
+    if (!notebook) {
+      void reply.code(404).send({ error: "Notebook not found" });
+      return;
+    }
 
-      const accessRole = await ensureNotebookAccess(
-        request,
-        reply,
-        collaborators,
-        notebook.id,
-        "editor"
-      );
-      if (!accessRole && request.user?.role !== "admin") {
-        return;
-      }
+    const accessRole = await ensureNotebookAccess(
+      request,
+      reply,
+      collaborators,
+      notebook.id,
+      "editor"
+    );
+    if (!accessRole && request.user?.role !== "admin") {
+      return;
+    }
 
-      const payload = SqlExecutePayloadSchema.safeParse(request.body ?? {});
-      if (!payload.success) {
-        void reply.code(400).send({ error: "Invalid SQL payload" });
-        return;
-      }
+    const payload = SqlExecutePayloadSchema.safeParse(request.body ?? {});
+    if (!payload.success) {
+      void reply.code(400).send({ error: "Invalid SQL payload" });
+      return;
+    }
 
-      const queryText = payload.data.query.trim();
-      if (queryText.length === 0) {
-        void reply.code(400).send({ error: "SQL query cannot be empty" });
-        return;
-      }
+    const queryText = payload.data.query.trim();
+    if (queryText.length === 0) {
+      void reply.code(400).send({ error: "SQL query cannot be empty" });
+      return;
+    }
 
-      const assignRaw = payload.data.assignVariable?.trim();
-      const assignVariable = assignRaw && assignRaw.length > 0 ? assignRaw : undefined;
-      if (assignVariable && !isValidVariableName(assignVariable)) {
-        void reply.code(400).send({ error: "Assignment target must be a valid identifier" });
-        return;
-      }
+    const assignRaw = payload.data.assignVariable?.trim();
+    const assignVariable =
+      assignRaw && assignRaw.length > 0 ? assignRaw : undefined;
+    if (assignVariable && !isValidVariableName(assignVariable)) {
+      void reply
+        .code(400)
+        .send({ error: "Assignment target must be a valid identifier" });
+      return;
+    }
 
-      const sqlConfig = ensureNotebookSql(notebook);
-      const connection: SqlConnection | undefined = sqlConfig.connections.find(
-        (candidate) => candidate.id === payload.data.connectionId
-      );
-      if (!connection) {
-        void reply.code(400).send({ error: "Database connection not found" });
-        return;
-      }
-      if (connection.driver !== "postgres") {
-        void reply.code(400).send({ error: `Unsupported SQL driver: ${connection.driver}` });
-        return;
-      }
-      const connectionString = connection.config.connectionString?.trim();
-      if (!connectionString) {
-        void reply.code(400).send({ error: "Connection string is required" });
-        return;
-      }
+    const sqlConfig = ensureNotebookSql(notebook);
+    const connection: SqlConnection | undefined = sqlConfig.connections.find(
+      (candidate) => candidate.id === payload.data.connectionId
+    );
+    if (!connection) {
+      void reply.code(400).send({ error: "Database connection not found" });
+      return;
+    }
+    if (connection.driver !== "postgres") {
+      void reply
+        .code(400)
+        .send({ error: `Unsupported SQL driver: ${connection.driver}` });
+      return;
+    }
+    const rawConnectionString = connection.config.connectionString?.trim();
+    if (!rawConnectionString) {
+      void reply.code(400).send({ error: "Connection string is required" });
+      return;
+    }
 
-      const client = buildPostgresClient(connectionString);
-      const started = Date.now();
+    const variables = getNotebookVariables(notebook);
+    const resolvedConnectionString = substituteVariables(
+      rawConnectionString,
+      variables
+    ).trim();
+    if (!resolvedConnectionString) {
+      void reply.code(400).send({ error: "Connection string is required" });
+      return;
+    }
+
+    const client = buildPostgresClient(resolvedConnectionString);
+    const started = Date.now();
+    try {
+      await client.connect();
+      const result = await client.query(queryText);
+      const durationMs = Date.now() - started;
+      const rows = toPlainRows(result.rows ?? []);
+      const columns = (result.fields ?? []).map((field) => ({
+        name: field.name,
+        dataType: lookupPostgresTypeName(field.dataTypeID),
+      }));
+      const parsedResult = SqlResultSchema.parse({
+        rowCount:
+          typeof result.rowCount === "number" ? result.rowCount : rows.length,
+        durationMs,
+        rows,
+        columns,
+        assignedVariable: assignVariable,
+        timestamp: new Date().toISOString(),
+      });
+      void reply.send({ data: { result: parsedResult } });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to execute SQL query";
+      const result = SqlResultSchema.parse({
+        error: message,
+        assignedVariable: assignVariable,
+        timestamp: new Date().toISOString(),
+      });
+      void reply.code(400).send({ data: { result }, error: message });
+    } finally {
       try {
-        await client.connect();
-        const result = await client.query(queryText);
-        const durationMs = Date.now() - started;
-        const rows = toPlainRows(result.rows ?? []);
-        const columns = (result.fields ?? []).map((field) => ({
-          name: field.name,
-          dataType: lookupPostgresTypeName(field.dataTypeID),
-        }));
-        const parsedResult = SqlResultSchema.parse({
-          rowCount:
-            typeof result.rowCount === "number" ? result.rowCount : rows.length,
-          durationMs,
-          rows,
-          columns,
-          assignedVariable: assignVariable,
-          timestamp: new Date().toISOString(),
-        });
-        void reply.send({ data: { result: parsedResult } });
-      } catch (error) {
-        const message =
-          error instanceof Error ? error.message : "Failed to execute SQL query";
-        const result = SqlResultSchema.parse({
-          error: message,
-          assignedVariable: assignVariable,
-          timestamp: new Date().toISOString(),
-        });
-        void reply.code(400).send({ data: { result }, error: message });
-      } finally {
-        try {
-          await client.end();
-        } catch {
-          // ignore disconnect failures
-        }
+        await client.end();
+      } catch {
+        // ignore disconnect failures
       }
     }
-  );
+  });
 };

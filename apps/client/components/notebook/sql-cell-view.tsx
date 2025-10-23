@@ -1,23 +1,49 @@
 "use client";
 
-import { useCallback, useMemo } from "react";
-import type { KeyboardEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import clsx from "clsx";
 import { Loader2 } from "lucide-react";
-import {
-  AlertCallout,
-  TableGrid,
-} from "@nodebooks/ui";
+import { AlertCallout, TableGrid } from "@nodebooks/ui";
 import type {
   NotebookCell,
   SqlConnection,
   SqlResult,
 } from "@nodebooks/notebook-schema";
+import type { BeforeMount, OnMount } from "@monaco-editor/react";
+import MonacoEditor from "@/components/notebook/monaco-editor-client";
+import { initMonaco } from "@/components/notebook/monaco-setup";
+import { useTheme } from "@/components/theme-context";
 import { Input } from "@/components/ui/input";
+import {
+  language as sqlLanguage,
+  conf as sqlLanguageConfiguration,
+} from "monaco-editor/esm/vs/basic-languages/sql/sql";
 
 const IDENTIFIER_PATTERN = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 
 type SqlCellType = Extract<NotebookCell, { type: "sql" }>;
+
+const SQL_LANGUAGE_ID = "sql";
+const ADD_CONNECTION_VALUE = "__nodebooks_add_sql_connection__";
+let sqlLanguageRegistered = false;
+
+const ensureSqlLanguage = (monaco: typeof import("monaco-editor")) => {
+  if (sqlLanguageRegistered) {
+    return;
+  }
+  const alreadyRegistered = monaco.languages
+    .getLanguages()
+    .some((lang) => lang.id === SQL_LANGUAGE_ID);
+  if (!alreadyRegistered) {
+    monaco.languages.register({ id: SQL_LANGUAGE_ID });
+  }
+  monaco.languages.setLanguageConfiguration(
+    SQL_LANGUAGE_ID,
+    sqlLanguageConfiguration
+  );
+  monaco.languages.setMonarchTokensProvider(SQL_LANGUAGE_ID, sqlLanguage);
+  sqlLanguageRegistered = true;
+};
 
 type SqlCellViewProps = {
   cell: SqlCellType;
@@ -29,6 +55,7 @@ type SqlCellViewProps = {
   onRun: () => void;
   isRunning: boolean;
   readOnly: boolean;
+  onRequestAddConnection: () => void;
 };
 
 const describeDriver = (driver: SqlConnection["driver"]) => {
@@ -60,7 +87,16 @@ const SqlCellView = ({
   onRun,
   isRunning,
   readOnly,
+  onRequestAddConnection,
 }: SqlCellViewProps) => {
+  const { theme } = useTheme();
+  const monacoTheme = theme === "dark" ? "vs-dark" : "vs";
+  const isDark = theme === "dark";
+  const runShortcutRef = useRef(onRun);
+  useEffect(() => {
+    runShortcutRef.current = onRun;
+  }, [onRun]);
+  const editorPath = useMemo(() => `nb:///sql/${cell.id}.sql`, [cell.id]);
   const connection = useMemo(() => {
     if (!cell.connectionId) {
       return undefined;
@@ -78,6 +114,56 @@ const SqlCellView = ({
   const hasConnections = connections.length > 0;
 
   const result: SqlResult | undefined = cell.result;
+
+  const statusItems = useMemo(() => {
+    const items: string[] = [];
+    if (connection) {
+      items.push(
+        `Using ${connection.name || "connection"} · ${describeDriver(connection.driver)}`
+      );
+    }
+    if (result?.timestamp) {
+      const formatted = formatTimestamp(result.timestamp);
+      if (formatted) {
+        items.push(`Last run ${formatted}`);
+      }
+    }
+    if (typeof result?.rowCount === "number") {
+      items.push(`${result.rowCount.toLocaleString()} rows`);
+    } else if (result?.rows) {
+      items.push(`${result.rows.length.toLocaleString()} rows`);
+    }
+    if (typeof result?.durationMs === "number") {
+      items.push(`${result.durationMs.toLocaleString()} ms`);
+    }
+    if (result?.assignedVariable) {
+      items.push(`Assigned to ${result.assignedVariable}`);
+    } else if (trimmedAssign && !result?.assignedVariable) {
+      items.push(`Will assign to ${trimmedAssign} on next run`);
+    }
+    return items;
+  }, [connection, result, trimmedAssign]);
+
+  const tableColumns = useMemo(() => {
+    if (!result?.columns || result.columns.length === 0) {
+      return undefined;
+    }
+    return result.columns
+      .map((column) => {
+        const name = column.name.trim();
+        if (!name) {
+          return null;
+        }
+        const label =
+          column.dataType && column.dataType.trim().length > 0
+            ? `${name} (${column.dataType})`
+            : name;
+        return { key: name, label };
+      })
+      .filter(
+        (column): column is { key: string; label: string } => column !== null
+      );
+  }, [result]);
 
   const handleQueryChange = useCallback(
     (value: string) => {
@@ -101,13 +187,25 @@ const SqlCellView = ({
           const nextConnectionId = value.trim();
           return {
             ...current,
-            connectionId: nextConnectionId.length > 0 ? nextConnectionId : undefined,
+            connectionId:
+              nextConnectionId.length > 0 ? nextConnectionId : undefined,
           };
         },
         { persist: true }
       );
     },
     [cell.id, onChange]
+  );
+
+  const handleConnectionSelect = useCallback(
+    (value: string) => {
+      if (value === ADD_CONNECTION_VALUE) {
+        onRequestAddConnection();
+        return;
+      }
+      handleConnectionChange(value);
+    },
+    [handleConnectionChange, onRequestAddConnection]
   );
 
   const handleAssignChange = useCallback(
@@ -137,48 +235,81 @@ const SqlCellView = ({
     [cell.id, onChange]
   );
 
-  const handleQueryKeyDown = useCallback(
-    (event: KeyboardEvent<HTMLTextAreaElement>) => {
-      if (readOnly) {
-        return;
+  const handleEditorMount = useCallback<OnMount>((editor, monaco) => {
+    const run = () => runShortcutRef.current();
+    editor.addAction({
+      id: "nodebooks.sql.run-cell",
+      label: "Run SQL Cell",
+      keybindings: [
+        monaco.KeyMod.Shift | monaco.KeyCode.Enter,
+        monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter,
+      ],
+      run,
+    });
+
+    editor.onDidFocusEditorWidget?.(() => {
+      const node = editor.getDomNode?.();
+      if (!node) return;
+      const article = node.closest(
+        "article[id^='cell-']"
+      ) as HTMLElement | null;
+      if (article?.id?.startsWith("cell-")) {
+        try {
+          article.dispatchEvent(new Event("focus", { bubbles: true }));
+        } catch {
+          /* noop */
+        }
       }
-      if (event.key === "Enter" && (event.shiftKey || event.metaKey || event.ctrlKey)) {
-        event.preventDefault();
-        onRun();
-      }
-    },
-    [onRun, readOnly]
-  );
+    });
+  }, []);
+
+  const handleBeforeMount = useCallback<BeforeMount>((monaco) => {
+    initMonaco(monaco);
+    ensureSqlLanguage(monaco);
+  }, []);
 
   return (
-    <div className="space-y-4 rounded-xl border border-slate-800/60 bg-slate-950/70 p-4 text-sm text-slate-100">
+    <div
+      className={clsx(
+        "space-y-4 rounded-xl border p-4 text-sm transition-colors sm:p-5",
+        isDark
+          ? "border-slate-800/60 bg-slate-950/70 text-slate-100"
+          : "border-border bg-card text-foreground shadow-sm"
+      )}
+    >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-        <label className="flex-1 text-xs font-semibold text-muted-foreground">
+        <label className="flex-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           Connection
           <select
             className={clsx(
-              "mt-1 w-full rounded-md border border-input bg-background px-2 py-1 text-[13px] text-foreground focus:outline-none",
-              !hasConnections && "opacity-50"
+              "mt-1 h-9 w-full rounded-md border border-input bg-background px-2 text-sm text-foreground shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500",
+              readOnly && "opacity-60"
             )}
             value={cell.connectionId ?? ""}
-            onChange={(event) => handleConnectionChange(event.target.value)}
-            disabled={readOnly || !hasConnections}
+            onChange={(event) => handleConnectionSelect(event.target.value)}
+            disabled={readOnly}
           >
             <option value="">Select a connection…</option>
             {connections.map((candidate) => (
               <option key={candidate.id} value={candidate.id}>
-                {candidate.name || "Untitled"} ({describeDriver(candidate.driver)})
+                {candidate.name || "Untitled"} (
+                {describeDriver(candidate.driver)})
               </option>
             ))}
+            {!readOnly ? (
+              <option value={ADD_CONNECTION_VALUE}>
+                + Add new connection…
+              </option>
+            ) : null}
           </select>
         </label>
-        <label className="sm:w-64 text-xs font-semibold text-muted-foreground">
+        <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground sm:w-64">
           Assign to variable
           <Input
             value={cell.assignVariable ?? ""}
             onChange={(event) => handleAssignChange(event.target.value)}
             placeholder="e.g. results"
-            className="mt-1"
+            className="mt-1 h-9"
             disabled={readOnly}
           />
         </label>
@@ -188,53 +319,54 @@ const SqlCellView = ({
       ) : null}
       {!hasConnections ? (
         <AlertCallout
-          level="warning"
+          level="warn"
           text="Add a SQL connection from the Setup panel to run queries."
           className="text-left"
-          themeMode="dark"
+          themeMode={theme}
         />
       ) : null}
-      <div className="rounded-lg border border-slate-800/60 bg-slate-950">
-        <textarea
-          className="h-48 w-full rounded-lg border-0 bg-transparent p-4 font-mono text-[13px] text-slate-100 focus:outline-none focus:ring-0"
-          placeholder="Write a SQL query (Shift+Enter to run)"
+      <div
+        className={clsx(
+          "rounded-lg border",
+          isDark ? "border-slate-800/60 bg-slate-950" : "border-border bg-card"
+        )}
+      >
+        <MonacoEditor
+          className="h-full w-full"
+          path={editorPath}
+          height={260}
+          defaultLanguage={SQL_LANGUAGE_ID}
+          language={SQL_LANGUAGE_ID}
+          theme={monacoTheme}
           value={cell.query ?? ""}
-          onChange={(event) => handleQueryChange(event.target.value)}
-          onKeyDown={handleQueryKeyDown}
-          spellCheck={false}
-          readOnly={readOnly}
+          onChange={(value) => handleQueryChange(value ?? "")}
+          beforeMount={handleBeforeMount}
+          onMount={handleEditorMount}
+          options={{
+            minimap: { enabled: false },
+            fontSize: 13,
+            lineNumbers: "on",
+            wordWrap: "on",
+            scrollBeyondLastLine: false,
+            automaticLayout: true,
+            glyphMargin: false,
+            renderLineHighlight: "line",
+            padding: { top: 16, bottom: 16 },
+            readOnly,
+            fixedOverflowWidgets: true,
+          }}
         />
       </div>
       <div className="space-y-2">
-        <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400">
-          {connection ? (
-            <span>
-              Using {connection.name || "connection"} · {describeDriver(connection.driver)}
-            </span>
-          ) : null}
-          {result?.timestamp ? (
-            <span>Last run {formatTimestamp(result.timestamp)}</span>
-          ) : null}
-          {typeof result?.rowCount === "number" ? (
-            <span>{result.rowCount.toLocaleString()} rows</span>
-          ) : result?.rows
-            ? (
-                <span>{result.rows.length.toLocaleString()} rows</span>
-              )
-            : null}
-          {typeof result?.durationMs === "number" ? (
-            <span>{result.durationMs.toLocaleString()} ms</span>
-          ) : null}
-          {result?.assignedVariable ? (
-            <span>Assigned to {result.assignedVariable}</span>
-          ) : trimmedAssign && !result?.assignedVariable
-            ? (
-                <span>Will assign to {trimmedAssign} on next run</span>
-              )
-            : null}
-        </div>
         {isRunning ? (
-          <div className="flex items-center gap-2 rounded-lg border border-slate-800/60 bg-slate-950/80 px-3 py-2 text-xs text-slate-200">
+          <div
+            className={clsx(
+              "flex items-center gap-2 rounded-lg border px-3 py-2 text-xs",
+              isDark
+                ? "border-slate-800/60 bg-slate-950/80 text-slate-200"
+                : "border-border bg-muted text-foreground"
+            )}
+          >
             <Loader2 className="h-4 w-4 animate-spin" /> Running query…
           </div>
         ) : null}
@@ -243,22 +375,51 @@ const SqlCellView = ({
             level="error"
             text={result.error}
             className="text-left"
-            themeMode="dark"
+            themeMode={theme}
           />
         ) : null}
         {!result && !isRunning ? (
-          <p className="text-xs text-slate-400">
+          <p
+            className={clsx(
+              "text-xs",
+              isDark ? "text-slate-400" : "text-muted-foreground"
+            )}
+          >
             Run the cell to execute the query and preview the rows below.
           </p>
         ) : null}
         {result && !result.error ? (
-          <div className="overflow-hidden rounded-lg border border-slate-800/70 bg-slate-950/80">
+          <div
+            className={clsx(
+              "rounded-xl p-3",
+              isDark
+                ? "border border-slate-800/70 bg-slate-950/80"
+                : "bg-card shadow-sm"
+            )}
+          >
             <TableGrid
               rows={result.rows ?? []}
-              columns={result.columns ?? []}
+              columns={tableColumns}
               density="compact"
-              themeMode="dark"
+              themeMode={theme}
             />
+          </div>
+        ) : null}
+        {statusItems.length > 0 ? (
+          <div className="flex flex-wrap items-center gap-2">
+            {statusItems.map((item, index) => (
+              <span
+                key={`${item}-${index}`}
+                className={clsx(
+                  "inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium",
+                  isDark
+                    ? "border-slate-700/60 bg-slate-900/80 text-slate-200"
+                    : "border-border/70 bg-muted/60 text-muted-foreground"
+                )}
+              >
+                {item}
+              </span>
+            ))}
           </div>
         ) : null}
       </div>

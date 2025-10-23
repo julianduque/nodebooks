@@ -58,6 +58,7 @@ export interface NotebookEditorViewProps {
   onClearDepOutputs(): void;
   onAbortInstall(): void;
   sqlConnections: SqlConnection[];
+  onRequestAddConnection(): void;
 }
 
 const NotebookEditorView = ({
@@ -91,6 +92,7 @@ const NotebookEditorView = ({
   onClearDepOutputs,
   onAbortInstall,
   sqlConnections,
+  onRequestAddConnection,
 }: NotebookEditorViewProps) => {
   if (loading) {
     return (
@@ -252,7 +254,9 @@ const NotebookEditorView = ({
             {isEmpty ? renderEmptyState() : null}
             {notebook.cells.map((cell, index) => {
               const cellCanRun =
-                cell.type === "command" || cell.type === "http" || cell.type === "sql"
+                cell.type === "command" ||
+                cell.type === "http" ||
+                cell.type === "sql"
                   ? !readOnly
                   : socketReady && !readOnly;
               return (
@@ -310,6 +314,7 @@ const NotebookEditorView = ({
                   pendingTerminalPersist={pendingTerminalIds.has(cell.id)}
                   readOnly={readOnly}
                   sqlConnections={sqlConnections}
+                  onRequestAddConnection={onRequestAddConnection}
                 />
               );
             })}
