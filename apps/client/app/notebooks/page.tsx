@@ -205,7 +205,7 @@ const NotebookCard = ({
           </p>
         </div>
       </div>
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex w-full justify-end items-center gap-2">
         <Button
           variant="default"
           size="sm"

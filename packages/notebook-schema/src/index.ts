@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z, type ZodTypeAny } from "zod";
 import { NotebookTemplateBadgeSchema } from "./templates.js";
 
 export const ThemeModeSchema = z.enum(["light", "dark"]);
@@ -457,28 +457,177 @@ export const UiSpinnerSchema = z.object({
   size: z.union([z.number().positive(), z.enum(["sm", "md", "lg"])]).optional(),
 });
 
-export const UiDisplaySchema = z.discriminatedUnion("ui", [
-  UiImageSchema,
-  UiMarkdownSchema,
-  UiHtmlSchema,
-  UiJsonSchema,
-  UiCodeSchema,
-  UiTableSchema,
-  UiDataSummarySchema,
-  UiVegaLiteSchema,
-  UiPlotlySchema,
-  UiHeatmapSchema,
-  UiNetworkGraphSchema,
-  UiPlot3dSchema,
-  UiMapSchema,
-  UiGeoJsonSchema,
-  UiAlertSchema,
-  UiBadgeSchema,
-  UiMetricSchema,
-  UiProgressSchema,
-  UiSpinnerSchema,
+const UiContainerAlignSchema = z.enum(["start", "center", "end", "stretch"]);
+const UiContainerJustifySchema = z.enum(["start", "center", "end", "between"]);
+const UiContainerPaddingSchema = z.union([
+  z.number().nonnegative(),
+  z.tuple([z.number().nonnegative(), z.number().nonnegative()]),
+  z.tuple([
+    z.number().nonnegative(),
+    z.number().nonnegative(),
+    z.number().nonnegative(),
+    z.number().nonnegative(),
+  ]),
 ]);
-export type UiDisplay = z.infer<typeof UiDisplaySchema>;
+
+export const UiInteractionActionSchema = z
+  .object({
+    handlerId: z.string(),
+    event: z.string().min(1),
+    payload: z.enum(["none", "value", "text", "json"]).default("none"),
+    debounceMs: z.number().int().nonnegative().optional(),
+  })
+  .strict();
+
+const UiDisplaySchemaLazy: ZodTypeAny = z.lazy(createUiDisplayUnionSchema);
+
+export const UiContainerSchema = z
+  .object({
+    ui: z.literal("container"),
+    componentId: z.string(),
+    direction: z.enum(["vertical", "horizontal"]).default("vertical"),
+    wrap: z.boolean().optional(),
+    gap: z.number().nonnegative().optional(),
+    align: UiContainerAlignSchema.optional(),
+    justify: UiContainerJustifySchema.optional(),
+    padding: UiContainerPaddingSchema.optional(),
+    background: z.string().optional(),
+    border: z
+      .object({
+        color: z.string().optional(),
+        width: z.number().nonnegative().optional(),
+        radius: z.number().nonnegative().optional(),
+      })
+      .optional(),
+    title: z.string().optional(),
+    subtitle: z.string().optional(),
+    children: z.array(UiDisplaySchemaLazy),
+  })
+  .strict();
+
+export const UiButtonSchema = z
+  .object({
+    ui: z.literal("button"),
+    componentId: z.string(),
+    label: z.string().default("Run"),
+    variant: z
+      .enum(["primary", "secondary", "outline", "ghost"])
+      .default("primary"),
+    size: z.enum(["sm", "md", "lg"]).default("md"),
+    disabled: z.boolean().optional(),
+    tooltip: z.string().optional(),
+    busy: z.boolean().optional(),
+    action: UiInteractionActionSchema,
+  })
+  .strict();
+
+export const UiSliderSchema = z
+  .object({
+    ui: z.literal("slider"),
+    componentId: z.string(),
+    label: z.string().optional(),
+    description: z.string().optional(),
+    min: z.number().finite().default(0),
+    max: z.number().finite(),
+    step: z.number().positive().optional(),
+    value: z.number().optional(),
+    defaultValue: z.number().optional(),
+    disabled: z.boolean().optional(),
+    showValue: z.boolean().optional(),
+    onChange: UiInteractionActionSchema.optional(),
+    onCommit: UiInteractionActionSchema.optional(),
+  })
+  .strict()
+  .refine(
+    (val) => {
+      if (typeof val.value === "number") {
+        return val.value >= val.min && val.value <= val.max;
+      }
+      if (typeof val.defaultValue === "number") {
+        return val.defaultValue >= val.min && val.defaultValue <= val.max;
+      }
+      return true;
+    },
+    {
+      message: "Slider value must be within [min, max]",
+      path: ["value"],
+    }
+  )
+  .refine((val) => val.max > val.min, {
+    message: "Slider max must be greater than min",
+    path: ["max"],
+  });
+
+export const UiTextInputSchema = z
+  .object({
+    ui: z.literal("textInput"),
+    componentId: z.string(),
+    label: z.string().optional(),
+    description: z.string().optional(),
+    value: z.string().optional(),
+    defaultValue: z.string().optional(),
+    placeholder: z.string().optional(),
+    disabled: z.boolean().optional(),
+    multiline: z.boolean().optional(),
+    rows: z.number().int().positive().optional(),
+    onChange: UiInteractionActionSchema.optional(),
+    onSubmit: UiInteractionActionSchema.optional(),
+  })
+  .strict();
+
+export const UiDisplaySchema = UiDisplaySchemaLazy;
+
+function createUiDisplayUnionSchema(): ZodTypeAny {
+  return z.discriminatedUnion("ui", [
+    UiImageSchema,
+    UiMarkdownSchema,
+    UiHtmlSchema,
+    UiJsonSchema,
+    UiCodeSchema,
+    UiTableSchema,
+    UiDataSummarySchema,
+    UiVegaLiteSchema,
+    UiPlotlySchema,
+    UiHeatmapSchema,
+    UiNetworkGraphSchema,
+    UiPlot3dSchema,
+    UiMapSchema,
+    UiGeoJsonSchema,
+    UiAlertSchema,
+    UiBadgeSchema,
+    UiMetricSchema,
+    UiProgressSchema,
+    UiSpinnerSchema,
+    UiContainerSchema,
+    UiButtonSchema,
+    UiSliderSchema,
+    UiTextInputSchema,
+  ]);
+}
+export type UiDisplay =
+  | UiImage
+  | UiMarkdown
+  | UiHtml
+  | UiJson
+  | UiCode
+  | UiTable
+  | UiDataSummary
+  | UiVegaLite
+  | UiPlotly
+  | UiHeatmap
+  | UiNetworkGraph
+  | UiPlot3d
+  | UiMap
+  | UiGeoJson
+  | UiAlert
+  | UiBadge
+  | UiMetric
+  | UiProgress
+  | UiSpinner
+  | UiContainer
+  | UiButton
+  | UiSlider
+  | UiTextInput;
 export type UiImage = z.infer<typeof UiImageSchema>;
 export type UiMarkdown = z.infer<typeof UiMarkdownSchema>;
 export type UiHtml = z.infer<typeof UiHtmlSchema>;
@@ -498,6 +647,14 @@ export type UiBadge = z.infer<typeof UiBadgeSchema>;
 export type UiMetric = z.infer<typeof UiMetricSchema>;
 export type UiProgress = z.infer<typeof UiProgressSchema>;
 export type UiSpinner = z.infer<typeof UiSpinnerSchema>;
+export type UiInteractionAction = z.infer<typeof UiInteractionActionSchema>;
+export type UiButton = z.infer<typeof UiButtonSchema>;
+export type UiSlider = z.infer<typeof UiSliderSchema>;
+export type UiTextInput = z.infer<typeof UiTextInputSchema>;
+type UiContainerBase = z.infer<typeof UiContainerSchema>;
+export type UiContainer = Omit<UiContainerBase, "children"> & {
+  children: UiDisplay[];
+};
 
 const createId = () => {
   if (
@@ -1165,9 +1322,21 @@ export const KernelInterruptRequestSchema = z.object({
   notebookId: z.string(),
 });
 
+export const KernelUiEventRequestSchema = z.object({
+  type: z.literal("ui_event"),
+  cellId: z.string(),
+  handlerId: z.string(),
+  event: z.string().min(1),
+  payload: z.unknown().optional(),
+  displayId: z.string().optional(),
+  componentId: z.string().optional(),
+  globals: z.record(z.string(), z.unknown()).optional(),
+});
+
 export const KernelClientMessageSchema = z.discriminatedUnion("type", [
   KernelExecuteRequestSchema,
   KernelInterruptRequestSchema,
+  KernelUiEventRequestSchema,
 ]);
 
 export type KernelHelloMessage = z.infer<typeof KernelHelloMessageSchema>;
@@ -1183,6 +1352,7 @@ export type KernelExecuteRequest = z.infer<typeof KernelExecuteRequestSchema>;
 export type KernelInterruptRequest = z.infer<
   typeof KernelInterruptRequestSchema
 >;
+export type KernelUiEventRequest = z.infer<typeof KernelUiEventRequestSchema>;
 export type KernelClientMessage = z.infer<typeof KernelClientMessageSchema>;
 
 export {

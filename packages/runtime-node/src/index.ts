@@ -76,6 +76,34 @@ export interface ExecuteResult {
   execution: OutputExecution;
 }
 
+type UiHandlerFunction = (
+  payload: unknown,
+  context: { event: string; handlerId: string; componentId: string | null }
+) => unknown;
+
+type UiHandlerEntry = {
+  fn: UiHandlerFunction;
+  cellId: string | null;
+  componentId: string | null;
+  event: string | null;
+};
+
+export interface InvokeUiHandlerOptions {
+  handlerId: string;
+  notebookId: string;
+  env: NotebookEnv;
+  event: string;
+  payload?: unknown;
+  componentId?: string;
+  cellId?: string;
+  timeoutMs?: number;
+  globals?: Record<string, unknown>;
+  onStream?: (output: StreamOutput) => void;
+  onDisplay?: (output: DisplayDataOutput) => void;
+}
+
+export type InvokeInteractionOptions = InvokeUiHandlerOptions;
+
 const isValidGlobalIdentifier = (value: string) =>
   /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(value);
 
@@ -129,6 +157,47 @@ const rewriteTopLevelDeclarations = (source: string, _lang: "js" | "ts") => {
     const name = m[3];
     // Start with the remainder of the first line after the initializer '='
     const chunks: string[] = [rest.slice(m[0].length)];
+
+    const isLikelyContinuationLine = (line: string) => {
+      const trimmed = line.trimStart();
+      if (trimmed.length === 0) {
+        return false;
+      }
+      if (trimmed.startsWith("//") || trimmed.startsWith("/*")) {
+        return true;
+      }
+      if (trimmed.startsWith("?.") || trimmed.startsWith("??")) {
+        return true;
+      }
+      const first = trimmed[0]!;
+      const continuationChars =
+        ".,([{)]}:+-*/%|&^><=!?~"; /* heuristics for expression continuations */
+      if (continuationChars.includes(first)) {
+        return true;
+      }
+      const likelyOperators = [
+        "&&",
+        "||",
+        "**",
+        "??",
+        "?.",
+        "??=",
+        "&&=",
+        "||=",
+        "+=",
+        "-=",
+        "*=",
+        "/=",
+        "%=",
+        "|=",
+        "&=",
+        "^=",
+        "<<=",
+        ">>=",
+        ">>>=",
+      ];
+      return likelyOperators.some((op) => trimmed.startsWith(op));
+    };
 
     let iLine = startLineIdx;
     let iChar = 0;
@@ -220,73 +289,46 @@ const rewriteTopLevelDeclarations = (source: string, _lang: "js" | "ts") => {
         iChar++;
       }
       if (found) break;
-      // Consider end-of-line as a terminator via ASI when not inside any
-      // grouping and not in string/comment.
-      if (
-        !inStr &&
-        !inBlkComment &&
-        !inLineComment &&
-        depthParen === 0 &&
-        depthBracket === 0 &&
-        depthBrace === 0
-      ) {
-        const accumulated = chunks.join("").trim();
-        if (accumulated.length > 0) {
-          const nextLine = lines[iLine + 1] ?? "";
-          const trimmedNext = nextLine.trimStart();
-          const isCommentNext =
-            trimmedNext.startsWith("//") || trimmedNext.startsWith("/*");
-          const firstChar = trimmedNext[0] ?? "";
-          const continuesExpression =
-            !isCommentNext &&
-            trimmedNext.length > 0 &&
-            (firstChar === "." ||
-              firstChar === "[" ||
-              firstChar === "(" ||
-              firstChar === "+" ||
-              firstChar === "-" ||
-              firstChar === "*" ||
-              firstChar === "/" ||
-              firstChar === "%" ||
-              firstChar === "&" ||
-              firstChar === "|" ||
-              firstChar === "^" ||
-              firstChar === "?" ||
-              firstChar === ":" ||
-              firstChar === "," ||
-              firstChar === "!" ||
-              firstChar === "=" ||
-              firstChar === "<" ||
-              firstChar === ">" ||
-              trimmedNext.startsWith("??") ||
-              trimmedNext.startsWith("?.") ||
-              trimmedNext.startsWith("**"));
-          if (!continuesExpression) {
-            found = true; // terminate at end of this line
-            break;
-          }
-        }
-      }
-      // Move to next line, append newline + full line
-      iLine++;
-      if (iLine >= lines.length) {
+      const nextIndex = iLine + 1;
+      if (nextIndex >= lines.length) {
         // No terminating semicolon; treat end-of-file as end
         break;
       }
-      const nextLine = lines[iLine] ?? "";
-      const nextChunk = "\n" + nextLine;
+
+      const nextRaw = lines[nextIndex] ?? "";
+      const accumulated = chunks.join("").trim();
+      if (
+        depthParen === 0 &&
+        depthBracket === 0 &&
+        depthBrace === 0 &&
+        !inStr &&
+        !inBlkComment &&
+        !inLineComment &&
+        accumulated.length > 0 &&
+        !isLikelyContinuationLine(nextRaw)
+      ) {
+        break;
+      }
+
+      iLine = nextIndex;
+      const nextChunk = "\n" + nextRaw;
       chunks.push(nextChunk);
       remainder = nextChunk;
       inLineComment = false;
       // inStr / inBlkComment carry across lines
     }
 
-    const expr = chunks.join("").trimEnd();
-    const assign = `${indent}var ${name} = (globalThis.${name} = ${expr});`;
+    const expr = chunks
+      .join("")
+      .trimEnd()
+      .replace(/;+\s*$/, "");
+    const assignGlobal = `${indent}globalThis.${name} = ${expr};`;
+    const local = `${indent}var ${name} = globalThis.${name};`;
     const remainderText =
       tail && tail.trim().length > 0 ? `\n${indent}${tail.trimStart()}` : "";
     const consumed = iLine - startLineIdx;
-    return { text: assign + remainderText, consumed };
+    const rewritten = `${assignGlobal}\n${local}${remainderText}`;
+    return { text: rewritten, consumed };
   };
 
   const replaceFunction = (line: string) => {
@@ -596,6 +638,9 @@ export class NotebookRuntime {
   private intervalWaiters: Array<() => void> = [];
   private intervalDoneWaiters: Array<() => void> = [];
   private pendingAsyncErrors: Error[] = [];
+  private uiHandlers = new Map<string, UiHandlerEntry>();
+  private nextUiHandlerId = 1;
+  private activeCellId: string | null = null;
 
   constructor(options: NotebookRuntimeOptions = {}) {
     this.workspaceRoot = options.workspaceRoot ?? DEFAULT_WORKSPACE_ROOT;
@@ -1012,6 +1057,8 @@ export class NotebookRuntime {
     timeoutMs,
     globals,
   }: ExecuteOptions): Promise<ExecuteResult> {
+    this.dropUiHandlersForCell(cell.id);
+    this.activeCellId = cell.id;
     const outputs: NotebookOutput[] = [];
     const started = Date.now();
     const timeout = timeoutMs ?? cell.metadata.timeoutMs ?? DEFAULT_TIMEOUT_MS;
@@ -1023,56 +1070,12 @@ export class NotebookRuntime {
       outputs.push(stream);
       onStream?.(stream);
     });
-    // Build the per-notebook environment view exposed to user code via process.env
-    const nextEnv: Record<string, string> = {};
-    for (const [k, v] of Object.entries(env.variables ?? {})) {
-      const key = String(k).trim();
-      if (!key) continue;
-      nextEnv[key] = String(v);
-    }
-    this.exposedEnv = nextEnv;
+    this.updateExposedEnv(env);
 
     try {
       await this.ensureEnvironment(notebookId, env);
 
-      if (globals && typeof globals === "object") {
-        const nextInjected = new Set<string>();
-        const entries: Array<[string, unknown]> = [];
-        for (const [key, value] of Object.entries(globals)) {
-          const trimmed = String(key).trim();
-          if (!isValidGlobalIdentifier(trimmed)) {
-            continue;
-          }
-          nextInjected.add(trimmed);
-          entries.push([trimmed, value]);
-        }
-
-        for (const existing of this.injectedGlobals) {
-          if (!nextInjected.has(existing)) {
-            delete (this.context as Record<string, unknown>)[existing];
-            delete (globalThis as Record<string, unknown>)[existing];
-          }
-        }
-
-        for (const [identifier, value] of entries) {
-          try {
-            const cloned = cloneForContext(value);
-            (this.context as Record<string, unknown>)[identifier] = cloned;
-            (globalThis as Record<string, unknown>)[identifier] = cloned;
-          } catch {
-            (this.context as Record<string, unknown>)[identifier] = value;
-            (globalThis as Record<string, unknown>)[identifier] = value;
-          }
-        }
-
-        this.injectedGlobals = nextInjected;
-      } else if (this.injectedGlobals.size > 0) {
-        for (const existing of this.injectedGlobals) {
-          delete (this.context as Record<string, unknown>)[existing];
-          delete (globalThis as Record<string, unknown>)[existing];
-        }
-        this.injectedGlobals.clear();
-      }
+      this.applyGlobals(globals);
 
       const rewritten = rewriteTopLevelDeclarations(code, cell.language);
       const wrapped =
@@ -1173,6 +1176,15 @@ export class NotebookRuntime {
       ) => {
         streamDisplay(value, { ...(options ?? {}), update: true });
       };
+      const registerUiHandler = (
+        handler: unknown,
+        meta?: { componentId?: unknown; event?: unknown }
+      ) => this.registerUiHandler(handler, meta);
+      (
+        this.context as Record<string, unknown>
+      ).__nodebooks_register_ui_handler = registerUiHandler;
+      (globalThis as Record<string, unknown>).__nodebooks_register_ui_handler =
+        registerUiHandler;
 
       const script = new vm.Script(compiled.code, {
         filename,
@@ -1313,7 +1325,322 @@ export class NotebookRuntime {
         .__nodebooks_update_display;
       delete (globalThis as Record<string, unknown>).__nodebooks_display;
       delete (globalThis as Record<string, unknown>).__nodebooks_update_display;
+      delete (this.context as Record<string, unknown>)
+        .__nodebooks_register_ui_handler;
+      delete (globalThis as Record<string, unknown>)
+        .__nodebooks_register_ui_handler;
+      this.activeCellId = null;
     }
+  }
+
+  private updateExposedEnv(env: NotebookEnv) {
+    const nextEnv: Record<string, string> = {};
+    for (const [rawKey, rawValue] of Object.entries(env.variables ?? {})) {
+      const key = String(rawKey).trim();
+      if (!key) continue;
+      nextEnv[key] = String(rawValue);
+    }
+    this.exposedEnv = nextEnv;
+  }
+
+  private applyGlobals(globals?: Record<string, unknown>) {
+    if (globals && typeof globals === "object") {
+      const nextInjected = new Set<string>();
+      const entries: Array<[string, unknown]> = [];
+      for (const [key, value] of Object.entries(globals)) {
+        const trimmed = String(key).trim();
+        if (!isValidGlobalIdentifier(trimmed)) {
+          continue;
+        }
+        nextInjected.add(trimmed);
+        entries.push([trimmed, value]);
+      }
+
+      for (const existing of this.injectedGlobals) {
+        if (!nextInjected.has(existing)) {
+          delete (this.context as Record<string, unknown>)[existing];
+          delete (globalThis as Record<string, unknown>)[existing];
+        }
+      }
+
+      for (const [identifier, value] of entries) {
+        try {
+          const cloned = cloneForContext(value);
+          (this.context as Record<string, unknown>)[identifier] = cloned;
+          (globalThis as Record<string, unknown>)[identifier] = cloned;
+        } catch {
+          (this.context as Record<string, unknown>)[identifier] = value;
+          (globalThis as Record<string, unknown>)[identifier] = value;
+        }
+      }
+
+      this.injectedGlobals = nextInjected;
+      return;
+    }
+
+    if (this.injectedGlobals.size > 0) {
+      for (const existing of this.injectedGlobals) {
+        delete (this.context as Record<string, unknown>)[existing];
+        delete (globalThis as Record<string, unknown>)[existing];
+      }
+      this.injectedGlobals.clear();
+    }
+  }
+
+  private registerUiHandler(
+    handler: unknown,
+    meta?: { componentId?: unknown; event?: unknown }
+  ): string {
+    if (typeof handler !== "function") {
+      throw new TypeError("UI handler must be a function");
+    }
+    const cellId = this.activeCellId;
+    const componentId =
+      typeof meta?.componentId === "string" &&
+      meta.componentId.trim().length > 0
+        ? meta.componentId.trim()
+        : null;
+    const event =
+      typeof meta?.event === "string" && meta.event.trim().length > 0
+        ? meta.event.trim()
+        : null;
+    let reusedId: string | null = null;
+    if (cellId && componentId) {
+      for (const [key, entry] of this.uiHandlers) {
+        if (entry.cellId === cellId && entry.componentId === componentId) {
+          reusedId = key;
+          break;
+        }
+      }
+    }
+    const handlerId = reusedId ?? `uih_${this.nextUiHandlerId++}`;
+    this.uiHandlers.set(handlerId, {
+      fn: handler as UiHandlerFunction,
+      cellId: cellId ?? null,
+      componentId,
+      event,
+    });
+    return handlerId;
+  }
+
+  private dropUiHandlersForCell(cellId: string) {
+    if (!cellId) return;
+    for (const [id, entry] of this.uiHandlers) {
+      if (entry.cellId === cellId) {
+        this.uiHandlers.delete(id);
+      }
+    }
+  }
+
+  async invokeUiHandler({
+    handlerId,
+    notebookId,
+    env,
+    event,
+    payload,
+    componentId,
+    cellId,
+    timeoutMs,
+    globals,
+    onStream,
+    onDisplay,
+  }: InvokeUiHandlerOptions): Promise<ExecuteResult> {
+    const entry = this.uiHandlers.get(handlerId);
+    if (!entry) {
+      throw new Error(`UI handler not found: ${handlerId}`);
+    }
+    if (cellId && entry.cellId && cellId !== entry.cellId) {
+      throw new Error("UI handler does not belong to the requested cell");
+    }
+    if (componentId && entry.componentId && componentId !== entry.componentId) {
+      throw new Error("UI handler does not match the requested component");
+    }
+
+    const outputs: NotebookOutput[] = [];
+    const started = Date.now();
+    const timeout = timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    let softWaitTimedOut = false;
+    this.pendingAsyncErrors = [];
+    this.activeCellId = entry.cellId;
+
+    this.console.setEmitter((name, text) => {
+      const stream: StreamOutput = { type: "stream", name, text };
+      outputs.push(stream);
+      onStream?.(stream);
+    });
+    this.updateExposedEnv(env);
+
+    try {
+      await this.ensureEnvironment(notebookId, env);
+      this.applyGlobals(globals);
+
+      const streamDisplay = (value: unknown, options?: DisplayEmitOptions) => {
+        try {
+          const uiOutput = toUiDisplayOutput(value);
+          if (uiOutput) {
+            const meta = uiOutput.metadata ?? {};
+            if (options?.displayId) {
+              meta.display_id = options.displayId;
+            }
+            meta.streamed = true;
+            uiOutput.metadata = meta;
+            if (options?.update) {
+              uiOutput.type = "update_display_data";
+            }
+
+            try {
+              onDisplay?.(uiOutput);
+            } catch (err) {
+              void err;
+            }
+            outputs.push(uiOutput);
+            return;
+          }
+          const ds = toDisplayData(value);
+          for (const d of ds) {
+            if (d.type === "display_data") {
+              const meta = {
+                ...((d as DisplayDataOutput).metadata ?? {}),
+              };
+              if (options?.displayId) {
+                meta.display_id = options.displayId;
+              }
+              meta.streamed = true;
+              (d as DisplayDataOutput).metadata = meta;
+              if (options?.update) {
+                (d as DisplayDataOutput).type = "update_display_data";
+              }
+              try {
+                onDisplay?.(d as DisplayDataOutput);
+              } catch (err) {
+                void err;
+              }
+            }
+            outputs.push(d);
+          }
+        } catch (err) {
+          void err;
+        }
+      };
+      (this.context as Record<string, unknown>).__nodebooks_display = (
+        value: unknown,
+        options?: DisplayEmitOptions
+      ) => {
+        streamDisplay(value, options);
+      };
+      (this.context as Record<string, unknown>).__nodebooks_update_display = (
+        value: unknown,
+        options?: DisplayEmitOptions
+      ) => {
+        streamDisplay(value, { ...(options ?? {}), update: true });
+      };
+      (globalThis as Record<string, unknown>).__nodebooks_display = (
+        value: unknown,
+        options?: DisplayEmitOptions
+      ) => {
+        streamDisplay(value, options);
+      };
+      (globalThis as Record<string, unknown>).__nodebooks_update_display = (
+        value: unknown,
+        options?: DisplayEmitOptions
+      ) => {
+        streamDisplay(value, { ...(options ?? {}), update: true });
+      };
+      const registerUiHandler = (
+        handler: unknown,
+        meta?: { componentId?: unknown; event?: unknown }
+      ) => this.registerUiHandler(handler, meta);
+      (
+        this.context as Record<string, unknown>
+      ).__nodebooks_register_ui_handler = registerUiHandler;
+      (globalThis as Record<string, unknown>).__nodebooks_register_ui_handler =
+        registerUiHandler;
+
+      let result = entry.fn(payload, {
+        event: event ?? entry.event ?? "interaction",
+        handlerId,
+        componentId: entry.componentId ?? null,
+      });
+      if (result && typeof (result as { then?: unknown }).then === "function") {
+        result = await withTimeout(result as Promise<unknown>, Number(timeout));
+      }
+
+      try {
+        let remaining = Math.max(0, Number(timeout) - (Date.now() - started));
+        if (remaining > 0) {
+          await withTimeout(this.waitForPendingTimeouts(), remaining);
+        }
+        remaining = Math.max(0, Number(timeout) - (Date.now() - started));
+        if (remaining > 0) {
+          await withTimeout(this.waitForIntervalFirstTicks(), remaining);
+        }
+        remaining = Math.max(0, Number(timeout) - (Date.now() - started));
+        if (remaining > 0) {
+          await withTimeout(this.waitForNoIntervals(), remaining);
+        }
+      } catch {
+        softWaitTimedOut = true;
+      }
+
+      if (this.pendingAsyncErrors.length > 0) {
+        throw this.pendingAsyncErrors[0]!;
+      }
+
+      const displayOutputs = toDisplayData(result);
+      outputs.push(...displayOutputs);
+
+      const ended = Date.now();
+      return {
+        outputs,
+        execution: {
+          started,
+          ended,
+          status: softWaitTimedOut ? "error" : "ok",
+        },
+      };
+    } catch (error) {
+      const ended = Date.now();
+      const details = createExecutionError(error);
+      outputs.push({
+        type: "error",
+        ename: details.name,
+        evalue: details.message,
+        traceback: details.stack ? details.stack.split("\n") : [],
+      });
+      return {
+        outputs,
+        execution: {
+          started,
+          ended,
+          status: "error",
+          error: details,
+        },
+      };
+    } finally {
+      try {
+        this.clearAllScheduledTimers();
+      } catch (err) {
+        void err;
+      }
+      this.pendingAsyncErrors = [];
+      this.console.setEmitter(null);
+      delete (this.context as Record<string, unknown>).__nodebooks_display;
+      delete (this.context as Record<string, unknown>)
+        .__nodebooks_update_display;
+      delete (globalThis as Record<string, unknown>).__nodebooks_display;
+      delete (globalThis as Record<string, unknown>).__nodebooks_update_display;
+      delete (this.context as Record<string, unknown>)
+        .__nodebooks_register_ui_handler;
+      delete (globalThis as Record<string, unknown>)
+        .__nodebooks_register_ui_handler;
+      this.activeCellId = null;
+    }
+  }
+
+  async invokeInteraction(
+    options: InvokeInteractionOptions
+  ): Promise<ExecuteResult> {
+    return this.invokeUiHandler(options);
   }
 
   private async ensureEnvironment(

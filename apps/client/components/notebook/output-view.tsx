@@ -4,11 +4,18 @@ import { useMemo } from "react";
 import type { NotebookOutput } from "@nodebooks/notebook-schema";
 import { UiDisplaySchema, NODEBOOKS_UI_MIME } from "@nodebooks/notebook-schema";
 import { UiRenderer } from "@nodebooks/ui";
-import type { UiJson } from "@nodebooks/notebook-schema";
+import type { UiDisplay, UiJson } from "@nodebooks/notebook-schema";
+import type { UiInteractionEvent } from "@nodebooks/ui";
 import AnsiToHtml from "ansi-to-html";
 import { sanitizeHtmlSnippet } from "@/components/notebook/markdown-preview-utils";
 
-const OutputView = ({ output }: { output: NotebookOutput }) => {
+const OutputView = ({
+  output,
+  onInteraction,
+}: {
+  output: NotebookOutput;
+  onInteraction?: (event: UiInteractionEvent) => Promise<void> | void;
+}) => {
   const ansiConverter = useMemo(
     () =>
       new AnsiToHtml({
@@ -85,20 +92,44 @@ const OutputView = ({ output }: { output: NotebookOutput }) => {
     output.type === "execute_result" ||
     output.type === "update_display_data"
   ) {
+    const displayId =
+      typeof output.metadata?.["display_id"] === "string"
+        ? (output.metadata?.["display_id"] as string)
+        : undefined;
     const rawVendor = output.data?.[NODEBOOKS_UI_MIME as string];
     const parsedVendor = UiDisplaySchema.safeParse(rawVendor);
     if (parsedVendor.success) {
-      return <UiRenderer display={parsedVendor.data} />;
+      const display = parsedVendor.data as UiDisplay;
+      return (
+        <UiRenderer
+          display={display}
+          displayId={displayId}
+          onInteraction={onInteraction}
+        />
+      );
     }
     // Secondary fallback: some runtimes may put the UI object under application/json
     const rawJson = output.data?.["application/json" as string];
     const parsedJson = UiDisplaySchema.safeParse(rawJson);
     if (parsedJson.success) {
-      return <UiRenderer display={parsedJson.data} />;
+      const display = parsedJson.data as UiDisplay;
+      return (
+        <UiRenderer
+          display={display}
+          displayId={displayId}
+          onInteraction={onInteraction}
+        />
+      );
     }
     // Final fallback to raw data
     const fallback: UiJson = { ui: "json", json: output.data };
-    return <UiRenderer display={fallback} />;
+    return (
+      <UiRenderer
+        display={fallback}
+        displayId={displayId}
+        onInteraction={onInteraction}
+      />
+    );
   }
 
   // Should be unreachable, but keep a tiny fallback

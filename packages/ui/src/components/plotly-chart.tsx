@@ -2,7 +2,7 @@
 
 import React from "react";
 import type { UiPlotly } from "@nodebooks/notebook-schema";
-import { UiThemeContext } from "./theme";
+import { useComponentThemeMode } from "./utils";
 
 type PlotlyModule = {
   react: (
@@ -28,8 +28,7 @@ export const PlotlyChart: React.FC<PlotlyChartProps> = ({
   themeMode,
 }) => {
   const containerRef = React.useRef<HTMLDivElement>(null);
-  const ctx = React.useContext(UiThemeContext);
-  const mode = themeMode ?? ctx ?? "light";
+  const mode = useComponentThemeMode(themeMode);
   const [error, setError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
@@ -68,6 +67,7 @@ export const PlotlyChart: React.FC<PlotlyChartProps> = ({
           {
             displaylogo: false,
             responsive,
+            willReadFrequently: true,
             ...(config as Record<string, unknown> | undefined),
           } as unknown
         );

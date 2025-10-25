@@ -3,8 +3,8 @@
 import React from "react";
 import type { BufferAttribute, Material, Object3D } from "three";
 import type { UiPlot3d } from "@nodebooks/notebook-schema";
-import { UiThemeContext } from "./theme";
 import { sampleColorRgb } from "./color-scales";
+import { useComponentThemeMode } from "./utils";
 
 export type Plot3dProps = Omit<UiPlot3d, "ui"> & {
   className?: string;
@@ -41,10 +41,10 @@ export const Plot3dScene: React.FC<Plot3dProps> = ({
   className,
   themeMode,
 }) => {
-  const ctx = React.useContext(UiThemeContext);
-  const mode = themeMode ?? ctx ?? "light";
+  const mode = useComponentThemeMode(themeMode);
   const containerRef = React.useRef<HTMLDivElement>(null);
   const [error, setError] = React.useState<string | null>(null);
+  const [showHelp, setShowHelp] = React.useState(false);
 
   React.useEffect(() => {
     let mounted = true;
@@ -64,6 +64,11 @@ export const Plot3dScene: React.FC<Plot3dProps> = ({
         );
         const width = containerRef.current.clientWidth || 640;
         const height = containerRef.current.clientHeight || 380;
+        if (width === 0 || height === 0) {
+          throw new Error(
+            `Plot3d container has invalid size ${width}x${height}`
+          );
+        }
 
         const cameraObj = new THREE.PerspectiveCamera(
           45,
@@ -79,6 +84,9 @@ export const Plot3dScene: React.FC<Plot3dProps> = ({
         const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setPixelRatio(window.devicePixelRatio ?? 1);
         renderer.setSize(width, height, false);
+        if (!renderer.domElement) {
+          throw new Error("Failed to create WebGL renderer element");
+        }
         containerRef.current.innerHTML = "";
         containerRef.current.appendChild(renderer.domElement);
 
@@ -256,16 +264,37 @@ export const Plot3dScene: React.FC<Plot3dProps> = ({
 
   return (
     <div
-      className={`rounded-md border p-3 text-sm ${className ?? ""} ${
-        mode === "light"
-          ? "border-slate-200 bg-slate-100"
-          : "border-slate-800 bg-slate-900"
-      }`}
+      className={`relative w-full overflow-hidden rounded-xl border border-border bg-card p-4 text-sm shadow-sm ${className ?? ""}`}
     >
+      <button
+        onMouseEnter={() => setShowHelp(true)}
+        onMouseLeave={() => setShowHelp(false)}
+        className="absolute right-6 top-6 z-20 rounded-md bg-background/80 px-2 py-1 text-xs text-muted-foreground hover:bg-background/90 hover:text-foreground"
+        title="Controls"
+      >
+        ?
+      </button>
+      {showHelp && (
+        <div className="absolute right-6 top-14 z-20 rounded-md bg-background/95 p-2 text-xs text-muted-foreground shadow-lg backdrop-blur">
+          <div className="space-y-1">
+            <div>• Drag to rotate</div>
+            <div>• Scroll to zoom</div>
+            <div>• Right-click drag to pan</div>
+          </div>
+        </div>
+      )}
       {error ? (
-        <div className="text-red-500">Failed to render 3D plot: {error}</div>
+        <div className="text-destructive">
+          Failed to render 3D plot: {error}
+        </div>
       ) : (
-        <div ref={containerRef} className="relative h-[340px] w-full" />
+        <div
+          className="relative mx-auto overflow-hidden rounded-lg"
+          style={{ height: 420, maxWidth: "720px" }}
+          onWheel={(e) => e.stopPropagation()}
+        >
+          <div ref={containerRef} style={{ width: "100%", height: "420px" }} />
+        </div>
       )}
     </div>
   );

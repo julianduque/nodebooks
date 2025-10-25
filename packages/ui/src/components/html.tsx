@@ -1,8 +1,8 @@
 "use client";
 import React from "react";
-import { UiThemeContext } from "./theme";
 import type { UiHtml } from "@nodebooks/notebook-schema";
 import DOMPurify from "dompurify";
+import { useComponentThemeMode } from "./utils";
 
 type HtmlProps = Omit<UiHtml, "ui"> & {
   className?: string;
@@ -13,8 +13,7 @@ export const HtmlBlock: React.FC<HtmlProps> = ({
   className,
   themeMode,
 }) => {
-  const ctx = React.useContext(UiThemeContext);
-  const mode = themeMode ?? ctx ?? "light";
+  const mode = useComponentThemeMode(themeMode);
   const safe =
     typeof window === "undefined"
       ? String(html ?? "")

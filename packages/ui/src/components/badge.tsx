@@ -1,7 +1,7 @@
 "use client";
 import React from "react";
-import { UiThemeContext } from "./theme";
 import type { UiBadge } from "@nodebooks/notebook-schema";
+import { useComponentThemeMode } from "./utils";
 
 type BadgeProps = Omit<UiBadge, "ui"> & {
   className?: string;
@@ -42,8 +42,7 @@ export const BadgeTag: React.FC<BadgeProps> = ({
   className,
   themeMode,
 }) => {
-  const ctx = React.useContext(UiThemeContext);
-  const mode = themeMode ?? ctx ?? "light";
+  const mode = useComponentThemeMode(themeMode);
   return (
     <span className={`relative inline-flex items-center ${className ?? ""}`}>
       <span

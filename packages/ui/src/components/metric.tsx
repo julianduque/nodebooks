@@ -1,7 +1,7 @@
 "use client";
 import React from "react";
-import { UiThemeContext } from "./theme";
 import type { UiMetric } from "@nodebooks/notebook-schema";
+import { useComponentThemeMode } from "./utils";
 
 type MetricProps = Omit<UiMetric, "ui"> & {
   className?: string;
@@ -16,20 +16,19 @@ export const MetricTile: React.FC<MetricProps> = ({
   className,
   themeMode,
 }) => {
-  const ctx = React.useContext(UiThemeContext);
-  const mode = themeMode ?? ctx ?? "light";
+  const mode = useComponentThemeMode(themeMode);
   const deltaNum = typeof delta === "number" ? delta : undefined;
   const deltaColor =
     deltaNum === undefined
       ? mode === "light"
-        ? "text-slate-400"
+        ? "text-slate-500"
         : "text-slate-500"
       : deltaNum > 0
         ? "text-emerald-500"
         : deltaNum < 0
           ? "text-rose-500"
           : mode === "light"
-            ? "text-slate-400"
+            ? "text-slate-500"
             : "text-slate-500";
   const deltaSign =
     deltaNum === undefined ? "" : deltaNum > 0 ? "▲" : deltaNum < 0 ? "▼" : "→";

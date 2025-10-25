@@ -1,9 +1,10 @@
 import React from "react";
-import { UiThemeContext } from "./theme";
+import { UiThemeContext, useThemeMode, type ThemeMode } from "./theme";
 
-export const useThemeMode = (override?: "light" | "dark") => {
+export const useComponentThemeMode = (override?: ThemeMode) => {
   const ctx = React.useContext(UiThemeContext);
-  return override ?? ctx ?? "light";
+  const detected = useThemeMode(ctx ?? override);
+  return override ?? ctx ?? detected;
 };
 
 export const deriveColumns = (

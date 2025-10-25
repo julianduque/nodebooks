@@ -1,7 +1,7 @@
 "use client";
 import React from "react";
-import { UiThemeContext, useThemeMode } from "./theme";
-import type { ThemeMode } from "./theme";
+import { UiThemeContext, type ThemeMode } from "./theme";
+import { useComponentThemeMode } from "./utils";
 
 export interface UiCardProps {
   className?: string;
@@ -14,8 +14,7 @@ export const UiCard: React.FC<UiCardProps> = ({
   children,
   themeMode,
 }) => {
-  const detected = useThemeMode();
-  const mode: ThemeMode = themeMode ?? detected;
+  const mode = useComponentThemeMode(themeMode);
   type ThemeableProps = {
     themeMode?: "light" | "dark";
   };

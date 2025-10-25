@@ -240,7 +240,7 @@ const NotebookSharingDialog = ({
                   return (
                     <li
                       key={invitation.id}
-                      className="flex flex-col gap-2 rounded-md border border-border bg-background p-3 sm:flex-row sm:items-center sm:justify-between"
+                      className="flex flex-col gap-2 rounded-md border border-border bg-background p-3 sm:flex-row sm:items-start sm:gap-4"
                     >
                       <div className="space-y-1">
                         <div className="flex items-center gap-2">
@@ -275,6 +275,7 @@ const NotebookSharingDialog = ({
                           size="sm"
                           onClick={() => onRevokeInvitation(invitation.id)}
                           disabled={revokingInvitationId === invitation.id}
+                          className="sm:self-start"
                         >
                           {revokingInvitationId === invitation.id ? (
                             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -314,7 +315,7 @@ const NotebookSharingDialog = ({
                       key={collaborator.id}
                       className="rounded-md border border-border bg-background p-3"
                     >
-                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-4">
                         <div className="space-y-1">
                           <p className="text-sm font-medium text-foreground">
                             {collaborator.user.name ?? collaborator.user.email}
@@ -323,7 +324,7 @@ const NotebookSharingDialog = ({
                             {collaborator.user.email}
                           </p>
                         </div>
-                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:gap-3 sm:self-start">
                           <select
                             value={collaborator.role}
                             onChange={(event) =>
@@ -345,6 +346,7 @@ const NotebookSharingDialog = ({
                               type="button"
                               variant="outline"
                               size="sm"
+                              className="sm:self-start"
                               onClick={() =>
                                 onRemoveCollaborator(collaborator.userId)
                               }

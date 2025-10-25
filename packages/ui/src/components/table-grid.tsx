@@ -1,8 +1,12 @@
 "use client";
 import React from "react";
-import { UiThemeContext } from "./theme";
 import type { UiTable } from "@nodebooks/notebook-schema";
-import { compareValues, deriveColumns, renderCellValue } from "./utils";
+import {
+  compareValues,
+  deriveColumns,
+  renderCellValue,
+  useComponentThemeMode,
+} from "./utils";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
 type TableGridProps = Omit<UiTable, "ui"> & {
@@ -19,8 +23,7 @@ export const TableGrid: React.FC<TableGridProps> = ({
   className,
   themeMode,
 }) => {
-  const ctx = React.useContext(UiThemeContext);
-  const mode = themeMode ?? ctx ?? "light";
+  const mode = useComponentThemeMode(themeMode);
   const cols = React.useMemo(
     () => deriveColumns(rows, columns),
     [rows, columns]
