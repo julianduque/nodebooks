@@ -17,7 +17,7 @@ import {
 } from "react-dnd";
 import { HTML5Backend } from "react-dnd-html5-backend";
 import { useRouter } from "next/navigation";
-import AppShell from "../../components/app-shell";
+import AppShell from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";

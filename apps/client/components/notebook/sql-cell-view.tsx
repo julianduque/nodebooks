@@ -14,6 +14,7 @@ import MonacoEditor from "@/components/notebook/monaco-editor-client";
 import { initMonaco } from "@/components/notebook/monaco-setup";
 import { useTheme } from "@/components/theme-context";
 import { Input } from "@/components/ui/input";
+import { CopyButton } from "@/components/ui/copy-button";
 import {
   language as sqlLanguage,
   conf as sqlLanguageConfiguration,
@@ -327,10 +328,16 @@ const SqlCellView = ({
       ) : null}
       <div
         className={clsx(
-          "rounded-lg border",
+          "relative rounded-lg border",
           isDark ? "border-slate-800/60 bg-slate-950" : "border-border bg-card"
         )}
       >
+        <CopyButton
+          value={() => cell.query ?? ""}
+          className="absolute right-3 top-3 z-10"
+          aria-label="Copy SQL query"
+          variant="dark"
+        />
         <MonacoEditor
           className="h-full w-full"
           path={editorPath}

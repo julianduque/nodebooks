@@ -1,4 +1,7 @@
+import { promises as fs } from "node:fs";
 import type { IncomingMessage } from "node:http";
+import os from "node:os";
+import path from "node:path";
 import type { Socket } from "node:net";
 import WebSocket, { WebSocketServer, type RawData } from "ws";
 import { z } from "zod";
@@ -46,6 +49,9 @@ const MAX_BUFFER_LENGTH = 1_000_000; // 1MB of terminal history
 
 const TERMINAL_PROMPT = "nodebooks:~$ ";
 
+const DEFAULT_WORKSPACE_ROOT = path.join(os.tmpdir(), "nodebooks-runtime");
+const WORKSPACE_ROOT = path.resolve(DEFAULT_WORKSPACE_ROOT);
+
 const terminalSessions = new Map<string, TerminalSession>();
 
 const sessionKeyFor = (notebookId: string, cellId: string): string =>
@@ -75,6 +81,41 @@ interface TerminalSession {
   store: NotebookStore;
   notebook: Notebook;
 }
+
+const escapeRegex = (value: string): string =>
+  value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const stripTrailingPrompt = (buffer: string): string => {
+  if (!buffer) {
+    return buffer;
+  }
+  const promptPattern = new RegExp(
+    `(?:\\r?\\n|\\r)?${escapeRegex(TERMINAL_PROMPT)}$`
+  );
+  let next = buffer;
+  while (promptPattern.test(next)) {
+    next = next.replace(promptPattern, "");
+  }
+  return next;
+};
+
+const ensureNotebookWorkspaceDir = async (
+  notebookId: string
+): Promise<string> => {
+  const root = WORKSPACE_ROOT;
+  const target = path.resolve(root, notebookId);
+  const relative = path.relative(root, target);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+    return root;
+  }
+  try {
+    await fs.mkdir(target, { recursive: true });
+    return target;
+  } catch (err) {
+    void err;
+    return root;
+  }
+};
 
 const appendToBuffer = (session: TerminalSession, chunk: string) => {
   session.buffer = `${session.buffer}${chunk}`;
@@ -301,12 +342,16 @@ const createTerminalSession = async (
       PS1: TERMINAL_PROMPT,
       TERM: "xterm-256color",
     } as NodeJS.ProcessEnv;
+    const workspaceDir = await ensureNotebookWorkspaceDir(notebook.id);
+    env.HOME = workspaceDir;
+    env.PWD = workspaceDir;
+    env.OLDPWD = workspaceDir;
 
     const pty = spawn(command, args, {
       name: "xterm-color",
       cols: 80,
       rows: 24,
-      cwd: process.cwd(),
+      cwd: workspaceDir,
       env,
     });
 
@@ -315,7 +360,8 @@ const createTerminalSession = async (
       notebookId: params.notebookId,
       cellId: params.cellId,
       pty,
-      buffer: typeof cell.buffer === "string" ? cell.buffer : "",
+      buffer:
+        typeof cell.buffer === "string" ? stripTrailingPrompt(cell.buffer) : "",
       clients: new Set<WebSocket>(),
       saveTimer: null,
       store,

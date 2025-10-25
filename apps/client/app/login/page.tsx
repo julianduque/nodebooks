@@ -3,7 +3,7 @@ import type { Route } from "next";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
-import LoginForm from "./login-form";
+import LoginForm from "@/app/login/login-form";
 
 interface LoginPageProps {
   searchParams?: Promise<{

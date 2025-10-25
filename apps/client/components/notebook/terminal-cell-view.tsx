@@ -11,7 +11,7 @@ import { cn } from "@/components/lib/utils";
 import {
   DEFAULT_TERMINAL_PREFERENCES,
   type TerminalPreferences,
-} from "./editor-preferences";
+} from "@/components/notebook/editor-preferences";
 
 type TerminalCommandRequest = {
   id: string;

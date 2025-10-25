@@ -4,6 +4,7 @@ import { useCallback, useMemo, useState } from "react";
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { copyTextToClipboard } from "@/lib/clipboard";
 import {
   useAttachmentUploader,
   useAttachmentDropzone,
@@ -276,19 +277,7 @@ const AttachmentRow = ({
 
   const handleCopy = useCallback(async () => {
     try {
-      if (navigator?.clipboard?.writeText) {
-        await navigator.clipboard.writeText(url);
-      } else if (typeof document !== "undefined") {
-        const textarea = document.createElement("textarea");
-        textarea.value = url;
-        textarea.setAttribute("readonly", "");
-        textarea.style.position = "fixed";
-        textarea.style.opacity = "0";
-        document.body.appendChild(textarea);
-        textarea.select();
-        document.execCommand("copy");
-        document.body.removeChild(textarea);
-      }
+      await copyTextToClipboard(url);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {

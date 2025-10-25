@@ -9,14 +9,15 @@ import { Loader2, Zap } from "lucide-react";
 import OutputView from "@/components/notebook/output-view";
 import { initMonaco } from "@/components/notebook/monaco-setup";
 import { useTheme } from "@/components/theme-context";
+import { CopyButton } from "@/components/ui/copy-button";
 import {
   DEFAULT_CODE_EDITOR_SETTINGS,
   type MonacoEditorSettings,
-} from "./editor-preferences";
+} from "@/components/notebook/editor-preferences";
 import {
   MONACO_EDITOR_CONTAINER_CLASS,
   MONACO_EDITOR_WRAPPER_CLASS,
-} from "./monaco-styles";
+} from "@/components/notebook/monaco-styles";
 
 interface CodeCellViewProps {
   cell: Extract<NotebookCell, { type: "code" }>;
@@ -189,6 +190,11 @@ const CodeCellView = ({
         ) : null}
       </div>
       <div className="absolute right-3 top-3 z-10 flex items-center gap-2">
+        <CopyButton
+          value={() => cell.source ?? ""}
+          aria-label="Copy cell source"
+          variant="dark"
+        />
         {title ? (
           <Badge variant="outline" className="px-2 py-0.5 text-[10px]">
             {title}

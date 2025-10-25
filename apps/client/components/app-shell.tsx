@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { cn } from "@/components/lib/utils";
 import Link from "next/link";
@@ -57,6 +57,10 @@ const navItems: NavItem[] = [
   },
 ];
 
+const SECONDARY_SIDEBAR_DEFAULT_WIDTH = 340;
+const SECONDARY_SIDEBAR_MIN_WIDTH = 240;
+const SECONDARY_SIDEBAR_MAX_WIDTH = 640;
+
 type AccountInfo = {
   name?: string | null;
   email?: string | null;
@@ -107,8 +111,13 @@ const AppShell = ({
 }: AppShellProps) => {
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
   const [secondaryCollapsed, setSecondaryCollapsed] = useState(false);
+  const [secondaryWidth, setSecondaryWidth] = useState(
+    SECONDARY_SIDEBAR_DEFAULT_WIDTH
+  );
+  const [isResizingSecondary, setIsResizingSecondary] = useState(false);
   const pathname = usePathname?.() ?? "";
   const router = useRouter?.();
+  const secondarySidebarRef = useRef<HTMLDivElement | null>(null);
 
   const [account, setAccount] = useState<AccountInfo>(user ?? null);
   const [accountLoading, setAccountLoading] = useState(
@@ -122,6 +131,11 @@ const AppShell = ({
       : navItems.filter((item) => item.id === "notebooks");
   }, [isAdminAccount]);
   const canCreateNotebook = Boolean(onNewNotebook) && isAdminAccount;
+
+  const toggleSecondarySidebar = useCallback(() => {
+    setIsResizingSecondary(false);
+    setSecondaryCollapsed((prev) => !prev);
+  }, []);
 
   useEffect(() => {
     if (user !== undefined) {
@@ -206,6 +220,81 @@ const AppShell = ({
     }
     return account;
   }, [account]);
+
+  const handleSecondaryResizeStart = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      if (secondaryCollapsed) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      setIsResizingSecondary(true);
+    },
+    [secondaryCollapsed]
+  );
+
+  useEffect(() => {
+    if (!isResizingSecondary || secondaryCollapsed) {
+      return;
+    }
+
+    const handlePointerMove = (event: PointerEvent) => {
+      if (!secondarySidebarRef.current) {
+        return;
+      }
+      const rect = secondarySidebarRef.current.getBoundingClientRect();
+      const proposedWidth = event.clientX - rect.left;
+      setSecondaryWidth(
+        Math.min(
+          Math.max(proposedWidth, SECONDARY_SIDEBAR_MIN_WIDTH),
+          SECONDARY_SIDEBAR_MAX_WIDTH
+        )
+      );
+    };
+
+    const stopResizing = () => {
+      setIsResizingSecondary(false);
+    };
+
+    const previousUserSelect = document.body.style.userSelect;
+    document.body.style.userSelect = "none";
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", stopResizing);
+
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", stopResizing);
+      document.body.style.userSelect = previousUserSelect;
+    };
+  }, [isResizingSecondary, secondaryCollapsed]);
+
+  const handleResizeHandleKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (secondaryCollapsed) {
+        return;
+      }
+      if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+        event.preventDefault();
+        const delta = event.key === "ArrowRight" ? 16 : -16;
+        setSecondaryWidth((current) =>
+          Math.min(
+            Math.max(current + delta, SECONDARY_SIDEBAR_MIN_WIDTH),
+            SECONDARY_SIDEBAR_MAX_WIDTH
+          )
+        );
+      }
+      if (event.key === "Home") {
+        event.preventDefault();
+        setSecondaryWidth(SECONDARY_SIDEBAR_MIN_WIDTH);
+      }
+      if (event.key === "End") {
+        event.preventDefault();
+        setSecondaryWidth(SECONDARY_SIDEBAR_MAX_WIDTH);
+      }
+    },
+    [secondaryCollapsed]
+  );
 
   return (
     <div className="flex h-screen w-full bg-background text-foreground">
@@ -345,21 +434,49 @@ const AppShell = ({
         </div>
       </aside>
       {secondarySidebar ? (
-        <aside
-          className={cn(
-            "h-screen shrink-0 border-r border-border bg-card py-6 lg:flex overflow-hidden transition-[width] duration-200 ease-linear",
-            secondaryCollapsed ? "w-0 px-0" : "w-92 px-5"
-          )}
-        >
-          <div className="flex h-full w-full flex-col">
-            <div className="mb-3 flex items-center justify-between gap-2 px-1">
-              <div className="flex items-center gap-2 overflow-hidden">
-                {secondaryHeader}
+        <>
+          <aside
+            ref={secondarySidebarRef}
+            aria-hidden={secondaryCollapsed}
+            className={cn(
+              "h-screen shrink-0 border-r border-border bg-card py-6 lg:flex overflow-hidden transition-[width] duration-200 ease-linear",
+              secondaryCollapsed ? "px-0" : "px-2",
+              isResizingSecondary && "transition-none"
+            )}
+            style={{
+              width: secondaryCollapsed ? 0 : secondaryWidth,
+              minWidth: secondaryCollapsed ? 0 : SECONDARY_SIDEBAR_MIN_WIDTH,
+              maxWidth: secondaryCollapsed ? 0 : SECONDARY_SIDEBAR_MAX_WIDTH,
+            }}
+          >
+            <div className="flex h-full w-full flex-col">
+              <div className="mb-3 flex items-center justify-between gap-2 px-1">
+                <div className="flex items-center gap-2 overflow-hidden">
+                  {secondaryHeader}
+                </div>
               </div>
+              <div className="flex-1 overflow-hidden">{secondarySidebar}</div>
             </div>
-            <div className="flex-1 overflow-hidden">{secondarySidebar}</div>
-          </div>
-        </aside>
+          </aside>
+          {!secondaryCollapsed ? (
+            <div
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize secondary sidebar"
+              className={cn(
+                "group relative flex h-screen w-2 cursor-col-resize select-none touch-none items-center justify-center bg-border/30 transition-colors hover:bg-border/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background lg:w-2.5",
+                isResizingSecondary
+                  ? "bg-border/70"
+                  : "bg-border/30 hover:bg-border/60"
+              )}
+              onPointerDown={handleSecondaryResizeStart}
+              onKeyDown={handleResizeHandleKeyDown}
+              tabIndex={0}
+            >
+              <div className="pointer-events-none h-14 w-[4px] rounded-full bg-border transition group-hover:bg-border focus-visible:bg-border" />
+            </div>
+          ) : null}
+        </>
       ) : null}
       <main className="flex flex-1 flex-col">
         <header className="sticky top-0 z-40 h-16 bg-background">
@@ -369,7 +486,7 @@ const AppShell = ({
                 variant="secondary"
                 size="icon"
                 className="size-7"
-                onClick={() => setSecondaryCollapsed((prev) => !prev)}
+                onClick={toggleSecondarySidebar}
                 aria-label="Toggle Secondary Sidebar"
               >
                 <Settings className="h-4 w-4" />

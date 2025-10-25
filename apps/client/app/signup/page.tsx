@@ -3,7 +3,7 @@ import type { Route } from "next";
 
 import { headers } from "next/headers";
 
-import SignupForm from "./signup-form";
+import SignupForm from "@/app/signup/signup-form";
 
 interface SignupPageProps {
   searchParams?: Promise<{

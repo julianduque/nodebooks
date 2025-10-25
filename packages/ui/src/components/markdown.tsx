@@ -3,40 +3,8 @@ import React from "react";
 import { UiThemeContext } from "./theme";
 import type { UiMarkdown } from "@nodebooks/notebook-schema";
 import DOMPurify from "dompurify";
-import hljs from "highlight.js";
 import { Marked, Renderer, type Tokens } from "marked";
-
-const escapeHtml = (value: string) =>
-  value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-
-const normalizeLanguage = (lang?: string) => {
-  const language = lang?.trim().split(/\s+/)[0]?.toLowerCase();
-  if (!language) return undefined;
-  return /^[a-z0-9#+_-]+$/.test(language) ? language : undefined;
-};
-
-const highlightCode = (code: string, language?: string) => {
-  const lang = normalizeLanguage(language);
-  if (lang) {
-    try {
-      if (hljs.getLanguage(lang)) {
-        return hljs.highlight(code, { language: lang }).value;
-      }
-    } catch {
-      /* no-op */
-    }
-  }
-  try {
-    return hljs.highlightAuto(code).value;
-  } catch {
-    return escapeHtml(code);
-  }
-};
+import { highlightCode, normalizeLanguage } from "../lib/highlight";
 
 const markdownRenderer = new Marked({
   gfm: true,
@@ -74,7 +42,7 @@ export const Markdown: React.FC<MarkdownProps> = ({
   return (
     <div className={`relative ${className ?? ""}`}>
       <div
-        className={`markdown-preview rounded-md border p-3 ${
+        className={`markdown-preview rounded-md border p-2 ${
           mode === "light"
             ? "bg-slate-100 text-slate-800 border-slate-200"
             : "bg-slate-900 text-slate-200 border-slate-800"
