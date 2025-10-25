@@ -4,8 +4,25 @@ These snippets are meant to be pasted directly into a code cell. Return the help
 
 Import helpers from `@nodebooks/ui` or return the literal display object.
 
-- Helpers: `UiImage`, `UiMarkdown`, `UiHTML`, `UiJSON`, `UiCode`, `UiTable`, `UiDataSummary`, `UiVegaLite`, `UiPlotly`, `UiHeatmap`, `UiNetworkGraph`, `UiPlot3d`, `UiMap`, `UiGeoJson`
-- Literal objects: `{ ui: "image" | "markdown" | "html" | "json" | "code" | "table" | "dataSummary" | "vegaLite" | "plotly" | "heatmap" | "networkGraph" | "plot3d" | "map" | "geoJson" | "alert" | "badge" | "metric" | "progress" | "spinner", ... }`
+- Helpers: `UiImage`, `UiMarkdown`, `UiHTML`, `UiJSON`, `UiCode`, `UiTable`, `UiDataSummary`, `UiVegaLite`, `UiPlotly`, `UiHeatmap`, `UiNetworkGraph`, `UiPlot3d`, `UiMap`, `UiGeoJson`, `UiContainer`, `UiButton`, `UiSlider`, `UiTextInput`
+- Aliases: `import ui from "@nodebooks/ui";` then call lower-case helpers such as `ui.image(...)`, `ui.markdown(...)`, `ui.dataSummary(...)`, `ui.heatmap(...)`, `ui.plot3d(...)`, `ui.geoJson(...)`, `ui.container(...)`, `ui.slider(...)`, etc.
+- Literal objects: `{ ui: "image" | "markdown" | "html" | "json" | "code" | "table" | "dataSummary" | "vegaLite" | "plotly" | "heatmap" | "networkGraph" | "plot3d" | "map" | "geoJson" | "alert" | "badge" | "metric" | "progress" | "spinner" | "container" | "button" | "slider" | "textInput", ... }`
+
+Quick alias example:
+
+```ts
+import ui from "@nodebooks/ui";
+ui.plot3d({
+  surface: {
+    values: [
+      [0, 1],
+      [1, 0],
+    ],
+  },
+});
+```
+
+Every lower-case helper is also available as a named export, e.g. `import { markdown, container } from "@nodebooks/ui";`. Available alias keys: `image`, `markdown`, `html`, `json`, `code`, `table`, `dataSummary`, `vegaLite`, `plotly`, `heatmap`, `networkGraph`, `plot3d`, `map`, `geoJson`, `alert`, `badge`, `metric`, `progress`, `spinner`, `container`, `button`, `slider`, `textInput`.
 
 Note: For async work (like fetching an image and converting to base64), wrap in an async IIFE and return the result.
 
@@ -64,8 +81,8 @@ const data = Buffer.from(svg, "utf8").toString("base64");
 Helper
 
 ```ts
-import { UiMarkdown } from "@nodebooks/ui";
-UiMarkdown(
+import ui from "@nodebooks/ui";
+ui.markdown(
   `# Title\n\n- Bullet\n- List with **bold** and _italic_\n\n\n\nCode:\n\n\`\`\`js\nconsole.log('hello');\n\`\`\``
 );
 ```
@@ -130,8 +147,8 @@ Literal
 Helper with language
 
 ```ts
-import { UiCode } from "@nodebooks/ui";
-UiCode(
+import ui from "@nodebooks/ui";
+ui.code(
   `function greet(name) {\n  return \`Hello, \${name}\`;\n}\nconsole.log(greet("Nodebooks"));`,
   { language: "js" }
 );
@@ -140,8 +157,8 @@ UiCode(
 Wrapped long code lines
 
 ```ts
-import { UiCode } from "@nodebooks/ui";
-UiCode("const text = 'a'.repeat(200)\nconsole.log(text)", {
+import ui from "@nodebooks/ui";
+ui.code("const text = 'a'.repeat(200)\nconsole.log(text)", {
   language: "js",
 });
 ```
@@ -514,6 +531,148 @@ Spinner:
 import { UiSpinner } from "@nodebooks/ui";
 UiSpinner({ label: "Fetching", size: "lg" });
 ```
+
+## Interactive Components
+
+Capture input from end users and dispatch events back into your notebook runtime.
+
+### Slider
+
+```ts
+import { UiSlider } from "@nodebooks/ui";
+
+let alertThreshold = 60;
+
+UiSlider({
+  componentId: "ops-threshold",
+  label: "Alert threshold",
+  description: "Page the on-call when CPU crosses this value.",
+  min: 0,
+  max: 100,
+  value: alertThreshold,
+  showValue: true,
+  async onChange(next) {
+    alertThreshold = next;
+  },
+  async onCommit(next) {
+    console.log("Threshold committed:", next);
+  },
+});
+```
+
+Debounce logic lives in the helper; call `onCommit` for expensive handlers.
+
+### Text Input
+
+```ts
+import { UiTextInput } from "@nodebooks/ui";
+
+let runbookNotes = "Investigate pod churn before rollout.";
+
+UiTextInput({
+  componentId: "ops-notes",
+  label: "Runbook notes",
+  placeholder: "Add context, owners, and helpful links…",
+  value: runbookNotes,
+  multiline: true,
+  rows: 4,
+  async onChange(next) {
+    runbookNotes = next;
+  },
+  async onSubmit(next) {
+    console.log("Submitted notes:", next);
+  },
+});
+```
+
+`onChange` fires as the user types; `onSubmit` runs on blur or Enter (single line).
+
+### Container Layout
+
+```ts
+import { UiContainer, UiMetric, UiProgress, UiMarkdown } from "@nodebooks/ui";
+
+UiContainer(
+  [
+    UiMetric(8, {
+      label: "Active experiments",
+      delta: 2,
+      helpText: "Compared to last sync",
+      emit: false,
+    }),
+    UiProgress(72, {
+      label: "Rollout readiness",
+      max: 100,
+      emit: false,
+    }),
+    UiMarkdown({
+      markdown:
+        "**Tip:** Containers group charts, controls, and notes inside a single surface.",
+      emit: false,
+    }),
+  ],
+  {
+    componentId: "ops-snapshot",
+    direction: "horizontal",
+    wrap: true,
+    gap: 24,
+    padding: [16, 24],
+    title: "Operations snapshot",
+    subtitle: "Blend metrics, progress, and context.",
+  }
+);
+```
+
+Containers accept any display objects. Use `wrap` with `direction: "horizontal"` to flow cards responsively.
+
+- When composing child displays inside a container, pass `emit: false` so they only render within the container layout.
+
+#### Linking interactions to other displays
+
+```ts
+import { UiContainer, UiProgress, UiSlider, UiMarkdown } from "@nodebooks/ui";
+
+let threshold = 60;
+let panel: ReturnType<typeof UiContainer> | null = null;
+
+const children = () => [
+  UiSlider({
+    emit: false,
+    componentId: "ops-threshold",
+    label: "Alert threshold",
+    min: 0,
+    max: 100,
+    value: threshold,
+    showValue: true,
+    onCommit: (next) => {
+      threshold = next;
+      panel?.update({ children: children() });
+    },
+  }),
+  UiProgress({
+    emit: false,
+    componentId: "ops-readiness",
+    label: "Readiness",
+    value: Math.round(threshold * 0.9),
+    max: 100,
+  }),
+  UiMarkdown({
+    emit: false,
+    componentId: "ops-summary",
+    markdown: `Current threshold **${threshold}%**.`,
+  }),
+];
+
+panel = UiContainer(children(), {
+  componentId: "ops-control-panel",
+  direction: "vertical",
+  gap: 16,
+});
+```
+
+Update a single panel by keeping a reference to the container handle and calling `update` with a new `children` array derived from shared state.
+
+- For sliders, prefer `onCommit` for server-side state so refreshes trigger only once per interaction instead of on every drag event.
 
 ## Tips
 

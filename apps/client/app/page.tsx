@@ -142,7 +142,7 @@ export default function HomePage() {
                   ) : null}
                 </div>
               </div>
-              <div className="mt-2 flex items-center gap-2 text-sm">
+              <div className="mt-2 w-full flex justify-end items-center gap-2 text-sm">
                 <span>Open notebook</span>
                 <ChevronRight className="h-4 w-4" />
               </div>

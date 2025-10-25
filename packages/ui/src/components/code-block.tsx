@@ -1,11 +1,11 @@
 "use client";
 
 import React from "react";
-import { UiThemeContext } from "./theme";
 import type { UiCode } from "@nodebooks/notebook-schema";
 import { CopyButton, type CopyButtonProps } from "./copy-button";
 import clsx from "clsx";
 import { highlightCode, normalizeLanguage } from "../lib/highlight";
+import { useComponentThemeMode } from "./utils";
 
 type CopyValue = string | (() => string);
 
@@ -30,8 +30,7 @@ export const CodeBlock: React.FC<CodeBlockProps> = ({
   copyValue,
   onCopy,
 }) => {
-  const ctx = React.useContext(UiThemeContext);
-  const mode = themeMode ?? ctx ?? "light";
+  const mode = useComponentThemeMode(themeMode);
   const normalizedLanguage = React.useMemo(
     () => normalizeLanguage(language),
     [language]

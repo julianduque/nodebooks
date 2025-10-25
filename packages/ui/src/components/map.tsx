@@ -16,7 +16,7 @@ import type {
   StyleSpecification,
 } from "maplibre-gl";
 import type { UiMap, UiGeoJson } from "@nodebooks/notebook-schema";
-import { UiThemeContext } from "./theme";
+import { useComponentThemeMode } from "./utils";
 
 type MaplibreModule = {
   Map: new (...args: unknown[]) => MapInstance;
@@ -350,8 +350,7 @@ export const MapView: React.FC<MapProps> = ({
   themeMode,
   className,
 }) => {
-  const ctx = React.useContext(UiThemeContext);
-  const mode = themeMode ?? ctx ?? "light";
+  const mode = useComponentThemeMode(themeMode);
   const markerInstances = React.useRef<Marker[]>([]);
   const sourceId = React.useId();
   const mapHeight = height ?? 320;
@@ -491,8 +490,7 @@ export const GeoJsonMap: React.FC<GeoJsonProps> = ({
   themeMode,
   className,
 }) => {
-  const ctx = React.useContext(UiThemeContext);
-  const mode = themeMode ?? ctx ?? "light";
+  const mode = useComponentThemeMode(themeMode);
   const markerInstances = React.useRef<Marker[]>([]);
   const sourceId = React.useId();
   const mapHeight = height ?? 320;

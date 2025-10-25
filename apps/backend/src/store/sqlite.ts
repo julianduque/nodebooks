@@ -1426,7 +1426,7 @@ export class SqliteInvitationStore implements InvitationStore {
       `UPDATE user_invitations
        SET accepted_at = ?, updated_at = ?
        WHERE id = ?`,
-      [now, id]
+      [now, now, id]
     );
     await this.notebooks.flush();
     return this.get(id);
@@ -1440,7 +1440,7 @@ export class SqliteInvitationStore implements InvitationStore {
       `UPDATE user_invitations
        SET revoked_at = ?, updated_at = ?
        WHERE id = ?`,
-      [now, id]
+      [now, now, id]
     );
     await this.notebooks.flush();
     return this.get(id);
@@ -1590,7 +1590,7 @@ export class SqliteNotebookCollaboratorStore
        ON CONFLICT(notebook_id, user_id) DO UPDATE SET
          role = excluded.role,
          updated_at = excluded.updated_at`,
-      [id, input.notebookId, input.userId, input.role, now]
+      [id, input.notebookId, input.userId, input.role, now, now]
     );
     await this.notebooks.flush();
     const collaborator = await this.get(input.notebookId, input.userId);

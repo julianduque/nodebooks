@@ -222,20 +222,21 @@
 }
 
 .markdown-preview pre {
-  background-color: var(--hljs-background);
+  background: color-mix(in oklch, var(--foreground) 8%, var(--background));
+  color: var(--foreground);
+  border: 1px solid var(--border);
   border-radius: 0.75rem;
   padding: 0.9rem 1rem;
-  overflow-x: auto;
+  overflow: auto;
   margin: 1rem 0;
-  border: 1px solid color-mix(in oklch, var(--border) 50%, transparent);
 }
-
 .markdown-preview pre code {
   background: transparent;
   padding: 0;
   display: block;
   color: var(--hljs-foreground);
   font-size: 0.95rem;
+  line-height: 1.5;
 }
 
 :root .hljs {
@@ -366,23 +367,6 @@
 }
 
 /* Code blocks (triple backticks) */
-.markdown-preview pre {
-  /* Use theme tokens to keep contrast in both modes */
-  background: color-mix(in oklch, var(--foreground) 8%, var(--background));
-  color: var(--foreground);
-  border: 1px solid var(--border);
-  border-radius: 0.5rem;
-  padding: 0.75rem 0.9rem;
-  overflow: auto;
-  margin: 0.75rem 0;
-}
-.markdown-preview pre code {
-  background: transparent;
-  padding: 0;
-  border-radius: 0;
-  font-size: 0.9em;
-  line-height: 1.5;
-}
 .markdown-preview pre.mermaid {
   background: var(--background);
   padding: 0.75rem 0.9rem;
@@ -413,15 +397,6 @@
   }
   100% {
     transform: translateX(300%);
-  }
-}
-
-@layer base {
-  * {
-    @apply border-border outline-ring/50;
-  }
-  body {
-    @apply bg-background text-foreground;
   }
 }
 

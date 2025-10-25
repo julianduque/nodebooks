@@ -1,0 +1,116 @@
+id: sql-cells
+title: SQL Cells Notebook
+description: >-
+  Connect to PostgreSQL, execute queries from SQL cells, and reuse the results
+  inside TypeScript cells.
+badge:
+  text: SQL
+  tone: sky
+tags:
+  - sql
+  - postgres
+  - data
+order: 25
+notebook:
+  name: SQL Cells Notebook
+  env:
+    runtime: node
+    version: "22.x"
+    packages: {}
+    variables:
+      DATABASE_URL: "postgres://USER:PASSWORD@HOST:5432/DB_NAME"
+  sql:
+    connections:
+      - id: postgres-primary
+        driver: postgres
+        name: Primary PostgreSQL
+        config:
+          connectionString: "{{DATABASE_URL}}"
+  cells:
+    - type: markdown
+      source: |-
+        # Query PostgreSQL with SQL cells
+
+        Use this template to configure a shared PostgreSQL connection, run SQL
+        queries, and hand results to downstream TypeScript logic.
+    - type: markdown
+      source: |-
+        ## Configure the connection
+
+        1. Update the `DATABASE_URL` environment variable in the notebook setup
+           panel. The placeholder value is safe to overwrite.
+        2. SQL connections can interpolate notebook environment variables with
+           the `{{VARIABLE_NAME}}` syntax. Keep secrets in env vars instead of
+           hardcoding them in the connection string.
+        3. Each SQL cell chooses a connection from the picker and can optionally
+           assign its results to a global variable for code cells.
+    - type: sql
+      connectionId: postgres-primary
+      query: |-
+        select
+          now() as sampled_at,
+          current_user as db_user;
+      assignVariable: latestSnapshot
+    - type: markdown
+      source: |-
+        ## Capture result sets as globals
+
+        When a SQL cell assigns a variable, the runtime exposes an object with
+        `rows`, `columns`, `rowCount`, `durationMs`, and `timestamp`. Code cells
+        can use those values after the SQL cell succeeds.
+    - type: sql
+      connectionId: postgres-primary
+      query: |-
+        select
+          table_schema,
+          table_name
+        from information_schema.tables
+        where table_schema not in ('pg_catalog', 'information_schema')
+        order by table_schema, table_name
+        limit 20;
+      assignVariable: tableList
+    - type: code
+      language: ts
+      source: |-
+        declare const latestSnapshot: {
+          rows: Array<{ sampled_at: string; db_user: string }>;
+          rowCount?: number;
+          durationMs?: number;
+          timestamp?: string;
+        } | undefined;
+
+        declare const tableList: {
+          rows: Array<{ table_schema: string; table_name: string }>;
+          rowCount?: number;
+        } | undefined;
+
+        if (!latestSnapshot || latestSnapshot.rows.length === 0) {
+          console.log("Run the connection check SQL cell to populate data.");
+        } else {
+          const [row] = latestSnapshot.rows;
+          if (row) {
+            console.log(
+              `Connected as ${row.db_user} at ${row.sampled_at} (took ${
+                latestSnapshot.durationMs ?? 0
+              } ms).`
+            );
+          }
+        }
+
+        if (!tableList || tableList.rows.length === 0) {
+          console.log(
+            "No tables returned yet. Update the second SQL cell to target your schema."
+          );
+        } else {
+          console.log(
+            `Tables discovered: ${tableList.rowCount ?? tableList.rows.length}`
+          );
+          console.table(tableList.rows);
+        }
+    - type: markdown
+      source: |-
+        ## Next steps
+
+        - Add more SQL cells for inserts, updates, or analytics queries.
+        - Reference environment variables with `{{VARIABLE_NAME}}` in SQL or connection strings.
+        - Use code cells to transform `rows` into dashboards or share results with teammates.

@@ -6,6 +6,7 @@ import {
   KernelClientMessageSchema,
   type KernelClientMessage,
   type KernelExecuteRequest,
+  type KernelUiEventRequest,
   type KernelServerMessage,
 } from "@nodebooks/notebook-schema";
 import type {
@@ -309,6 +310,15 @@ const handleKernelMessage = async ({
         store,
       });
       break;
+    case "ui_event":
+      await handleUiEvent({
+        connection,
+        message,
+        runtime,
+        session,
+        store,
+      });
+      break;
     case "interrupt_request": {
       try {
         runtime.cancel();
@@ -461,6 +471,119 @@ const handleExecuteRequest = async ({
         : item
     ),
   });
+};
+
+interface UiEventArgs {
+  connection: WebSocket;
+  message: KernelUiEventRequest;
+  runtime: WorkerClient;
+  session: NotebookSession;
+  store: NotebookStore;
+}
+
+const handleUiEvent = async ({
+  connection,
+  message,
+  runtime,
+  session,
+  store,
+}: UiEventArgs) => {
+  const notebook = await store.get(session.notebookId);
+  if (!notebook) {
+    sendMessage(connection, {
+      type: "error",
+      cellId: message.cellId,
+      ename: "NotebookNotFound",
+      evalue: "Notebook not found for interaction",
+      traceback: [],
+    });
+    return;
+  }
+
+  const cell = notebook.cells.find((item) => item.id === message.cellId);
+  if (!cell || cell.type !== "code") {
+    sendMessage(connection, {
+      type: "error",
+      cellId: message.cellId,
+      ename: "CellNotInteractive",
+      evalue: "Cell does not support interactions",
+      traceback: [],
+    });
+    return;
+  }
+
+  let result: {
+    outputs: Array<
+      | { type: "stream"; name: "stdout" | "stderr"; text: string }
+      | {
+          type: "display_data" | "execute_result" | "update_display_data";
+          data: Record<string, unknown>;
+          metadata?: Record<string, unknown>;
+        }
+      | { type: "error"; ename: string; evalue: string; traceback: string[] }
+    >;
+    execution: {
+      started: number;
+      ended: number;
+      status: "ok" | "error" | "aborted";
+    };
+  } | null = null;
+
+  try {
+    const cfg = loadServerConfig();
+    const effectiveTimeoutMs = cfg.kernelTimeoutMs;
+    result = await runtime.invokeInteraction({
+      handlerId: message.handlerId,
+      notebookId: notebook.id,
+      env: notebook.env,
+      event: message.event,
+      payload: message.payload,
+      componentId: message.componentId,
+      cellId: message.cellId,
+      timeoutMs: effectiveTimeoutMs,
+      globals: message.globals,
+      onStream: (stream) => {
+        sendMessage(connection, { ...stream, cellId: cell.id });
+      },
+      onDisplay: (display) => {
+        const enriched = {
+          ...display,
+          metadata: {
+            ...display.metadata,
+            __serverSentAt: Date.now(),
+          },
+        };
+        sendMessage(connection, { ...enriched, cellId: cell.id });
+      },
+    });
+  } catch (error) {
+    sendMessage(connection, {
+      type: "error",
+      cellId: message.cellId,
+      ename: error instanceof Error ? error.name : "UiHandlerError",
+      evalue:
+        error instanceof Error
+          ? error.message
+          : "An unexpected error occurred while invoking the UI handler",
+      traceback:
+        error instanceof Error && error.stack ? error.stack.split("\n") : [],
+    });
+    return;
+  }
+
+  if (!result) {
+    return;
+  }
+
+  for (const output of result.outputs) {
+    if (output.type === "stream") {
+      continue;
+    }
+    if (output.type === "display_data" && output.metadata?.["streamed"]) {
+      continue;
+    }
+    sendMessage(connection, { ...output, cellId: cell.id });
+  }
 };
 
 const ensureRuntime = (sessionId: string) => {

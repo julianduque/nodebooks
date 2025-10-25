@@ -21,16 +21,30 @@ import { HeatmapMatrix } from "./components/heatmap";
 import { NetworkGraph } from "./components/network-graph";
 import { Plot3dScene } from "./components/plot3d";
 import { MapView, GeoJsonMap } from "./components/map";
+import { Container } from "./components/container";
+import { InteractiveButton } from "./components/interactive-button";
+import { InteractiveSlider } from "./components/slider";
+import { InteractiveTextInput } from "./components/text-input";
+import {
+  UiInteractionContext,
+  type UiInteractionDispatcher,
+} from "./components/interaction-context";
 
 // UI Renderer
 export interface UiRendererProps {
   display: UiDisplay;
   className?: string;
+  displayId?: string;
+  onInteraction?: UiInteractionDispatcher;
+  disableCard?: boolean;
 }
 
 export const UiRenderer: React.FC<UiRendererProps> = ({
   display,
   className,
+  displayId,
+  onInteraction,
+  disableCard,
 }) => {
   let inner: React.ReactElement | null = null;
   switch (display.ui) {
@@ -91,11 +105,49 @@ export const UiRenderer: React.FC<UiRendererProps> = ({
     case "spinner":
       inner = <Spinner {...display} className={className} />;
       break;
+    case "container": {
+      const { children, ...rest } = display;
+      inner = (
+        <Container
+          {...rest}
+          items={children}
+          className={className}
+          renderItem={(child) => (
+            <UiRenderer
+              display={child}
+              disableCard
+              displayId={displayId}
+              onInteraction={onInteraction}
+            />
+          )}
+        />
+      );
+      break;
+    }
+    case "button":
+      inner = <InteractiveButton {...display} className={className} />;
+      break;
+    case "slider":
+      inner = <InteractiveSlider {...display} className={className} />;
+      break;
+    case "textInput":
+      inner = <InteractiveTextInput {...display} className={className} />;
+      break;
     default:
       inner = null;
   }
   if (!inner) return null;
-  return <UiCard>{inner}</UiCard>;
+  const content = (
+    <UiInteractionContext.Provider
+      value={{ displayId, onInteraction: onInteraction ?? null }}
+    >
+      {inner}
+    </UiInteractionContext.Provider>
+  );
+  if (disableCard) {
+    return content;
+  }
+  return <UiCard>{content}</UiCard>;
 };
 
 export default UiRenderer;
@@ -122,3 +174,12 @@ export { MetricTile } from "./components/metric";
 export { ProgressBar } from "./components/progress";
 export { Spinner } from "./components/spinner";
 export { UiCard } from "./components/ui-card";
+export { Container } from "./components/container";
+export { InteractiveButton } from "./components/interactive-button";
+export { InteractiveSlider } from "./components/slider";
+export { InteractiveTextInput } from "./components/text-input";
+export {
+  UiInteractionContext,
+  type UiInteractionDispatcher,
+  type UiInteractionEvent,
+} from "./components/interaction-context";

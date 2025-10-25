@@ -10,6 +10,7 @@ import {
 } from "react";
 import AppShell from "@/components/app-shell";
 import ConfirmDialog from "@/components/ui/confirm";
+import type { UiInteractionEvent } from "@nodebooks/ui";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   createCodeCell,
@@ -1677,6 +1678,35 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     return map;
   }, [notebook]);
 
+  const handleUiInteraction = useCallback(
+    (cellId: string, event: UiInteractionEvent) => {
+      const socket = socketRef.current;
+      if (!socket || socket.readyState !== WebSocket.OPEN) {
+        console.warn("Kernel is not connected; ignoring interaction");
+        return;
+      }
+      const payload = {
+        type: "ui_event" as const,
+        cellId,
+        handlerId: event.handlerId,
+        event: event.event,
+        payload: event.payload,
+        componentId: event.componentId,
+        displayId: event.displayId,
+        globals:
+          sqlGlobals && Object.keys(sqlGlobals).length > 0
+            ? sqlGlobals
+            : undefined,
+      };
+      try {
+        socket.send(JSON.stringify(payload));
+      } catch (err) {
+        console.error("Failed to send UI interaction", err);
+      }
+    },
+    [sqlGlobals]
+  );
+
   const handleRunCell = useCallback(
     (id: string) => {
       if (!notebook) return;
@@ -1783,6 +1813,26 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         return;
       }
 
+      const requiresQueue =
+        cell.type === "code" || cell.type === "http" || cell.type === "sql";
+      if (requiresQueue) {
+        const busy =
+          runningRef.current !== null ||
+          runPendingRef.current.size > 0 ||
+          runningCellId !== null;
+        const alreadyRunning =
+          runningRef.current === id ||
+          runningCellId === id ||
+          runPendingRef.current.has(id);
+        if (alreadyRunning) {
+          return;
+        }
+        if (busy) {
+          setRunQueue((prev) => (prev.includes(id) ? prev : [...prev, id]));
+          return;
+        }
+      }
+
       if (cell.type === "sql") {
         const connectionId = cell.connectionId?.trim();
         if (!connectionId) {
@@ -1814,6 +1864,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         }
 
         setActionError(null);
+        runningRef.current = id;
         setRunningCellId(id);
         void (async () => {
           try {
@@ -1886,12 +1937,14 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
               { persist: true }
             );
           } finally {
+            if (runningRef.current === id) {
+              runningRef.current = null;
+            }
             setRunningCellId((current) => {
               if (current !== id) {
                 return current;
               }
-              const kernelRunningId = runningRef.current;
-              return kernelRunningId ?? null;
+              return null;
             });
           }
         })();
@@ -1900,6 +1953,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
 
       if (cell.type === "http") {
         setActionError(null);
+        runningRef.current = id;
         setRunningCellId(id);
         void (async () => {
           try {
@@ -1949,12 +2003,14 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
                 : "Failed to execute HTTP request"
             );
           } finally {
+            if (runningRef.current === id) {
+              runningRef.current = null;
+            }
             setRunningCellId((current) => {
               if (current !== id) {
                 return current;
               }
-              const kernelRunningId = runningRef.current;
-              return kernelRunningId ?? null;
+              return null;
             });
           }
         })();
@@ -1965,16 +2021,6 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         return;
       }
 
-      const busy =
-        runningRef.current !== null ||
-        runPendingRef.current.size > 0 ||
-        !!runningCellId;
-      if (busy && runningRef.current !== id && runningCellId !== id) {
-        // Enqueue when another cell is running
-        setRunQueue((prev) => (prev.includes(id) ? prev : [...prev, id]));
-        return;
-      }
-      if (runningCellId === id || runningRef.current === id) return;
       const socket = socketRef.current;
       if (!socket || socket.readyState !== WebSocket.OPEN) {
         setError("Kernel is not connected yet");
@@ -2184,7 +2230,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     );
 
     notebook.cells.forEach((cell) => {
-      if (cell.type === "code" || cell.type === "http") {
+      if (cell.type === "code" || cell.type === "http" || cell.type === "sql") {
         handleRunCell(cell.id);
       }
     });
@@ -2301,11 +2347,20 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     }
     updateNotebook((current) => ({
       ...current,
-      cells: current.cells.map((cell) =>
-        cell.type === "code"
-          ? { ...cell, outputs: [], execution: undefined }
-          : cell
-      ),
+      cells: current.cells.map((cell) => {
+        if (cell.type === "code") {
+          return { ...cell, outputs: [], execution: undefined };
+        }
+        if (cell.type === "http") {
+          const { response: _response, ...rest } = cell;
+          return rest;
+        }
+        if (cell.type === "sql") {
+          const { result: _result, ...rest } = cell;
+          return rest;
+        }
+        return cell;
+      }),
     }));
     handleClearDepOutputs();
   }, [ensureEditable, handleClearDepOutputs, updateNotebook]);
@@ -2846,6 +2901,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         onAbortInstall={handleAbortInstall}
         sqlConnections={notebook?.sql?.connections ?? []}
         onRequestAddConnection={handleRequestAddSqlConnection}
+        onUiInteraction={handleUiInteraction}
       />
       <PublishDialog
         open={publishDialogOpen}

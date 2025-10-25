@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { BeforeMount, OnMount } from "@monaco-editor/react";
 import MonacoEditor from "@/components/notebook/monaco-editor-client";
 import type { NotebookCell } from "@nodebooks/notebook-schema";
+import type { UiInteractionEvent } from "@nodebooks/ui";
 import { Badge } from "@/components/ui/badge";
 import { Loader2, Zap } from "lucide-react";
 import OutputView from "@/components/notebook/output-view";
@@ -32,6 +33,7 @@ interface CodeCellViewProps {
   isGenerating?: boolean;
   editorKey: string;
   readOnly?: boolean;
+  onUiInteraction?: (event: UiInteractionEvent) => Promise<void> | void;
 }
 
 const CodeCellView = ({
@@ -44,6 +46,7 @@ const CodeCellView = ({
   isGenerating = false,
   editorKey,
   readOnly = false,
+  onUiInteraction,
 }: CodeCellViewProps) => {
   const runShortcutRef = useRef(onRun);
   // Start at roughly one visual line + padding (updated on mount)
@@ -252,7 +255,11 @@ const CodeCellView = ({
         <div className="space-y-3 border-t border-slate-800/70 bg-slate-950 px-4 py-4 text-sm text-slate-100">
           {cell.outputs.length > 0 ? (
             cell.outputs.map((output, index) => (
-              <OutputView key={index} output={output} />
+              <OutputView
+                key={index}
+                output={output}
+                onInteraction={onUiInteraction}
+              />
             ))
           ) : (
             <div className="flex items-center gap-2 text-slate-300/80">

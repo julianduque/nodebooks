@@ -2,7 +2,7 @@
 
 import React from "react";
 import type { UiVegaLite } from "@nodebooks/notebook-schema";
-import { UiThemeContext } from "./theme";
+import { useComponentThemeMode } from "./utils";
 
 export type VegaLiteProps = Omit<UiVegaLite, "ui"> & {
   className?: string;
@@ -19,8 +19,7 @@ export const VegaLiteChart: React.FC<VegaLiteProps> = ({
   themeMode,
 }) => {
   const containerRef = React.useRef<HTMLDivElement>(null);
-  const ctx = React.useContext(UiThemeContext);
-  const mode = themeMode ?? ctx ?? "light";
+  const mode = useComponentThemeMode(themeMode);
   const [error, setError] = React.useState<string | null>(null);
 
   React.useEffect(() => {

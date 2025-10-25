@@ -4,7 +4,9 @@ import React from "react";
 export type ThemeMode = "light" | "dark";
 
 // Context to flow theme mode down when UiCard wraps DOM elements
-export const UiThemeContext = React.createContext<ThemeMode>("light");
+export const UiThemeContext = React.createContext<ThemeMode | undefined>(
+  undefined
+);
 
 // Detect the current theme from the document root (set by app ThemeProvider)
 export const detectThemeMode = (): ThemeMode => {

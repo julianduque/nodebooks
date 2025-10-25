@@ -1,8 +1,8 @@
 "use client";
 import React from "react";
-import { UiThemeContext } from "./theme";
 import type { UiSpinner } from "@nodebooks/notebook-schema";
 import { Loader2 } from "lucide-react";
+import { useComponentThemeMode } from "./utils";
 
 type SpinnerProps = Omit<UiSpinner, "ui"> & {
   className?: string;
@@ -14,8 +14,7 @@ export const Spinner: React.FC<SpinnerProps> = ({
   className,
   themeMode,
 }) => {
-  const ctx = React.useContext(UiThemeContext);
-  const mode = themeMode ?? ctx ?? "light";
+  const mode = useComponentThemeMode(themeMode);
   const px =
     typeof size === "number"
       ? size

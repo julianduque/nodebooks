@@ -227,9 +227,9 @@ const ProjectSharingDialog = ({
                   return (
                     <li
                       key={invitation.id}
-                      className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border p-3 text-sm"
+                      className="flex flex-col gap-2 rounded-md border border-border p-3 text-sm sm:flex-row sm:items-start sm:gap-4"
                     >
-                      <div>
+                      <div className="space-y-1">
                         <p className="font-medium text-foreground">
                           {invitation.email}
                         </p>
@@ -246,6 +246,7 @@ const ProjectSharingDialog = ({
                         size="sm"
                         disabled={Boolean(invitation.revokedAt)}
                         onClick={() => onRevokeInvitation(invitation.id)}
+                        className="sm:self-start"
                       >
                         {revokingInvitationId === invitation.id ? (
                           <Loader2 className="h-4 w-4 animate-spin" />
@@ -281,9 +282,9 @@ const ProjectSharingDialog = ({
                   return (
                     <li
                       key={collaborator.id}
-                      className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border p-3 text-sm"
+                      className="flex flex-col gap-2 rounded-md border border-border p-3 text-sm sm:flex-row sm:items-start sm:gap-4"
                     >
-                      <div>
+                      <div className="space-y-1">
                         <p className="font-medium text-foreground">{label}</p>
                         <p className="text-xs text-muted-foreground">
                           {collaborator.user.email}
@@ -292,7 +293,7 @@ const ProjectSharingDialog = ({
                           Role: {collaborator.role}
                         </p>
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:gap-3 sm:self-start">
                         <select
                           value={collaborator.role}
                           onChange={(event) =>
@@ -314,7 +315,7 @@ const ProjectSharingDialog = ({
                           type="button"
                           variant="ghost"
                           size="sm"
-                          className="text-destructive"
+                          className="text-destructive sm:self-start"
                           disabled={isCurrentUser}
                           onClick={() =>
                             onRemoveCollaborator(collaborator.userId)

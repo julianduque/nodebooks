@@ -1,7 +1,7 @@
 "use client";
 import React from "react";
-import { UiThemeContext } from "./theme";
 import type { UiProgress } from "@nodebooks/notebook-schema";
+import { useComponentThemeMode } from "./utils";
 
 type ProgressProps = Omit<UiProgress, "ui"> & {
   className?: string;
@@ -15,8 +15,7 @@ export const ProgressBar: React.FC<ProgressProps> = ({
   className,
   themeMode,
 }) => {
-  const ctx = React.useContext(UiThemeContext);
-  const mode = themeMode ?? ctx ?? "light";
+  const mode = useComponentThemeMode(themeMode);
   const pct =
     typeof value === "number" && max > 0
       ? Math.max(0, Math.min(100, (value / max) * 100))

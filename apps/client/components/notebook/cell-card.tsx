@@ -45,6 +45,7 @@ import {
   type TerminalPreferences,
 } from "@/components/notebook/editor-preferences";
 import { copyTextToClipboard } from "@/lib/clipboard";
+import type { UiInteractionEvent } from "@nodebooks/ui";
 
 interface CellCardProps {
   cell: NotebookCell;
@@ -78,6 +79,10 @@ interface CellCardProps {
   readOnly: boolean;
   sqlConnections: SqlConnection[];
   onRequestAddConnection: () => void;
+  onUiInteraction?: (
+    cellId: string,
+    event: UiInteractionEvent
+  ) => Promise<void> | void;
 }
 
 type CodeCellMetadata = Record<string, unknown> & {
@@ -469,6 +474,7 @@ const CellCard = ({
   readOnly,
   sqlConnections,
   onRequestAddConnection,
+  onUiInteraction,
 }: CellCardProps) => {
   void _active;
   const isCode = cell.type === "code";
@@ -490,6 +496,13 @@ const CellCard = ({
         : isSql
           ? (cell.query ?? "")
           : (cell.source ?? "");
+  const handleUiInteraction = useCallback(
+    (event: UiInteractionEvent) => {
+      if (!onUiInteraction) return;
+      onUiInteraction(cell.id, event);
+    },
+    [onUiInteraction, cell.id]
+  );
   const [showConfig, setShowConfig] = useState(false);
   const [timeoutDraft, setTimeoutDraft] = useState("");
   const [timeoutError, setTimeoutError] = useState<string | null>(null);
@@ -1516,6 +1529,7 @@ const CellCard = ({
           queued={queued}
           isGenerating={aiGenerating}
           readOnly={readOnly}
+          onUiInteraction={handleUiInteraction}
         />
       ) : cell.type === "markdown" ? (
         <MarkdownCellView

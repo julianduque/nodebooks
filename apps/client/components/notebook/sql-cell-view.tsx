@@ -278,9 +278,9 @@ const SqlCellView = ({
           : "border-border bg-card text-foreground shadow-sm"
       )}
     >
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-        <label className="flex-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Connection
+      <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_16rem] sm:items-end">
+        <label className="flex flex-col text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          <span>Connection</span>
           <select
             className={clsx(
               "mt-1 h-9 w-full rounded-md border border-input bg-background px-2 text-sm text-foreground shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500",
@@ -304,8 +304,8 @@ const SqlCellView = ({
             ) : null}
           </select>
         </label>
-        <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground sm:w-64">
-          Assign to variable
+        <label className="flex flex-col text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          <span>Assign to variable</span>
           <Input
             value={cell.assignVariable ?? ""}
             onChange={(event) => handleAssignChange(event.target.value)}

@@ -5,8 +5,10 @@ import {
   createTerminalCell,
   createCommandCell,
   createHttpCell,
+  createSqlCell,
   ensureNotebookRuntimeVersion,
   NotebookEnvSchema,
+  NotebookSqlSchema,
   type CodeCell,
   type CommandCell,
   type HttpCell,
@@ -23,6 +25,9 @@ import {
   type NotebookFileLegacyShellCell,
   type NotebookFileNotebook,
   type NotebookFileTerminalCell,
+  type NotebookFileSqlCell,
+  type NotebookSql,
+  type SqlCell,
 } from "@nodebooks/notebook-schema";
 
 const cloneEnv = (env?: NotebookFileNotebook["env"]): NotebookEnv => {
@@ -32,6 +37,10 @@ const cloneEnv = (env?: NotebookFileNotebook["env"]): NotebookEnv => {
     packages: config.packages ?? {},
     variables: config.variables ?? {},
   });
+};
+
+const cloneSql = (sql?: NotebookFileNotebook["sql"]): NotebookSql => {
+  return NotebookSqlSchema.parse(sql ?? {});
 };
 
 const cloneCells = (cells: NotebookFileCell[]): NotebookCell[] => {
@@ -84,6 +93,18 @@ const cloneCells = (cells: NotebookFileCell[]): NotebookCell[] => {
       result.push(http);
       continue;
     }
+    if (cell.type === "sql") {
+      const sqlCell = cell as NotebookFileSqlCell;
+      const sql = createSqlCell({
+        metadata: sqlCell.metadata ?? {},
+        connectionId: sqlCell.connectionId,
+        query: sqlCell.query,
+        assignVariable: sqlCell.assignVariable,
+        result: sqlCell.result,
+      });
+      result.push(sql);
+      continue;
+    }
     const codeCell = cell as NotebookFileCodeCell;
     result.push(
       createCodeCell({
@@ -101,6 +122,7 @@ export const createNotebookFromFileDefinition = (
   file: NotebookFile
 ): Notebook => {
   const env = cloneEnv(file.notebook.env);
+  const sql = cloneSql(file.notebook.sql);
   const cells = cloneCells(file.notebook.cells ?? []);
   const name =
     file.notebook.name ?? file.title ?? file.description ?? "Imported Notebook";
@@ -108,6 +130,7 @@ export const createNotebookFromFileDefinition = (
     createEmptyNotebook({
       name,
       env,
+      sql,
       cells,
     })
   );
@@ -132,6 +155,16 @@ const serializeEnv = (env: NotebookEnv): NotebookFileNotebook["env"] => {
     result.variables = env.variables;
   }
   return result;
+};
+
+const serializeSql = (
+  sql: NotebookSql
+): NotebookFileNotebook["sql"] | undefined => {
+  const parsed = NotebookSqlSchema.parse(sql ?? {});
+  if (!parsed.connections || parsed.connections.length === 0) {
+    return undefined;
+  }
+  return parsed;
 };
 
 const serializeMarkdownCell = (cell: MarkdownCell): NotebookFileCell => {
@@ -205,6 +238,26 @@ const serializeHttpCell = (cell: HttpCell): NotebookFileCell => {
   return result;
 };
 
+const serializeSqlCell = (cell: SqlCell): NotebookFileCell => {
+  const result: NotebookFileSqlCell = {
+    type: "sql",
+    query: cell.query,
+  };
+  if (!isEmptyRecord(cell.metadata)) {
+    result.metadata = cell.metadata;
+  }
+  if (cell.connectionId) {
+    result.connectionId = cell.connectionId;
+  }
+  if (cell.assignVariable) {
+    result.assignVariable = cell.assignVariable;
+  }
+  if (cell.result) {
+    result.result = cell.result;
+  }
+  return result;
+};
+
 const serializeCells = (cells: NotebookCell[]): NotebookFileCell[] => {
   return cells.map((cell) => {
     if (cell.type === "markdown") {
@@ -219,6 +272,9 @@ const serializeCells = (cells: NotebookCell[]): NotebookFileCell[] => {
     if (cell.type === "http") {
       return serializeHttpCell(cell as HttpCell);
     }
+    if (cell.type === "sql") {
+      return serializeSqlCell(cell as SqlCell);
+    }
     return serializeCodeCell(cell as CodeCell);
   });
 };
@@ -228,12 +284,17 @@ export const serializeNotebookToFileDefinition = (
 ): NotebookFile => {
   const env = serializeEnv(notebook.env);
   const cells = serializeCells(notebook.cells);
+  const sql = serializeSql(notebook.sql);
+  const notebookDefinition: NotebookFileNotebook = {
+    name: notebook.name,
+    env,
+    cells,
+  };
+  if (sql) {
+    notebookDefinition.sql = sql;
+  }
   return {
     title: notebook.name,
-    notebook: {
-      name: notebook.name,
-      env,
-      cells,
-    },
+    notebook: notebookDefinition,
   };
 };

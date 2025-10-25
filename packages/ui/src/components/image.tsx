@@ -1,7 +1,7 @@
 "use client";
 import React from "react";
-import { UiThemeContext } from "./theme";
 import type { UiImage } from "@nodebooks/notebook-schema";
+import { useComponentThemeMode } from "./utils";
 
 type ImageProps = Omit<UiImage, "ui"> & {
   className?: string;
@@ -20,8 +20,7 @@ export const Image: React.FC<ImageProps> = ({
   className,
   themeMode,
 }) => {
-  const ctx = React.useContext(UiThemeContext);
-  const mode = themeMode ?? ctx ?? "light";
+  const mode = useComponentThemeMode(themeMode);
   let resolvedSrc = src;
   const isDataUrl = typeof src === "string" && src.startsWith("data:");
   const isHttp = typeof src === "string" && /^(https?:)?\/\//i.test(src);

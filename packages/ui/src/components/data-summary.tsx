@@ -1,8 +1,7 @@
 "use client";
 import React from "react";
-import { UiThemeContext } from "./theme";
 import type { UiDataSummary } from "@nodebooks/notebook-schema";
-import { deriveColumns, renderCellValue } from "./utils";
+import { deriveColumns, renderCellValue, useComponentThemeMode } from "./utils";
 
 type DataSummaryProps = Omit<UiDataSummary, "ui"> & {
   className?: string;
@@ -20,8 +19,7 @@ export const DataSummary: React.FC<DataSummaryProps> = ({
   className,
   themeMode,
 }) => {
-  const ctx = React.useContext(UiThemeContext);
-  const mode = themeMode ?? ctx ?? "light";
+  const mode = useComponentThemeMode(themeMode);
   const renderStat = (label: string, value: unknown) => {
     if (typeof value === "number" || typeof value === "string") {
       return (

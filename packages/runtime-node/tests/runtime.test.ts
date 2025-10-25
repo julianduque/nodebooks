@@ -142,6 +142,186 @@ describe("NotebookRuntime", () => {
     );
   });
 
+  it("registers and invokes interactive UI handlers", async () => {
+    await withRuntime(undefined, async (runtime) => {
+      const cell = createCodeCell({ id: "cell-ui", language: "ts" });
+      const env = createEnv();
+
+      const result = await runtime.execute({
+        cell,
+        code: `import { UiButton, UiMarkdown } from "@nodebooks/ui";
+const button = UiButton({
+  label: "Run handler",
+  onClick: () => {
+    button.update({ label: "Clicked" });
+    UiMarkdown("Handler executed");
+  },
+});
+button;`,
+        notebookId: "notebook-interactive",
+        env,
+      });
+
+      const display = result.outputs.find((output) => isDisplayData(output)) as
+        | DisplayDataOutput
+        | undefined;
+      expect(display).toBeDefined();
+      const vendor = display?.data?.[NODEBOOKS_UI_MIME as string] as
+        | { action?: { handlerId?: string }; componentId?: string }
+        | undefined;
+      expect(vendor?.action?.handlerId).toBeTruthy();
+      const handlerId = vendor?.action?.handlerId ?? "";
+      const componentId = vendor?.componentId ?? null;
+      const displayId =
+        typeof display?.metadata?.display_id === "string"
+          ? (display.metadata.display_id as string)
+          : undefined;
+      expect(displayId).toBeTruthy();
+
+      const streamed: DisplayDataOutput[] = [];
+      const interaction = await runtime.invokeInteraction({
+        handlerId,
+        notebookId: "notebook-interactive",
+        env,
+        event: "click",
+        componentId: componentId ?? undefined,
+        cellId: cell.id,
+        onDisplay: (output) => {
+          streamed.push(output as DisplayDataOutput);
+        },
+      });
+
+      expect(interaction.execution.status).toBe("ok");
+      const markdownDisplay = interaction.outputs.find((output) =>
+        isDisplayData(output)
+      ) as DisplayDataOutput | undefined;
+      expect(markdownDisplay).toBeDefined();
+      const markdownVendor = markdownDisplay?.data?.[
+        NODEBOOKS_UI_MIME as string
+      ] as { ui?: string; markdown?: string } | undefined;
+      expect(markdownVendor?.ui).toBe("markdown");
+      expect(markdownVendor?.markdown).toContain("Handler executed");
+
+      const buttonUpdate = streamed.find(
+        (output) => output.metadata?.display_id === displayId
+      );
+      expect(buttonUpdate).toBeDefined();
+      const updateVendor = buttonUpdate?.data?.[NODEBOOKS_UI_MIME as string] as
+        | { label?: string }
+        | undefined;
+      expect(updateVendor?.label).toBe("Clicked");
+      expect(buttonUpdate?.type).toBe("update_display_data");
+    });
+  });
+
+  it("exposes lowercase UI helper aliases", async () => {
+    await withRuntime(undefined, async (runtime) => {
+      const cell = createCodeCell({ id: "cell-ui-aliases", language: "ts" });
+
+      const result = await runtime.execute({
+        cell,
+        code: [
+          'import ui, { markdown as markdownExport, dataSummary as dataSummaryExport } from "@nodebooks/ui";',
+          "",
+          "const aliasKeys: Array<keyof typeof ui> = [",
+          '  "image",',
+          '  "markdown",',
+          '  "html",',
+          '  "json",',
+          '  "code",',
+          '  "table",',
+          '  "dataSummary",',
+          '  "vegaLite",',
+          '  "plotly",',
+          '  "heatmap",',
+          '  "networkGraph",',
+          '  "plot3d",',
+          '  "map",',
+          '  "geoJson",',
+          '  "alert",',
+          '  "badge",',
+          '  "metric",',
+          '  "progress",',
+          '  "spinner",',
+          '  "container",',
+          '  "button",',
+          '  "slider",',
+          '  "textInput",',
+          "];",
+          "for (const key of aliasKeys) {",
+          'if (typeof ui[key] !== "function") {',
+          "throw new Error(`Missing alias: ${key}`);",
+          "}",
+          "}",
+          "if (markdownExport !== ui.markdown) {",
+          'throw new Error("Named export mismatch for markdown");',
+          "}",
+          "if (dataSummaryExport !== ui.dataSummary) {",
+          'throw new Error("Named export mismatch for dataSummary");',
+          "}",
+          "",
+          "const displays = [",
+          '  markdownExport("Alias markdown via named export"),',
+          "  ui.json({ alias: true }),",
+          '  ui.html("<strong>Alias HTML</strong>"),',
+          '  dataSummaryExport({ title: "Alias summary" }),',
+          "  ui.heatmap([[1, 2], [3, 4]]),",
+          "  ui.plot3d(),",
+          "  ui.container(",
+          "    [",
+          '      ui.markdown({ markdown: "Inline child", emit: false }),',
+          '      ui.metric(7, { label: "Score", emit: false }),',
+          "    ],",
+          '    { componentId: "alias-container", direction: "vertical", gap: 8 }',
+          "  ),",
+          "  ui.button({",
+          '    componentId: "alias-button",',
+          '    label: "Alias button",',
+          "    onClick: () => {},",
+          "  }),",
+          "  ui.slider({",
+          '    componentId: "alias-slider",',
+          "    min: 0,",
+          "    max: 100,",
+          "    value: 50,",
+          "    showValue: true,",
+          "  }),",
+          "  ui.textInput({",
+          '    componentId: "alias-text",',
+          '    label: "Alias input",',
+          '    value: "hello",',
+          "  }),",
+          "];",
+          "",
+          "displays[displays.length - 1];",
+        ].join("\n"),
+        notebookId: "notebook-ui-aliases",
+        env: createEnv(),
+      });
+
+      const displays = result.outputs.filter(isDisplayData);
+      expect(displays.length).toBeGreaterThanOrEqual(10);
+      const uis = displays
+        .map((output) => {
+          const payload = output.data?.[NODEBOOKS_UI_MIME as string] as
+            | { ui?: string }
+            | undefined;
+          return payload?.ui;
+        })
+        .filter((uiType): uiType is string => !!uiType);
+      expect(uis).toContain("markdown");
+      expect(uis).toContain("json");
+      expect(uis).toContain("html");
+      expect(uis).toContain("dataSummary");
+      expect(uis).toContain("heatmap");
+      expect(uis).toContain("plot3d");
+      expect(uis).toContain("container");
+      expect(uis).toContain("button");
+      expect(uis).toContain("slider");
+      expect(uis).toContain("textInput");
+    });
+  });
+
   it("restricts fs access to the sandbox directory", async () => {
     await withRuntime(
       { installDependencies: async () => {} },

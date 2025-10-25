@@ -4,6 +4,7 @@ import type {
   NotebookOutput,
   SqlConnection,
 } from "@nodebooks/notebook-schema";
+import type { UiInteractionEvent } from "@nodebooks/ui";
 
 import AddCellMenu from "@/components/notebook/add-cell-menu";
 import CellCard from "@/components/notebook/cell-card";
@@ -59,6 +60,10 @@ export interface NotebookEditorViewProps {
   onAbortInstall(): void;
   sqlConnections: SqlConnection[];
   onRequestAddConnection(): void;
+  onUiInteraction?: (
+    cellId: string,
+    event: UiInteractionEvent
+  ) => Promise<void> | void;
 }
 
 const NotebookEditorView = ({
@@ -93,6 +98,7 @@ const NotebookEditorView = ({
   onAbortInstall,
   sqlConnections,
   onRequestAddConnection,
+  onUiInteraction,
 }: NotebookEditorViewProps) => {
   if (loading) {
     return (
@@ -224,7 +230,7 @@ const NotebookEditorView = ({
     <div className="flex min-h-full flex-1 flex-col">
       {readOnly ? (
         <div className="px-2 pt-2">
-          <div className="mx-auto w-full max-w-5xl">
+          <div className="mx-auto w-full max-w-6xl">
             <AlertCallout
               level="info"
               text={readOnlyMessage ?? "This notebook is currently read-only."}
@@ -235,7 +241,7 @@ const NotebookEditorView = ({
       ) : null}
       <div className="flex flex-1 overflow-visible">
         <div className="flex-1 px-2 py-2">
-          <div className="mx-auto flex w-full max-w-5xl flex-col space-y-4">
+          <div className="mx-auto flex w-full max-w-6xl flex-col space-y-4">
             {error ? (
               <AlertCallout level="error" text={error} themeMode={themeMode} />
             ) : null}
@@ -312,6 +318,7 @@ const NotebookEditorView = ({
                     readOnly={readOnly}
                     sqlConnections={sqlConnections}
                     onRequestAddConnection={onRequestAddConnection}
+                    onUiInteraction={onUiInteraction}
                   />
                 );
               })}

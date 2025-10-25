@@ -18,6 +18,20 @@ export interface ExecuteOptions {
   globals?: Record<string, unknown>;
 }
 
+export interface InvokeInteractionOptions {
+  handlerId: string;
+  notebookId: string;
+  env: NotebookEnv;
+  event: string;
+  payload?: unknown;
+  componentId?: string;
+  cellId?: string;
+  timeoutMs?: number;
+  globals?: Record<string, unknown>;
+  onStream?: (output: StreamOutput) => void;
+  onDisplay?: (output: DisplayDataOutput) => void;
+}
+
 export interface ExecuteResult {
   outputs: Array<
     | StreamOutput
@@ -40,10 +54,57 @@ export class WorkerClient {
         this.reserved = this.pool.reserve();
       }
       const res = await this.reserved.run(jobId, {
+        kind: "execute",
         cell: opts.cell,
         code: opts.code,
         notebookId: opts.notebookId,
         env: opts.env,
+        timeoutMs: opts.timeoutMs,
+        globals: opts.globals,
+        onStdout: (text) =>
+          opts.onStream?.({ type: "stream", name: "stdout", text }),
+        onStderr: (text) =>
+          opts.onStream?.({ type: "stream", name: "stderr", text }),
+        onDisplay: (obj) => {
+          try {
+            const d = obj as DisplayDataOutput;
+            if (
+              d &&
+              (d.type === "display_data" ||
+                d.type === "update_display_data" ||
+                d.type === "execute_result")
+            ) {
+              opts.onDisplay?.(d);
+            }
+          } catch (err) {
+            void err;
+          }
+        },
+      });
+      return res as ExecuteResult;
+    } finally {
+      if (this.currentJobId === jobId) this.currentJobId = null;
+    }
+  }
+
+  async invokeInteraction(
+    opts: InvokeInteractionOptions
+  ): Promise<ExecuteResult> {
+    const jobId = `${opts.notebookId}:${opts.handlerId}:${Date.now()}`;
+    this.currentJobId = jobId;
+    try {
+      if (!this.reserved) {
+        this.reserved = this.pool.reserve();
+      }
+      const res = await this.reserved.run(jobId, {
+        kind: "invoke",
+        handlerId: opts.handlerId,
+        notebookId: opts.notebookId,
+        env: opts.env,
+        event: opts.event,
+        payload: opts.payload,
+        componentId: opts.componentId,
+        cellId: opts.cellId,
         timeoutMs: opts.timeoutMs,
         globals: opts.globals,
         onStdout: (text) =>

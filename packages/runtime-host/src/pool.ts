@@ -21,6 +21,25 @@ export interface ExecuteOptions {
   onDisplay?: (obj: unknown) => void;
 }
 
+export interface InvokeHandlerOptions {
+  handlerId: string;
+  notebookId: string;
+  env: NotebookEnv;
+  event: string;
+  payload?: unknown;
+  componentId?: string;
+  cellId?: string;
+  globals?: Record<string, unknown>;
+  timeoutMs?: number;
+  onStdout?: (text: string) => void;
+  onStderr?: (text: string) => void;
+  onDisplay?: (obj: unknown) => void;
+}
+
+type WorkerJobOptions =
+  | ({ kind: "execute" } & ExecuteOptions)
+  | ({ kind: "invoke" } & InvokeHandlerOptions);
+
 export interface ExecuteResult {
   outputs: unknown[];
   execution: {
@@ -98,10 +117,14 @@ export class WorkerPool {
     this.opts.perJobTimeoutMs = timeoutMs;
   }
 
-  async run(jobId: string, opts: ExecuteOptions): Promise<ExecuteResult> {
+  async run(
+    jobId: string,
+    opts: WorkerJobOptions | ExecuteOptions
+  ): Promise<ExecuteResult> {
+    const job = this.normalizeJobOptions(opts);
     const worker = await this.acquire();
     try {
-      return await this.runOnWorker(worker, jobId, opts);
+      return await this.runOnWorker(worker, jobId, job);
     } finally {
       this.release(worker);
     }
@@ -127,10 +150,22 @@ export class WorkerPool {
     entry.cancelTimer = timer;
   }
 
+  private normalizeJobOptions(
+    opts: WorkerJobOptions | ExecuteOptions
+  ): WorkerJobOptions {
+    if ("kind" in opts) {
+      if (opts.kind === "invoke") {
+        return opts as WorkerJobOptions;
+      }
+      return { ...(opts as ExecuteOptions), kind: "execute" };
+    }
+    return { ...(opts as ExecuteOptions), kind: "execute" };
+  }
+
   private async runOnWorker(
     worker: WorkerHandle,
     jobId: string,
-    opts: ExecuteOptions
+    opts: WorkerJobOptions
   ): Promise<ExecuteResult> {
     const started = Date.now();
     const child = worker.child;
@@ -199,19 +234,36 @@ export class WorkerPool {
 
       child.on("message", onMessage);
 
-      const payload: IpcRunCell = {
-        type: "RunCell",
-        jobId,
-        cell: opts.cell,
-        code: opts.code,
-        notebookId: opts.notebookId,
-        env: opts.env,
-        timeoutMs: opts.timeoutMs ?? this.opts.perJobTimeoutMs,
-        globals: opts.globals,
-      };
       // Track active job
       this.active.set(jobId, { worker, resolve, reject, bytes: 0 });
-      child.send(payload);
+      const timeout = opts.timeoutMs ?? this.opts.perJobTimeoutMs;
+      if (opts.kind === "execute") {
+        const payload: IpcRunCell = {
+          type: "RunCell",
+          jobId,
+          cell: opts.cell,
+          code: opts.code,
+          notebookId: opts.notebookId,
+          env: opts.env,
+          timeoutMs: timeout,
+          globals: opts.globals,
+        };
+        child.send(payload);
+      } else {
+        child.send({
+          type: "InvokeHandler",
+          jobId,
+          handlerId: opts.handlerId,
+          notebookId: opts.notebookId,
+          env: opts.env,
+          event: opts.event,
+          payload: opts.payload,
+          componentId: opts.componentId,
+          cellId: opts.cellId,
+          timeoutMs: timeout,
+          globals: opts.globals,
+        });
+      }
     });
 
     return await result.finally(() => {
@@ -259,10 +311,11 @@ export class WorkerPool {
     let released = false;
     const runOnChild = (
       jobId: string,
-      opts: ExecuteOptions
+      opts: WorkerJobOptions | ExecuteOptions
     ): Promise<ExecuteResult> => {
       runningJobId = jobId;
       return new Promise<ExecuteResult>((resolve, reject) => {
+        const job = this.normalizeJobOptions(opts);
         rejectCurrent = reject;
         let bytes = 0;
         const onMessage = (raw: unknown) => {
@@ -273,7 +326,7 @@ export class WorkerPool {
             ) {
               const payload = raw as { data?: unknown };
               if (payload.data) {
-                opts.onDisplay?.(payload.data as DisplayDataOutput);
+                job.onDisplay?.(payload.data as DisplayDataOutput);
               }
               return;
             }
@@ -310,11 +363,11 @@ export class WorkerPool {
             const frame = tryDecode(arr);
             if (!frame) return;
             if (frame.kind === StreamKind.Display) {
-              opts.onDisplay?.((frame as { data: unknown }).data);
+              job.onDisplay?.((frame as { data: unknown }).data);
             } else if (frame.kind === StreamKind.Stdout) {
-              opts.onStdout?.((frame as { text: string }).text);
+              job.onStdout?.((frame as { text: string }).text);
             } else if (frame.kind === StreamKind.Stderr) {
-              opts.onStderr?.((frame as { text: string }).text);
+              job.onStderr?.((frame as { text: string }).text);
             }
           }
         };
@@ -328,17 +381,34 @@ export class WorkerPool {
           }
         };
         child.on("message", onMessage);
-        const payload: IpcRunCell = {
-          type: "RunCell",
-          jobId,
-          cell: opts.cell,
-          code: opts.code,
-          notebookId: opts.notebookId,
-          env: opts.env,
-          timeoutMs: opts.timeoutMs ?? this.opts.perJobTimeoutMs,
-          globals: opts.globals,
-        };
-        child.send(payload);
+        const timeout = job.timeoutMs ?? this.opts.perJobTimeoutMs;
+        if (job.kind === "execute") {
+          const payload: IpcRunCell = {
+            type: "RunCell",
+            jobId,
+            cell: job.cell,
+            code: job.code,
+            notebookId: job.notebookId,
+            env: job.env,
+            timeoutMs: timeout,
+            globals: job.globals,
+          };
+          child.send(payload);
+        } else {
+          child.send({
+            type: "InvokeHandler",
+            jobId,
+            handlerId: job.handlerId,
+            notebookId: job.notebookId,
+            env: job.env,
+            event: job.event,
+            payload: job.payload,
+            componentId: job.componentId,
+            cellId: job.cellId,
+            timeoutMs: timeout,
+            globals: job.globals,
+          });
+        }
       });
     };
 
@@ -486,13 +556,6 @@ const spawnWorker = (opts: Required<WorkerPoolOptions>): ChildProcess => {
     serialization: "advanced",
     execArgv,
     env: { ...process.env, NODEBOOKS_BATCH_MS: String(opts.batchMs) },
-  });
-
-  child.stdout?.on("data", (buf: Buffer) => {
-    process.stderr.write(`[worker:${child.pid}] ${buf}`);
-  });
-  child.stderr?.on("data", (buf: Buffer) => {
-    process.stderr.write(`[worker:${child.pid} ERR] ${buf}`);
   });
   return child;
 };

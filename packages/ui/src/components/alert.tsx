@@ -1,9 +1,9 @@
 "use client";
 import React from "react";
-import { UiThemeContext } from "./theme";
 import type { UiAlert } from "@nodebooks/notebook-schema";
 import DOMPurify from "dompurify";
 import { AlertTriangle, CheckCircle2, Info, OctagonX } from "lucide-react";
+import { useComponentThemeMode } from "./utils";
 
 type AlertProps = Omit<UiAlert, "ui"> & {
   className?: string;
@@ -72,8 +72,7 @@ export const AlertCallout: React.FC<AlertProps> = ({
   className,
   themeMode,
 }) => {
-  const ctx = React.useContext(UiThemeContext);
-  const mode = themeMode ?? ctx ?? "light";
+  const mode = useComponentThemeMode(themeMode);
   const palette = mode === "light" ? light : dark;
   const s = palette[level] ?? palette.info;
   const content = html

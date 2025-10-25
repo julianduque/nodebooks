@@ -1,0 +1,158 @@
+id: interactive-components
+title: Interactive Components Notebook
+description: >-
+  Experiment with the slider, text input, and container displays while keeping
+  interaction handlers in one place.
+badge:
+  text: UI
+  tone: sky
+tags:
+  - ui
+  - interactions
+  - controls
+order: 30
+notebook:
+  name: Interactive Components
+  env:
+    runtime: node
+    version: "22.x"
+    packages: {}
+    variables: {}
+  cells:
+    - type: markdown
+      source: |-
+        # Interactive controls quickstart
+
+        Use this notebook to try the slider and text input displays, wire them
+        into notebook logic, and group everything inside a container.
+    - type: code
+      language: ts
+      source: |-
+        import {
+          button,
+          container,
+          metric,
+          progress,
+          slider,
+          textInput,
+          markdown,
+        } from "@nodebooks/ui";
+
+        let alertThreshold = 60;
+        let runbookNotes = "Investigate pod churn before rollout.";
+        let lastCanary = null as string | null;
+        let panelHandle: ReturnType<typeof container> | null = null;
+
+        const readinessFromThreshold = () => {
+          return Math.min(100, Math.max(0, Math.round(alertThreshold * 0.9)));
+        };
+
+        const markdownSummary = () => {
+          const heading =
+            lastCanary === null
+              ? "Use the controls to capture context before promoting changes."
+              : `Last canary check triggered at **${lastCanary}**.`;
+          return `${heading}\n\nCurrent alert threshold: **${alertThreshold}%**.`;
+        };
+
+        function buildChildren() {
+          return [
+            slider({
+              emit: false,
+              componentId: "ops-threshold",
+              label: "Alert threshold",
+              description: "Page the on-call when CPU crosses this value.",
+              min: 0,
+              max: 100,
+              value: alertThreshold,
+              showValue: true,
+              onCommit: (next) => {
+                alertThreshold = next;
+                refreshPanel();
+                console.log("Committed threshold:", next);
+              },
+            }),
+            progress({
+              emit: false,
+              componentId: "ops-readiness",
+              label: "Rollout readiness",
+              value: readinessFromThreshold(),
+              max: 100,
+            }),
+            metric({
+              emit: false,
+              componentId: "ops-threshold-metric",
+              label: "Threshold",
+              value: alertThreshold,
+              unit: "%",
+              helpText: "Updates after committing a new threshold.",
+            }),
+            textInput({
+              emit: false,
+              componentId: "ops-notes",
+              label: "Runbook notes",
+              placeholder: "Summarize the decision and handoff context.",
+              value: runbookNotes,
+              multiline: true,
+              rows: 4,
+              onChange: async (next) => {
+                runbookNotes = next;
+                refreshPanel();
+              },
+              onSubmit: async (next) => {
+                console.log("Submitted notes:", next);
+              },
+            }),
+            button({
+              emit: false,
+              componentId: "ops-canary",
+              label: "Trigger canary check",
+              variant: "secondary",
+              onClick: async () => {
+                lastCanary = new Date().toLocaleString();
+                refreshPanel();
+                console.log("Canary check dispatched at", lastCanary);
+              },
+            }),
+            markdown({
+              emit: false,
+              componentId: "ops-summary",
+              markdown: markdownSummary(),
+            }),
+          ];
+        }
+
+        function refreshPanel() {
+          if (!panelHandle) return;
+          panelHandle.update({
+            children: buildChildren(),
+          });
+        }
+
+        export function renderControls() {
+          panelHandle = container(buildChildren(), {
+            componentId: "ops-control-panel",
+            direction: "vertical",
+            gap: 16,
+            padding: [16, 24],
+            title: "Operations control panel",
+            subtitle: "Tune alert thresholds and capture handoff notes.",
+          });
+          return panelHandle;
+        }
+
+        renderControls();
+    - type: markdown
+      source: |-
+        ## Interaction flow
+
+        ```mermaid
+        sequenceDiagram
+          participant User
+          participant UI as UI Controls
+          participant Notebook
+          User->>UI: Adjust slider / edit note
+          UI->>Notebook: Dispatch onChange / onSubmit
+          Notebook->>Notebook: Update state, log audit trail
+          Notebook-->>UI: Rerun the cell to refresh derived displays
+        ```

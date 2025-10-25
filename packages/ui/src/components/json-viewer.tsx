@@ -1,9 +1,9 @@
 "use client";
 import React from "react";
-import { UiThemeContext } from "./theme";
 import type { UiJson } from "@nodebooks/notebook-schema";
 import { ChevronRight } from "lucide-react";
 import { CodeBlock } from "./code-block";
+import { useComponentThemeMode } from "./utils";
 
 type JsonViewerProps = Omit<UiJson, "ui"> & {
   className?: string;
@@ -234,8 +234,7 @@ export const JsonViewer: React.FC<JsonViewerProps> = ({
   className,
   themeMode,
 }) => {
-  const ctx = React.useContext(UiThemeContext);
-  const mode = themeMode ?? ctx ?? "light";
+  const mode = useComponentThemeMode(themeMode);
   const [forceOpen, setForceOpen] = React.useState<null | boolean>(true);
   const [version, setVersion] = React.useState(0);
   const [allOpen, setAllOpen] = React.useState(true);

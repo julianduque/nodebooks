@@ -56,13 +56,15 @@ notebook:
     - type: code
       language: ts
       source: |-
+        import { json } from "@nodebooks/ui";
         const checklist = {
           markdown: true,
           code: true,
           uiComponents: true,
         };
-
+        
         console.log("Starter template components ready:", checklist);
+        json(checklist);
     - type: markdown
       source: |-
         ## Math with LaTeX
