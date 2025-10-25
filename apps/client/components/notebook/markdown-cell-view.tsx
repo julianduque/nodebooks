@@ -15,17 +15,18 @@ import {
 import {
   DEFAULT_MARKDOWN_EDITOR_SETTINGS,
   type MonacoEditorSettings,
-} from "./editor-preferences";
+} from "@/components/notebook/editor-preferences";
 import {
   loadMermaid,
   renderMarkdownToHtml,
   waitNextTick,
-} from "./markdown-preview-utils";
+} from "@/components/notebook/markdown-preview-utils";
 import {
   MONACO_EDITOR_CONTAINER_CLASS,
   MONACO_EDITOR_WRAPPER_CLASS,
   MONACO_SECTION_PADDING_CLASS,
-} from "./monaco-styles";
+} from "@/components/notebook/monaco-styles";
+import { CopyButton } from "@/components/ui/copy-button";
 
 interface MarkdownCellViewProps {
   cell: Extract<NotebookCell, { type: "markdown" }>;
@@ -368,7 +369,13 @@ const MarkdownCellView = ({
       ) : null}
       {isEditing ? (
         <div className="relative">
-          <div className={MONACO_EDITOR_WRAPPER_CLASS}>
+          <div className={`relative ${MONACO_EDITOR_WRAPPER_CLASS}`}>
+            <CopyButton
+              value={() => cell.source ?? ""}
+              className="absolute right-3 top-3 z-10"
+              aria-label="Copy markdown source"
+              variant="dark"
+            />
             <MonacoEditor
               className={MONACO_EDITOR_CONTAINER_CLASS}
               key={editorKey}

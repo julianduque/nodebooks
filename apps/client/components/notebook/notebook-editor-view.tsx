@@ -131,7 +131,7 @@ const NotebookEditorView = ({
   const isEmpty = notebook.cells.length === 0;
   const showInstallPanel = depBusy || depOutputs.length > 0 || depError;
   const installPanel = !showInstallPanel ? null : (
-    <div className="mb-4 rounded-lg border border-border bg-card/80 p-3 text-card-foreground shadow-sm">
+    <div className="rounded-lg border border-border bg-card/80 p-3 text-card-foreground shadow-sm">
       <div className="flex items-center justify-between gap-2">
         <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
           Install output
@@ -224,100 +224,98 @@ const NotebookEditorView = ({
     <div className="flex min-h-full flex-1 flex-col">
       {readOnly ? (
         <div className="px-2 pt-2">
-          <AlertCallout
-            level="info"
-            text={readOnlyMessage ?? "This notebook is currently read-only."}
-            themeMode={themeMode}
-          />
+          <div className="mx-auto w-full max-w-5xl">
+            <AlertCallout
+              level="info"
+              text={readOnlyMessage ?? "This notebook is currently read-only."}
+              themeMode={themeMode}
+            />
+          </div>
         </div>
       ) : null}
       <div className="flex flex-1 overflow-visible">
         <div className="flex-1 px-2 py-2">
-          {error ? (
-            <AlertCallout
-              level="error"
-              text={error}
-              className="mb-6"
-              themeMode={themeMode}
-            />
-          ) : null}
-          {actionError ? (
-            <AlertCallout
-              level="error"
-              text={actionError}
-              className="mb-6"
-              themeMode={themeMode}
-            />
-          ) : null}
-          {installPanel}
-          <div className="space-y-2">
-            {isEmpty ? renderEmptyState() : null}
-            {notebook.cells.map((cell, index) => {
-              const cellCanRun =
-                cell.type === "command" ||
-                cell.type === "http" ||
-                cell.type === "sql"
-                  ? !readOnly
-                  : socketReady && !readOnly;
-              return (
-                <CellCard
-                  key={cell.id}
-                  cell={cell}
-                  notebookId={notebook.id}
-                  onAttachmentUploaded={onAttachmentUploaded}
-                  isRunning={runningCellId === cell.id}
-                  queued={runQueue.includes(cell.id)}
-                  canRun={cellCanRun}
-                  canMoveUp={index > 0}
-                  canMoveDown={index < notebook.cells.length - 1}
-                  editorKey={`${cell.id}:${index}`}
-                  editorPath={
-                    cell.type === "code"
-                      ? cellUri(notebook.id, index, {
-                          id: cell.id,
-                          language: cell.language === "ts" ? "ts" : "js",
-                        })
-                      : undefined
-                  }
-                  active={activeCellId === cell.id}
-                  onActivate={() => onActivateCell(cell.id)}
-                  onChange={(updater, options) => {
-                    if (readOnly) return;
-                    onCellChange(cell.id, updater, options);
-                  }}
-                  onDelete={() => {
-                    if (readOnly) return;
-                    onDeleteCell(cell.id);
-                  }}
-                  onRun={() => {
-                    if (readOnly) return;
-                    onRunCell(cell.id);
-                  }}
-                  onInterrupt={() => {
-                    if (readOnly) return;
-                    onInterruptKernel();
-                  }}
-                  onMove={(direction) => {
-                    if (readOnly) return;
-                    onMoveCell(cell.id, direction);
-                  }}
-                  onAddBelow={(type) => {
-                    if (readOnly) return;
-                    onAddCell(type, index + 1);
-                  }}
-                  onCloneHttpToCode={onCloneHttpToCode}
-                  onCloneSqlToCode={onCloneSqlToCode}
-                  aiEnabled={aiEnabled}
-                  terminalCellsEnabled={terminalCellsEnabled}
-                  dependencies={notebook.env.packages}
-                  variables={notebook.env.variables ?? {}}
-                  pendingTerminalPersist={pendingTerminalIds.has(cell.id)}
-                  readOnly={readOnly}
-                  sqlConnections={sqlConnections}
-                  onRequestAddConnection={onRequestAddConnection}
-                />
-              );
-            })}
+          <div className="mx-auto flex w-full max-w-5xl flex-col space-y-4">
+            {error ? (
+              <AlertCallout level="error" text={error} themeMode={themeMode} />
+            ) : null}
+            {actionError ? (
+              <AlertCallout
+                level="error"
+                text={actionError}
+                themeMode={themeMode}
+              />
+            ) : null}
+            {installPanel}
+            <div className="space-y-2">
+              {isEmpty ? renderEmptyState() : null}
+              {notebook.cells.map((cell, index) => {
+                const cellCanRun =
+                  cell.type === "command" ||
+                  cell.type === "http" ||
+                  cell.type === "sql"
+                    ? !readOnly
+                    : socketReady && !readOnly;
+                return (
+                  <CellCard
+                    key={cell.id}
+                    cell={cell}
+                    notebookId={notebook.id}
+                    onAttachmentUploaded={onAttachmentUploaded}
+                    isRunning={runningCellId === cell.id}
+                    queued={runQueue.includes(cell.id)}
+                    canRun={cellCanRun}
+                    canMoveUp={index > 0}
+                    canMoveDown={index < notebook.cells.length - 1}
+                    editorKey={`${cell.id}:${index}`}
+                    editorPath={
+                      cell.type === "code"
+                        ? cellUri(notebook.id, index, {
+                            id: cell.id,
+                            language: cell.language === "ts" ? "ts" : "js",
+                          })
+                        : undefined
+                    }
+                    active={activeCellId === cell.id}
+                    onActivate={() => onActivateCell(cell.id)}
+                    onChange={(updater, options) => {
+                      if (readOnly) return;
+                      onCellChange(cell.id, updater, options);
+                    }}
+                    onDelete={() => {
+                      if (readOnly) return;
+                      onDeleteCell(cell.id);
+                    }}
+                    onRun={() => {
+                      if (readOnly) return;
+                      onRunCell(cell.id);
+                    }}
+                    onInterrupt={() => {
+                      if (readOnly) return;
+                      onInterruptKernel();
+                    }}
+                    onMove={(direction) => {
+                      if (readOnly) return;
+                      onMoveCell(cell.id, direction);
+                    }}
+                    onAddBelow={(type) => {
+                      if (readOnly) return;
+                      onAddCell(type, index + 1);
+                    }}
+                    onCloneHttpToCode={onCloneHttpToCode}
+                    onCloneSqlToCode={onCloneSqlToCode}
+                    aiEnabled={aiEnabled}
+                    terminalCellsEnabled={terminalCellsEnabled}
+                    dependencies={notebook.env.packages}
+                    variables={notebook.env.variables ?? {}}
+                    pendingTerminalPersist={pendingTerminalIds.has(cell.id)}
+                    readOnly={readOnly}
+                    sqlConnections={sqlConnections}
+                    onRequestAddConnection={onRequestAddConnection}
+                  />
+                );
+              })}
+            </div>
           </div>
         </div>
       </div>

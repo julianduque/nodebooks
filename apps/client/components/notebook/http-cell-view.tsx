@@ -10,13 +10,14 @@ import {
 } from "react";
 import type { ClipboardEvent, FocusEvent, KeyboardEvent } from "react";
 import clsx from "clsx";
-import { Check, Copy, Plus, Trash2, X } from "lucide-react";
+import { Plus, Trash2, X } from "lucide-react";
 import hljs from "highlight.js";
 import type { HttpRequest, NotebookCell } from "@nodebooks/notebook-schema";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { AlertCallout } from "@nodebooks/ui";
+import { AlertCallout, CodeBlock } from "@nodebooks/ui";
+import { useTheme } from "@/components/theme-context";
 
 const VARIABLE_PATTERN = /\{\{\s*([A-Z0-9_]+)\s*\}\}/gi;
 type BodyMode = HttpRequest["body"]["mode"];
@@ -206,6 +207,23 @@ const highlightJson = (value: string) => {
   } catch {
     return undefined;
   }
+};
+
+const guessLanguageFromContentType = (
+  contentType?: string | null,
+  value?: string | null
+) => {
+  const normalized = contentType?.toLowerCase() ?? "";
+  if (normalized.includes("json")) return "json";
+  if (normalized.includes("javascript")) return "javascript";
+  if (normalized.includes("typescript")) return "typescript";
+  if (normalized.includes("html")) return "html";
+  if (normalized.includes("xml")) return "xml";
+  if (normalized.includes("yaml") || normalized.includes("yml")) return "yaml";
+  if (normalized.includes("css")) return "css";
+  if (normalized.includes("csv")) return "csv";
+  if (value && looksLikeJson(value)) return "json";
+  return undefined;
 };
 
 interface ParsedCurlCommand {
@@ -532,6 +550,8 @@ const HttpCellView = ({
     body: { mode: "none", text: "", contentType: "application/json" },
   };
   const response = cell.response;
+  const { theme } = useTheme();
+  const themeMode = theme === "dark" ? "dark" : "light";
 
   const methodFieldId = useId();
   const urlFieldId = useId();
@@ -1193,7 +1213,7 @@ const HttpCellView = ({
 
   const responseBodyContent = useMemo(() => {
     if (!response?.body) {
-      return { text: null, highlighted: null, isJson: false } as const;
+      return { text: null, language: undefined } as const;
     }
     if (response.body.type === "json") {
       let rawText: string | null = null;
@@ -1207,7 +1227,7 @@ const HttpCellView = ({
         }
       }
       if (rawText === null) {
-        return { text: null, highlighted: null, isJson: true } as const;
+        return { text: null, language: "json" } as const;
       }
       let formatted = rawText;
       try {
@@ -1215,27 +1235,39 @@ const HttpCellView = ({
       } catch {
         // Keep original formatting when parsing fails.
       }
-      const highlighted = highlightJson(formatted ?? "");
       return {
         text: formatted,
-        highlighted: highlighted ?? null,
-        isJson: true,
+        language: "json",
       } as const;
     }
-    if (response.body.type === "text" || response.body.type === "binary") {
+    if (response.body.type === "text") {
+      const text = response.body.text ?? "";
       return {
-        text: response.body.text ?? "",
-        highlighted: null,
-        isJson: false,
+        text,
+        language: guessLanguageFromContentType(response.body.contentType, text),
       } as const;
     }
-    return { text: null, highlighted: null, isJson: false } as const;
+    if (response.body.type === "binary") {
+      return { text: null, language: undefined } as const;
+    }
+    return { text: null, language: undefined } as const;
   }, [response]);
 
   const responseCopyText = responseBodyContent.text ?? response?.error ?? null;
-  const responseBodyClass = responseBodyContent.isJson
-    ? "text-slate-700 dark:text-slate-100"
-    : "text-slate-700 dark:text-slate-200";
+  const responseHasBodyText =
+    typeof responseBodyContent.text === "string" &&
+    responseBodyContent.text.trim().length > 0;
+  const responseDisplayText =
+    typeof responseBodyContent.text === "string"
+      ? responseHasBodyText
+        ? responseBodyContent.text
+        : "(empty)"
+      : "";
+  const responseLanguage = responseHasBodyText
+    ? responseBodyContent.language
+    : undefined;
+  const responseCopyPayload =
+    responseCopyText && responseCopyText.length > 0 ? responseCopyText : null;
 
   const [responseCopied, setResponseCopied] = useState(false);
   const [curlCopied, setCurlCopied] = useState(false);
@@ -1266,31 +1298,7 @@ const HttpCellView = ({
     setResponseCopied(false);
   }, [responseBodyContent.text, response?.error]);
 
-  const attemptCopy = useCallback(async (value: string) => {
-    try {
-      if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(value);
-        return true;
-      }
-      const textarea = document.createElement("textarea");
-      textarea.value = value;
-      textarea.style.position = "fixed";
-      textarea.style.opacity = "0";
-      document.body.appendChild(textarea);
-      textarea.focus();
-      textarea.select();
-      const successful = document.execCommand("copy");
-      document.body.removeChild(textarea);
-      return successful;
-    } catch {
-      return false;
-    }
-  }, []);
-
-  const handleCopyResponse = useCallback(async () => {
-    if (!responseCopyText) return;
-    const ok = await attemptCopy(responseCopyText);
-    if (!ok) return;
+  const handleResponseCopied = useCallback(() => {
     setResponseCopied(true);
     if (responseCopyTimerRef.current) {
       clearTimeout(responseCopyTimerRef.current);
@@ -1299,12 +1307,9 @@ const HttpCellView = ({
       setResponseCopied(false);
       responseCopyTimerRef.current = null;
     }, 2000);
-  }, [attemptCopy, responseCopyText]);
+  }, []);
 
-  const handleCopyCurl = useCallback(async () => {
-    if (!displayedCurl) return;
-    const ok = await attemptCopy(displayedCurl);
-    if (!ok) return;
+  const handleCurlCopied = useCallback(() => {
     setCurlCopied(true);
     if (curlCopyTimerRef.current) {
       clearTimeout(curlCopyTimerRef.current);
@@ -1313,27 +1318,7 @@ const HttpCellView = ({
       setCurlCopied(false);
       curlCopyTimerRef.current = null;
     }, 2000);
-  }, [attemptCopy, displayedCurl]);
-
-  const handleResponseCopyKey = useCallback(
-    (event: KeyboardEvent<HTMLDivElement>) => {
-      if (event.key === "Enter" || event.key === " ") {
-        event.preventDefault();
-        void handleCopyResponse();
-      }
-    },
-    [handleCopyResponse]
-  );
-
-  const handleCurlCopyKey = useCallback(
-    (event: KeyboardEvent<HTMLDivElement>) => {
-      if (event.key === "Enter" || event.key === " ") {
-        event.preventDefault();
-        void handleCopyCurl();
-      }
-    },
-    [handleCopyCurl]
-  );
+  }, []);
 
   const handleUrlPaste = useCallback(
     (event: ClipboardEvent<HTMLInputElement>) => {
@@ -1394,12 +1379,28 @@ const HttpCellView = ({
   );
 
   return (
-    <div
-      className="space-y-4 p-4 md:p-6"
-      onKeyDownCapture={handleSubmitShortcut}
-    >
+    <div className="space-y-4" onKeyDownCapture={handleSubmitShortcut}>
       <div className="rounded-lg border border-border bg-card p-4 text-sm md:p-5">
         <div className="flex flex-col gap-3">
+          {showVariableHint ? (
+            <div className="relative">
+              <AlertCallout
+                level="info"
+                html="Use <code>{{VARIABLE}}</code> to reference notebook environment variables when configuring the request."
+                className="pr-9 text-left text-sm"
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="absolute right-1 top-1 h-7 w-7 text-muted-foreground hover:text-foreground"
+                onClick={() => setShowVariableHint(false)}
+                aria-label="Dismiss variable usage hint"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          ) : null}
           <div className="flex flex-nowrap items-end gap-3 md:gap-4">
             <label
               htmlFor={methodFieldId}
@@ -2151,48 +2152,18 @@ const HttpCellView = ({
                 </div>
                 {responseBodyContent.text !== null ? (
                   <div className="space-y-1">
-                    <div className="max-h-64 overflow-auto rounded-md border border-border/60 bg-background">
-                      <div
-                        role="button"
-                        tabIndex={0}
-                        onClick={() => void handleCopyResponse()}
-                        onKeyDown={handleResponseCopyKey}
-                        className="group relative cursor-copy p-3 outline-none transition hover:bg-background/80 focus-visible:ring-2 focus-visible:ring-emerald-500"
-                      >
-                        {responseBodyContent.isJson &&
-                        responseBodyContent.highlighted &&
-                        responseBodyContent.text.trim().length > 0 ? (
-                          <div className="markdown-preview text-xs">
-                            <pre className="whitespace-pre-wrap break-words font-mono !text-xs leading-6 text-left text-slate-700 dark:text-slate-100 !m-0 !border-0 !bg-transparent !p-0 pr-8">
-                              <code
-                                className="hljs language-json block !text-xs leading-6"
-                                dangerouslySetInnerHTML={{
-                                  __html: responseBodyContent.highlighted,
-                                }}
-                              />
-                            </pre>
-                          </div>
-                        ) : (
-                          <pre
-                            className={clsx(
-                              "whitespace-pre-wrap break-words font-mono text-xs pr-8",
-                              responseBodyClass
-                            )}
-                          >
-                            {responseBodyContent.text.trim().length > 0
-                              ? responseBodyContent.text
-                              : "(empty)"}
-                          </pre>
-                        )}
-                        <span className="pointer-events-none absolute right-3 top-3 text-muted-foreground transition-colors duration-200 group-hover:text-foreground">
-                          {responseCopied ? (
-                            <Check className="h-4 w-4 text-emerald-400" />
-                          ) : (
-                            <Copy className="h-4 w-4" />
-                          )}
-                        </span>
-                      </div>
-                    </div>
+                    <CodeBlock
+                      code={responseDisplayText}
+                      language={responseLanguage}
+                      themeMode={themeMode}
+                      className="max-h-64"
+                      contentClassName="max-h-64 whitespace-pre-wrap break-words text-xs leading-6"
+                      copyValue={responseCopyPayload ?? null}
+                      onCopy={
+                        responseCopyPayload ? handleResponseCopied : undefined
+                      }
+                      copyButtonClassName="right-3 top-3"
+                    />
                     <p className="text-[10px] text-muted-foreground">
                       {responseCopied ? " • Copied!" : ""}
                     </p>
@@ -2215,12 +2186,12 @@ const HttpCellView = ({
                         {response.headers.map((header) => (
                           <li
                             key={`${header.name}-${header.value}`}
-                            className="flex flex-wrap gap-2"
+                            className="flex w-full flex-wrap gap-2"
                           >
-                            <span className="font-medium text-foreground">
+                            <span className="break-all font-medium text-foreground">
                               {header.name}
                             </span>
-                            <span className="text-muted-foreground">
+                            <span className="break-all text-muted-foreground">
                               {header.value}
                             </span>
                           </li>
@@ -2244,26 +2215,16 @@ const HttpCellView = ({
                 <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   cURL Command
                 </p>
-                <div className="max-h-48 overflow-auto rounded-md border border-border/60 bg-background">
-                  <div
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => void handleCopyCurl()}
-                    onKeyDown={handleCurlCopyKey}
-                    className="group relative cursor-copy p-3 font-mono text-xs text-slate-700 dark:text-slate-200 outline-none transition hover:bg-background/80 focus-visible:ring-2 focus-visible:ring-emerald-500"
-                  >
-                    <pre className="whitespace-pre-wrap break-words pr-8">
-                      {displayedCurl}
-                    </pre>
-                    <span className="pointer-events-none absolute right-3 top-3 text-muted-foreground transition-colors duration-200 group-hover:text-foreground">
-                      {curlCopied ? (
-                        <Check className="h-4 w-4 text-emerald-400" />
-                      ) : (
-                        <Copy className="h-4 w-4" />
-                      )}
-                    </span>
-                  </div>
-                </div>
+                <CodeBlock
+                  code={displayedCurl}
+                  language="bash"
+                  themeMode={themeMode}
+                  className="max-h-48"
+                  contentClassName="max-h-48 whitespace-pre-wrap break-words text-xs leading-6"
+                  copyValue={displayedCurl}
+                  onCopy={handleCurlCopied}
+                  copyButtonClassName="right-3 top-3"
+                />
                 <p className="text-[10px] text-muted-foreground">
                   {curlCopied ? " • Copied!" : ""}
                 </p>
@@ -2272,25 +2233,6 @@ const HttpCellView = ({
           </div>
         </TabsContent>
       </Tabs>
-      {showVariableHint ? (
-        <div className="relative">
-          <AlertCallout
-            level="info"
-            html="Use <code>{{VARIABLE}}</code> to reference notebook environment variables when configuring the request."
-            className="pr-9 text-left text-sm"
-          />
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="absolute right-1 top-1 h-7 w-7 text-muted-foreground hover:text-foreground"
-            onClick={() => setShowVariableHint(false)}
-            aria-label="Dismiss variable usage hint"
-          >
-            <X className="h-4 w-4" />
-          </Button>
-        </div>
-      ) : null}
     </div>
   );
 };

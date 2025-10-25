@@ -56,7 +56,7 @@ vi.mock("@/components/notebook/monaco-setup", () => ({
 }));
 
 import type { NotebookCell } from "@nodebooks/notebook-schema";
-import MarkdownCellView from "./markdown-cell-view";
+import MarkdownCellView from "@/components/notebook/markdown-cell-view";
 
 const noop = () => undefined;
 

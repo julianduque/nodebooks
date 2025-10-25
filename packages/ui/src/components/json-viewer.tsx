@@ -240,6 +240,7 @@ export const JsonViewer: React.FC<JsonViewerProps> = ({
   const [version, setVersion] = React.useState(0);
   const [allOpen, setAllOpen] = React.useState(true);
   const [showRaw, setShowRaw] = React.useState(false);
+  const rawJson = React.useMemo(() => JSON.stringify(json, null, 2), [json]);
 
   // Helper to broadcast expand/collapse to all entries
   const broadcast = (open: boolean) => {
@@ -248,10 +249,10 @@ export const JsonViewer: React.FC<JsonViewerProps> = ({
   };
   return (
     <div
-      className={`relative rounded-md border p-3 pr-9 font-mono text-[13px] leading-6 ${
+      className={`relative rounded-md border p-3 font-mono text-[13px] leading-6 ${
         mode === "light"
-          ? "bg-slate-50 border-slate-200 text-slate-800"
-          : "bg-slate-900 border-slate-800 text-slate-200"
+          ? "border-slate-200 bg-slate-50 text-slate-800"
+          : "border-slate-800 bg-slate-900 text-slate-200"
       } ${className ?? ""}`}
       style={
         mode === "dark"
@@ -263,7 +264,7 @@ export const JsonViewer: React.FC<JsonViewerProps> = ({
           : undefined
       }
     >
-      <div className="mb-2 flex items-center justify-end gap-1 absolute right-1 top-2 z-10">
+      <div className="mb-3 flex items-center justify-end gap-1">
         {!showRaw && (
           <button
             type="button"
@@ -302,9 +303,11 @@ export const JsonViewer: React.FC<JsonViewerProps> = ({
       </div>
       {showRaw ? (
         <CodeBlock
-          code={JSON.stringify(json, null, 2)}
+          code={rawJson}
           language="json"
           themeMode={mode}
+          className="max-h-80"
+          contentClassName="max-h-80"
         />
       ) : (
         <JsonControlContext.Provider value={{ forceOpen, version }}>

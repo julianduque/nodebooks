@@ -3,7 +3,7 @@
 import clsx from "clsx";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FocusEvent, SyntheticEvent } from "react";
-import { Button } from "../ui/button";
+import { Button } from "@/components/ui/button";
 import {
   ArrowDown,
   ArrowUp,
@@ -29,13 +29,13 @@ import {
 } from "@/components/ui/dialog";
 import type { NotebookCell, SqlConnection } from "@nodebooks/notebook-schema";
 import { clientConfig } from "@nodebooks/config/client";
-import CodeCellView from "./code-cell-view";
-import MarkdownCellView from "./markdown-cell-view";
-import CommandCellView from "./command-cell-view";
-import TerminalCellView from "./terminal-cell-view";
-import HttpCellView from "./http-cell-view";
-import SqlCellView from "./sql-cell-view";
-import AddCellMenu from "./add-cell-menu";
+import CodeCellView from "@/components/notebook/code-cell-view";
+import MarkdownCellView from "@/components/notebook/markdown-cell-view";
+import CommandCellView from "@/components/notebook/command-cell-view";
+import TerminalCellView from "@/components/notebook/terminal-cell-view";
+import HttpCellView from "@/components/notebook/http-cell-view";
+import SqlCellView from "@/components/notebook/sql-cell-view";
+import AddCellMenu from "@/components/notebook/add-cell-menu";
 import type { AttachmentMetadata } from "@/components/notebook/attachment-utils";
 import {
   DEFAULT_CODE_EDITOR_SETTINGS,
@@ -43,7 +43,8 @@ import {
   DEFAULT_TERMINAL_PREFERENCES,
   type MonacoEditorSettings,
   type TerminalPreferences,
-} from "./editor-preferences";
+} from "@/components/notebook/editor-preferences";
+import { copyTextToClipboard } from "@/lib/clipboard";
 
 interface CellCardProps {
   cell: NotebookCell;
@@ -1114,21 +1115,7 @@ const CellCard = ({
       return;
     }
     try {
-      if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(httpCurl);
-      } else if (typeof document !== "undefined") {
-        const textarea = document.createElement("textarea");
-        textarea.value = httpCurl;
-        textarea.style.position = "fixed";
-        textarea.style.opacity = "0";
-        document.body.appendChild(textarea);
-        textarea.focus();
-        textarea.select();
-        document.execCommand("copy");
-        document.body.removeChild(textarea);
-      } else {
-        return;
-      }
+      await copyTextToClipboard(httpCurl);
       setCurlCopied(true);
       if (curlCopyTimerRef.current) {
         clearTimeout(curlCopyTimerRef.current);

@@ -106,6 +106,8 @@ export { Markdown } from "./components/markdown";
 export { HtmlBlock } from "./components/html";
 export { JsonViewer } from "./components/json-viewer";
 export { CodeBlock } from "./components/code-block";
+export { CopyButton } from "./components/copy-button";
+export type { CopyButtonProps } from "./components/copy-button";
 export { TableGrid } from "./components/table-grid";
 export { DataSummary } from "./components/data-summary";
 export { VegaLiteChart } from "./components/vega-lite";

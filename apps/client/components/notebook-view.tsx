@@ -2806,7 +2806,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
           : undefined
       }
       secondarySidebar={secondarySidebar}
-      defaultCollapsed={false}
+      defaultCollapsed={true}
       secondaryHeader={secondaryHeader}
       headerMain={topbarMain}
       headerRight={topbarRight}

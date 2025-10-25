@@ -5,7 +5,7 @@ import AppShell from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ChevronRight, NotebookPen, Trash2 } from "lucide-react";
-import ConfirmDialog from "../components/ui/confirm";
+import ConfirmDialog from "@/components/ui/confirm";
 import type { Notebook } from "@nodebooks/notebook-schema";
 import { useRouter } from "next/navigation";
 import LoadingOverlay from "@/components/ui/loading-overlay";

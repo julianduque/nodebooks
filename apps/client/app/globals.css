@@ -238,8 +238,14 @@
   font-size: 0.95rem;
 }
 
+:root .hljs {
+  color: var(--hljs-foreground);
+}
+
 .markdown-preview .hljs-comment,
-.markdown-preview .hljs-quote {
+.markdown-preview .hljs-quote,
+.code-block__surface .hljs-comment,
+.code-block__surface .hljs-quote {
   color: var(--hljs-muted);
   font-style: italic;
 }
@@ -248,7 +254,12 @@
 .markdown-preview .hljs-selector-tag,
 .markdown-preview .hljs-literal,
 .markdown-preview .hljs-type,
-.markdown-preview .hljs-type + .hljs-title {
+.markdown-preview .hljs-type + .hljs-title,
+.code-block__surface .hljs-keyword,
+.code-block__surface .hljs-selector-tag,
+.code-block__surface .hljs-literal,
+.code-block__surface .hljs-type,
+.code-block__surface .hljs-type + .hljs-title {
   color: var(--hljs-keyword);
   font-weight: 600;
 }
@@ -258,7 +269,13 @@
 .markdown-preview .hljs-template-tag,
 .markdown-preview .hljs-template-variable,
 .markdown-preview .hljs-regexp,
-.markdown-preview .hljs-selector-attr {
+.markdown-preview .hljs-selector-attr,
+.code-block__surface .hljs-string,
+.code-block__surface .hljs-doctag,
+.code-block__surface .hljs-template-tag,
+.code-block__surface .hljs-template-variable,
+.code-block__surface .hljs-regexp,
+.code-block__surface .hljs-selector-attr {
   color: var(--hljs-string);
 }
 
@@ -266,7 +283,12 @@
 .markdown-preview .hljs-symbol,
 .markdown-preview .hljs-bullet,
 .markdown-preview .hljs-link,
-.markdown-preview .hljs-meta .hljs-number {
+.markdown-preview .hljs-meta .hljs-number,
+.code-block__surface .hljs-number,
+.code-block__surface .hljs-symbol,
+.code-block__surface .hljs-bullet,
+.code-block__surface .hljs-link,
+.code-block__surface .hljs-meta .hljs-number {
   color: var(--hljs-number);
 }
 
@@ -274,7 +296,12 @@
 .markdown-preview .hljs-section,
 .markdown-preview .hljs-name,
 .markdown-preview .hljs-selector-id,
-.markdown-preview .hljs-selector-class {
+.markdown-preview .hljs-selector-class,
+.code-block__surface .hljs-title,
+.code-block__surface .hljs-section,
+.code-block__surface .hljs-name,
+.code-block__surface .hljs-selector-id,
+.code-block__surface .hljs-selector-class {
   color: var(--hljs-title);
 }
 
@@ -283,21 +310,32 @@
 .markdown-preview .hljs-built_in,
 .markdown-preview .hljs-variable,
 .markdown-preview .hljs-params,
-.markdown-preview .hljs-property {
+.markdown-preview .hljs-property,
+.code-block__surface .hljs-attribute,
+.code-block__surface .hljs-attr,
+.code-block__surface .hljs-built_in,
+.code-block__surface .hljs-variable,
+.code-block__surface .hljs-params,
+.code-block__surface .hljs-property {
   color: var(--hljs-attribute);
 }
 
 .markdown-preview .hljs-meta,
 .markdown-preview .hljs-meta-string,
-.markdown-preview .hljs-meta .hljs-keyword {
+.markdown-preview .hljs-meta .hljs-keyword,
+.code-block__surface .hljs-meta,
+.code-block__surface .hljs-meta-string,
+.code-block__surface .hljs-meta .hljs-keyword {
   color: var(--hljs-meta);
 }
 
-.markdown-preview .hljs-addition {
+.markdown-preview .hljs-addition,
+.code-block__surface .hljs-addition {
   color: var(--hljs-addition);
 }
 
-.markdown-preview .hljs-deletion {
+.markdown-preview .hljs-deletion,
+.code-block__surface .hljs-deletion {
   color: var(--hljs-deletion);
 }
 

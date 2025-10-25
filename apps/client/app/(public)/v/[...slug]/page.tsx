@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import type { Notebook, Project } from "@nodebooks/notebook-schema";
 import NotebookPublicView from "@/components/notebook/notebook-public-view";
 import { headers } from "next/headers";
@@ -91,6 +92,44 @@ const buildNotebookHref = (
 type PublicPageProps = Readonly<{
   params: Promise<{ slug?: string[] }>;
 }>;
+
+export const generateMetadata = async ({
+  params,
+}: PublicPageProps): Promise<Metadata> => {
+  const fallbackTitle = "Notebook";
+  const resolvedParams = await params;
+  const segments = Array.isArray(resolvedParams?.slug)
+    ? resolvedParams.slug
+    : [];
+
+  let notebookTitle: string | null = null;
+  try {
+    const payload = await fetchPublicPayload(segments);
+    const candidate = payload?.notebook?.name;
+    if (typeof candidate === "string" && candidate.trim().length > 0) {
+      notebookTitle = candidate.trim();
+    }
+  } catch {
+    // Metadata fetch failure should not block rendering; fall back to defaults.
+  }
+
+  const title = notebookTitle ?? fallbackTitle;
+  const description = notebookTitle
+    ? `Explore "${notebookTitle}" on NodeBooks.`
+    : "Explore public notebooks built with NodeBooks.";
+  const ogImage = "/opengraph-image";
+
+  return {
+    title,
+    openGraph: {
+      description,
+      images: [ogImage],
+    },
+    twitter: {
+      images: [ogImage],
+    },
+  };
+};
 
 const PublicPage = async ({ params }: PublicPageProps) => {
   const resolvedParams = await params;

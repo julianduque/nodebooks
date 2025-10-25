@@ -10,7 +10,6 @@ import {
 import Image from "next/image";
 
 import AppShell from "@/components/app-shell";
-import ProfileMenu from "@/components/profile/profile-menu";
 import { cn } from "@/components/lib/utils";
 import { useTheme, type ThemeMode } from "@/components/theme-context";
 import { Card, CardContent } from "@/components/ui/card";
@@ -511,7 +510,7 @@ const PasswordSection = ({
           Update your password to keep your account secure.
         </p>
       </div>
-      <div className="grid gap-3 sm:grid-cols-2 sm:gap-4">
+      <div className="grid gap-3 sm:grid-cols-1 sm:gap-4">
         <label className="block text-xs font-medium text-muted-foreground">
           Current password
           <input
@@ -536,7 +535,7 @@ const PasswordSection = ({
             placeholder="At least 8 characters"
           />
         </label>
-        <label className="block text-xs font-medium text-muted-foreground sm:col-span-2">
+        <label className="block text-xs font-medium text-muted-foreground sm">
           Confirm new password
           <input
             type="password"
@@ -1418,13 +1417,6 @@ const SettingsPage = () => {
       <p className="mt-2 text-muted-foreground">
         Configure workspace preferences, appearance, and access.
       </p>
-      <div className="mt-6 max-w-md">
-        <ProfileMenu
-          user={profileUser}
-          loading={currentUserLoading}
-          showMenu={false}
-        />
-      </div>
       {content}
       <ConfirmDialog
         open={Boolean(confirmUser)}
