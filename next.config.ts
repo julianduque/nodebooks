@@ -1,4 +1,6 @@
 import type { NextConfig } from "next";
+import createMDX from "@next/mdx";
+import remarkGfm from "remark-gfm";
 
 const repositoryBasePath = "";
 const isProduction = process.env.NODE_ENV === "production";
@@ -22,12 +24,20 @@ function ensureLeadingSlash(value: string) {
   return value.startsWith("/") ? value.replace(/\/+$/, "") : `/${value.replace(/\/+$/, "")}`;
 }
 
+const withMDX = createMDX({
+  extension: /\.mdx?$/,
+  options: {
+    remarkPlugins: [remarkGfm],
+  },
+});
+
 const config: NextConfig = {
   output: "export",
   reactStrictMode: true,
   trailingSlash: true,
   basePath: basePathInput || undefined,
   assetPrefix: assetPrefixInput || undefined,
+  pageExtensions: ["ts", "tsx", "js", "jsx", "md", "mdx"],
   images: {
     unoptimized: true,
     remotePatterns: [
@@ -44,4 +54,4 @@ const config: NextConfig = {
   typedRoutes: true,
 };
 
-export default config;
+export default withMDX(config);
