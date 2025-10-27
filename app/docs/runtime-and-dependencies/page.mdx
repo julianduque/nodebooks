@@ -1,0 +1,25 @@
+import { DocsPager } from "@/components/docs/docs-pager";
+import { FeatureList } from "@/components/docs/feature-list";
+import { SectionHeading } from "@/components/docs/section-heading";
+import { runtimeAndDependencyFeatures } from "@/lib/docs-content";
+
+export const metadata = {
+  title: "Runtime & Dependencies | NodeBooks Documentation",
+  description: "Understand the sandboxed Node.js runtime and how to manage notebook-level dependencies.",
+};
+
+# Runtime & Dependencies
+
+Every notebook executes inside an isolated Node.js sandbox tuned for TypeScript. This keeps experiments reproducible while still letting you install the packages and tools you rely on.
+
+<SectionHeading id="node-runtime">Sandboxed Node.js runtime</SectionHeading>
+
+Each notebook runs on demand with scoped environment variables, ensuring secrets never leak between projects. Streaming output keeps you informed about long-running tasks without leaving the page.
+
+<SectionHeading id="dependencies">Manage dependencies per notebook</SectionHeading>
+
+Install npm packages directly from a notebook cell or pin them in `package.json` for the entire workspace. NodeBooks keeps dependency state isolated so collaborators can explore without affecting production projects.
+
+<FeatureList items={runtimeAndDependencyFeatures} />
+
+<DocsPager slug="runtime-and-dependencies" />

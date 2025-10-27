@@ -1,0 +1,25 @@
+import { DocsPager } from "@/components/docs/docs-pager";
+import { FeatureList } from "@/components/docs/feature-list";
+import { SectionHeading } from "@/components/docs/section-heading";
+import { publishingFeatures } from "@/lib/docs-content";
+
+export const metadata = {
+  title: "Publishing & Sharing | NodeBooks Documentation",
+  description: "Publish notebooks as production-ready sites and share results securely.",
+};
+
+# Publishing & Sharing
+
+Turn exploratory notebooks into polished deliverables without leaving the platform. NodeBooks handles build orchestration so you can focus on storytelling and distribution.
+
+<SectionHeading id="ship-sites">Ship notebook sites</SectionHeading>
+
+Publish notebooks directly to the web with a few clicks. Preview deployments in private spaces, collect feedback, and push live when the content is ready.
+
+<SectionHeading id="iterate">Iterate with your team</SectionHeading>
+
+Keep iterating on notebooks after they launch. Versioned deployments and workspace access controls let you refine docs, demos, and educational material safely.
+
+<FeatureList items={publishingFeatures} />
+
+<DocsPager slug="publishing" />

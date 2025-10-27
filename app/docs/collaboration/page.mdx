@@ -1,0 +1,25 @@
+import { DocsPager } from "@/components/docs/docs-pager";
+import { FeatureList } from "@/components/docs/feature-list";
+import { SectionHeading } from "@/components/docs/section-heading";
+import { collaborationFeatures } from "@/lib/docs-content";
+
+export const metadata = {
+  title: "Collaboration | NodeBooks Documentation",
+  description: "See how NodeBooks keeps teams aligned with presence, shared runtimes, and live feedback.",
+};
+
+# Collaboration
+
+NodeBooks keeps everyone in the loop while experiments unfold. Real-time presence indicators, shared output streams, and session sharing remove the friction of pairing on notebooks remotely.
+
+<SectionHeading id="presence">Presence-aware editing</SectionHeading>
+
+Know who is editing a notebook and where their cursor is in real time. Inline comments and suggestions make asynchronous reviews feel collaborative.
+
+<SectionHeading id="shared-output">Shared execution output</SectionHeading>
+
+Notebook runs stream output to every participant, so you never wonder if a cell finished or failed. Broadcast a session during reviews or pair programming without screen sharing.
+
+<FeatureList items={collaborationFeatures} />
+
+<DocsPager slug="collaboration" />

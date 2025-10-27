@@ -1,0 +1,51 @@
+import { DocsPager } from "@/components/docs/docs-pager";
+import { SectionHeading } from "@/components/docs/section-heading";
+import { workflow } from "@/lib/content";
+
+export const metadata = {
+  title: "Getting Started | NodeBooks Documentation",
+  description: "Install the NodeBooks CLI and create your first collaborative notebook workspace.",
+};
+
+# Getting Started
+
+NodeBooks is distributed as a CLI so you can set up workspaces from any terminal. Follow these steps to install the tooling, initialize a project, and open the desktop or web client.
+
+<SectionHeading id="install">Install the CLI</SectionHeading>
+
+Install the CLI globally so the `nodebooks` command is always available. The installer handles downloading the latest runtime, linking the binary, and checking for required system dependencies.
+
+```
+npm install -g nodebooks
+```
+
+<SectionHeading id="create-workspace">Create a workspace</SectionHeading>
+
+Run the interactive init command to scaffold a new space. The CLI prompts for a project name, notebook template, and optional GitHub connection so you can version your notebooks from day one.
+
+<table>
+  <thead>
+    <tr>
+      <th>Step</th>
+      <th>Description</th>
+      <th>Command</th>
+    </tr>
+  </thead>
+  <tbody>
+    {workflow.map((step) => (
+      <tr key={step.title}>
+        <td className="font-medium text-foreground">{step.title}</td>
+        <td>{step.description}</td>
+        <td>
+          <code>{step.code}</code>
+        </td>
+      </tr>
+    ))}
+  </tbody>
+</table>
+
+<SectionHeading id="connect-clients">Connect the clients</SectionHeading>
+
+Once the workspace is ready, open it in the web or desktop client. Both connect to the same runtime so teams can swap devices without losing context. Future docs will cover authentication flows and workspace governance in more depth.
+
+<DocsPager slug="getting-started" />

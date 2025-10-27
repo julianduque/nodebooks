@@ -1,0 +1,25 @@
+import { DocsPager } from "@/components/docs/docs-pager";
+import { FeatureList } from "@/components/docs/feature-list";
+import { SectionHeading } from "@/components/docs/section-heading";
+import { notebookAuthoringFeatures } from "@/lib/docs-content";
+
+export const metadata = {
+  title: "Notebook Authoring | NodeBooks Documentation",
+  description: "Compose Markdown, TypeScript, and interactive components in a single notebook surface.",
+};
+
+# Notebook Authoring
+
+NodeBooks blends Markdown, runnable TypeScript, and reusable UI components so you can tell a complete story inside a single notebook. The authoring surface encourages experimentation without sacrificing polish.
+
+<SectionHeading id="markdown-and-code">Markdown and code live together</SectionHeading>
+
+Draft ideas in Markdown cells, then drop into TypeScript when you need dynamic behavior. AI-assisted suggestions accelerate repetitive coding tasks so you can focus on the narrative.
+
+<SectionHeading id="rich-components">Rich components and visualizations</SectionHeading>
+
+Use built-in charting, diagramming, and UI components to make findings stand out. Render interactive elements inline, prototype dashboards, or embed bespoke React components sourced from your design system.
+
+<FeatureList items={notebookAuthoringFeatures} />
+
+<DocsPager slug="notebook-authoring" />
