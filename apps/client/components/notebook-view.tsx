@@ -29,6 +29,10 @@ import {
   type SqlConnection,
   type SqlResult,
 } from "@nodebooks/notebook-schema";
+import {
+  IDENTIFIER_PATTERN,
+  computeHttpGlobals,
+} from "./notebook/runtime-globals";
 import type {
   NotebookSessionSummary,
   NotebookTemplateId,
@@ -75,7 +79,7 @@ const normalizeNotebookState = (
   return { notebook: rest as Notebook, role: accessRole };
 };
 
-const SQL_IDENTIFIER_PATTERN = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
+const SQL_IDENTIFIER_PATTERN = IDENTIFIER_PATTERN;
 
 type CommandCellMetadata = {
   terminalTargetId?: string;
@@ -1678,6 +1682,16 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     return map;
   }, [notebook]);
 
+  const httpGlobals = useMemo(() => computeHttpGlobals(notebook), [notebook]);
+
+  const runtimeGlobals = useMemo(() => {
+    const merged: Record<string, unknown> = { ...sqlGlobals };
+    for (const [key, value] of Object.entries(httpGlobals)) {
+      merged[key] = value;
+    }
+    return merged;
+  }, [sqlGlobals, httpGlobals]);
+
   const handleUiInteraction = useCallback(
     (cellId: string, event: UiInteractionEvent) => {
       const socket = socketRef.current;
@@ -1685,6 +1699,10 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         console.warn("Kernel is not connected; ignoring interaction");
         return;
       }
+      const globalsPayload =
+        runtimeGlobals && Object.keys(runtimeGlobals).length > 0
+          ? runtimeGlobals
+          : undefined;
       const payload = {
         type: "ui_event" as const,
         cellId,
@@ -1693,10 +1711,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         payload: event.payload,
         componentId: event.componentId,
         displayId: event.displayId,
-        globals:
-          sqlGlobals && Object.keys(sqlGlobals).length > 0
-            ? sqlGlobals
-            : undefined,
+        globals: globalsPayload,
       };
       try {
         socket.send(JSON.stringify(payload));
@@ -1704,7 +1719,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         console.error("Failed to send UI interaction", err);
       }
     },
-    [sqlGlobals]
+    [runtimeGlobals]
   );
 
   const handleRunCell = useCallback(
@@ -1952,6 +1967,29 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
       }
 
       if (cell.type === "http") {
+        const normalizeAssignment = (value: string | undefined | null) => {
+          const trimmed = value?.trim() ?? "";
+          return trimmed.length > 0 ? trimmed : undefined;
+        };
+
+        const assignVariable = normalizeAssignment(cell.assignVariable);
+        if (assignVariable && !IDENTIFIER_PATTERN.test(assignVariable)) {
+          setActionError("Assignment target must be a valid identifier.");
+          return;
+        }
+
+        const assignBody = normalizeAssignment(cell.assignBody);
+        if (assignBody && !IDENTIFIER_PATTERN.test(assignBody)) {
+          setActionError("Body assignment must be a valid identifier.");
+          return;
+        }
+
+        const assignHeaders = normalizeAssignment(cell.assignHeaders);
+        if (assignHeaders && !IDENTIFIER_PATTERN.test(assignHeaders)) {
+          setActionError("Header assignment must be a valid identifier.");
+          return;
+        }
+
         setActionError(null);
         runningRef.current = id;
         setRunningCellId(id);
@@ -1965,13 +2003,68 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
                 body: JSON.stringify({
                   cellId: id,
                   request: cell.request ?? {},
+                  assignVariable,
+                  assignBody,
+                  assignHeaders,
                 }),
               }
             );
             const payload = (await response.json().catch(() => ({}))) as {
               error?: string;
-              data?: { response?: HttpResponse };
+              data?: {
+                response?: HttpResponse;
+                assignments?: {
+                  variable?: string;
+                  body?: string;
+                  headers?: string;
+                };
+              };
             };
+            const httpResponse = payload?.data?.response;
+            const assignments = payload?.data?.assignments ?? {
+              variable: assignVariable,
+              body: assignBody,
+              headers: assignHeaders,
+            };
+            if (httpResponse) {
+              updateNotebookCell(
+                id,
+                (current) => {
+                  if (current.type !== "http") {
+                    return current;
+                  }
+                  return {
+                    ...current,
+                    response: httpResponse,
+                    assignVariable: assignments.variable,
+                    assignBody: assignments.body,
+                    assignHeaders: assignments.headers,
+                  };
+                },
+                { persist: true }
+              );
+            } else if (
+              assignments.variable ||
+              assignments.body ||
+              assignments.headers
+            ) {
+              updateNotebookCell(
+                id,
+                (current) => {
+                  if (current.type !== "http") {
+                    return current;
+                  }
+                  return {
+                    ...current,
+                    assignVariable: assignments.variable,
+                    assignBody: assignments.body,
+                    assignHeaders: assignments.headers,
+                  };
+                },
+                { persist: true }
+              );
+            }
+
             if (!response.ok) {
               const message =
                 typeof payload?.error === "string"
@@ -1981,19 +2074,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
               return;
             }
 
-            const httpResponse = payload?.data?.response;
-            if (httpResponse) {
-              updateNotebookCell(
-                id,
-                (current) => {
-                  if (current.type !== "http") {
-                    return current;
-                  }
-                  return { ...current, response: httpResponse };
-                },
-                { persist: true }
-              );
-            } else if (payload?.error) {
+            if (payload?.error) {
               setActionError(payload.error);
             }
           } catch (error) {
@@ -2046,8 +2127,8 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         { persist: false }
       );
       const globalsMap =
-        sqlGlobals && Object.keys(sqlGlobals).length > 0
-          ? sqlGlobals
+        runtimeGlobals && Object.keys(runtimeGlobals).length > 0
+          ? runtimeGlobals
           : undefined;
       const payload: KernelExecuteRequest = {
         type: "execute_request",
@@ -2064,7 +2145,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
       ensureEditable,
       markTerminalPendingPersistence,
       notebook,
-      sqlGlobals,
+      runtimeGlobals,
       runningCellId,
       saveNotebookNow,
       terminalCellsEnabled,

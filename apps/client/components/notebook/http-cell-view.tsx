@@ -18,6 +18,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { AlertCallout, CodeBlock } from "@nodebooks/ui";
 import { useTheme } from "@/components/theme-context";
+import { IDENTIFIER_PATTERN } from "./runtime-globals";
 
 const VARIABLE_PATTERN = /\{\{\s*([A-Z0-9_]+)\s*\}\}/gi;
 type BodyMode = HttpRequest["body"]["mode"];
@@ -553,6 +554,88 @@ const HttpCellView = ({
   const { theme } = useTheme();
   const themeMode = theme === "dark" ? "dark" : "light";
 
+  const assignBodyValue = cell.assignBody ?? "";
+  const assignHeadersValue = cell.assignHeaders ?? "";
+  const assignBodyTrimmed = assignBodyValue.trim();
+  const assignHeadersTrimmed = assignHeadersValue.trim();
+  const assignBodyError =
+    assignBodyTrimmed.length > 0 && !IDENTIFIER_PATTERN.test(assignBodyTrimmed)
+      ? "Assignment must be a valid identifier"
+      : null;
+  const assignHeadersError =
+    assignHeadersTrimmed.length > 0 &&
+    !IDENTIFIER_PATTERN.test(assignHeadersTrimmed)
+      ? "Assignment must be a valid identifier"
+      : null;
+  const assignedBodyName = (response?.assignedBody ?? "").trim();
+  const assignedHeadersName = (response?.assignedHeaders ?? "").trim();
+  const responseSucceeded =
+    Boolean(response) && !response?.error && response?.ok !== false;
+  const bodyStatus = useMemo(() => {
+    if (!assignBodyTrimmed) {
+      return {
+        text: "Leave blank to skip assigning the response body.",
+        tone: "muted" as const,
+      };
+    }
+    if (responseSucceeded && assignedBodyName === assignBodyTrimmed) {
+      return {
+        text: `Last run populated ${assignBodyTrimmed}.`,
+        tone: "success" as const,
+      };
+    }
+    if (assignedBodyName && assignedBodyName !== assignBodyTrimmed) {
+      return {
+        text: `Last run populated ${assignedBodyName}. Run again to assign ${assignBodyTrimmed}.`,
+        tone: "warn" as const,
+      };
+    }
+    return {
+      text: `Will assign to ${assignBodyTrimmed} on next run.`,
+      tone: "muted" as const,
+    };
+  }, [assignBodyTrimmed, assignedBodyName, responseSucceeded]);
+  const headersStatus = useMemo(() => {
+    if (!assignHeadersTrimmed) {
+      return {
+        text: "Leave blank to skip assigning response headers.",
+        tone: "muted" as const,
+      };
+    }
+    if (responseSucceeded && assignedHeadersName === assignHeadersTrimmed) {
+      return {
+        text: `Last run populated ${assignHeadersTrimmed}.`,
+        tone: "success" as const,
+      };
+    }
+    if (assignedHeadersName && assignedHeadersName !== assignHeadersTrimmed) {
+      return {
+        text: `Last run populated ${assignedHeadersName}. Run again to assign ${assignHeadersTrimmed}.`,
+        tone: "warn" as const,
+      };
+    }
+    return {
+      text: `Will assign to ${assignHeadersTrimmed} on next run.`,
+      tone: "muted" as const,
+    };
+  }, [assignHeadersTrimmed, assignedHeadersName, responseSucceeded]);
+  const bodyStatusClass = clsx(
+    "text-[11px]",
+    bodyStatus.tone === "success"
+      ? "text-emerald-500"
+      : bodyStatus.tone === "warn"
+        ? "text-amber-500"
+        : "text-muted-foreground"
+  );
+  const headersStatusClass = clsx(
+    "text-[11px]",
+    headersStatus.tone === "success"
+      ? "text-emerald-500"
+      : headersStatus.tone === "warn"
+        ? "text-amber-500"
+        : "text-muted-foreground"
+  );
+
   const methodFieldId = useId();
   const urlFieldId = useId();
 
@@ -619,6 +702,64 @@ const HttpCellView = ({
       }, options);
     },
     [cell.id, onChange]
+  );
+
+  const setAssignBody = useCallback(
+    (value: string | undefined, options?: { persist?: boolean }) => {
+      onChange((current) => {
+        if (current.id !== cell.id || current.type !== "http") {
+          return current;
+        }
+        return { ...current, assignBody: value } satisfies NotebookCell;
+      }, options);
+    },
+    [cell.id, onChange]
+  );
+
+  const setAssignHeaders = useCallback(
+    (value: string | undefined, options?: { persist?: boolean }) => {
+      onChange((current) => {
+        if (current.id !== cell.id || current.type !== "http") {
+          return current;
+        }
+        return { ...current, assignHeaders: value } satisfies NotebookCell;
+      }, options);
+    },
+    [cell.id, onChange]
+  );
+
+  const handleAssignBodyChange = useCallback(
+    (value: string) => {
+      setAssignBody(value, { persist: false });
+    },
+    [setAssignBody]
+  );
+
+  const handleAssignBodyBlur = useCallback(
+    (value: string) => {
+      const trimmed = value.trim();
+      setAssignBody(trimmed.length > 0 ? trimmed : undefined, {
+        persist: true,
+      });
+    },
+    [setAssignBody]
+  );
+
+  const handleAssignHeadersChange = useCallback(
+    (value: string) => {
+      setAssignHeaders(value, { persist: false });
+    },
+    [setAssignHeaders]
+  );
+
+  const handleAssignHeadersBlur = useCallback(
+    (value: string) => {
+      const trimmed = value.trim();
+      setAssignHeaders(trimmed.length > 0 ? trimmed : undefined, {
+        persist: true,
+      });
+    },
+    [setAssignHeaders]
   );
 
   const resolvedUrl = useMemo(() => {
@@ -2108,128 +2249,189 @@ const HttpCellView = ({
           </div>
         </TabsContent>
         <TabsContent value="response">
-          <div className="space-y-4 rounded-lg border border-border bg-card p-4 text-sm">
-            {response ? (
-              <div className="space-y-3">
-                <div className="flex flex-wrap items-center gap-3">
-                  <span
-                    className={clsx(
-                      "rounded px-2 py-1 text-xs font-semibold",
-                      response.status &&
-                        response.status >= 200 &&
-                        response.status < 300
-                        ? "bg-emerald-500/10 text-emerald-400"
-                        : "bg-rose-500/10 text-rose-400"
-                    )}
-                  >
-                    {response.status ?? "--"}
-                  </span>
-                  {response.statusText ? (
-                    <span className="text-xs text-muted-foreground">
-                      {response.statusText}
-                    </span>
-                  ) : null}
-                  {typeof response.durationMs === "number" ? (
-                    <span className="text-xs text-muted-foreground">
-                      {response.durationMs} ms
-                    </span>
-                  ) : null}
-                  {typeof response.body?.size === "number" ? (
-                    <span className="text-xs text-muted-foreground">
-                      {response.body.size} bytes
-                    </span>
-                  ) : null}
-                  {response.body?.contentType ? (
-                    <span className="text-xs text-muted-foreground">
-                      {response.body.contentType}
-                    </span>
-                  ) : null}
-                  {response.error ? (
-                    <span className="text-xs text-rose-400">
-                      {response.error}
-                    </span>
-                  ) : null}
-                </div>
-                {responseBodyContent.text !== null ? (
-                  <div className="space-y-1">
-                    <CodeBlock
-                      code={responseDisplayText}
-                      language={responseLanguage}
-                      themeMode={themeMode}
-                      className="max-h-64"
-                      contentClassName="max-h-64 whitespace-pre-wrap break-words text-xs leading-6"
-                      copyValue={responseCopyPayload ?? null}
-                      onCopy={
-                        responseCopyPayload ? handleResponseCopied : undefined
-                      }
-                      copyButtonClassName="right-3 top-3"
-                    />
-                    <p className="text-[10px] text-muted-foreground">
-                      {responseCopied ? " • Copied!" : ""}
-                    </p>
-                  </div>
-                ) : null}
-                {response.body?.type === "binary" ? (
-                  <p className="text-xs text-muted-foreground">
-                    Binary response captured as base64 (
-                    {response.body?.contentType ?? "unknown"}).
-                  </p>
-                ) : null}
-                <div className="space-y-2">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Response headers
-                  </p>
-                  <div className="rounded-md border border-border/80 bg-muted/30 p-3 text-xs">
-                    {Array.isArray(response.headers) &&
-                    response.headers.length > 0 ? (
-                      <ul className="space-y-1">
-                        {response.headers.map((header) => (
-                          <li
-                            key={`${header.name}-${header.value}`}
-                            className="flex w-full flex-wrap gap-2"
-                          >
-                            <span className="break-all font-medium text-foreground">
-                              {header.name}
-                            </span>
-                            <span className="break-all text-muted-foreground">
-                              {header.value}
-                            </span>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="text-muted-foreground">
-                        No headers returned.
-                      </p>
-                    )}
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <p className="text-xs text-muted-foreground">
-                Run the request to see the response here.
-              </p>
-            )}
-            {displayedCurl ? (
-              <div className="space-y-1 border-t border-border/60 pt-3">
+          <div className="space-y-3">
+            <div className="rounded-lg border border-border bg-card p-4 text-sm">
+              <div className="mb-3 space-y-1">
                 <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  cURL Command
+                  Assignments
                 </p>
-                <CodeBlock
-                  code={displayedCurl}
-                  language="bash"
-                  themeMode={themeMode}
-                  className="max-h-48"
-                  contentClassName="max-h-48 whitespace-pre-wrap break-words text-xs leading-6"
-                  copyValue={displayedCurl}
-                  onCopy={handleCurlCopied}
-                  copyButtonClassName="right-3 top-3"
-                />
-                <p className="text-[10px] text-muted-foreground">
-                  {curlCopied ? " • Copied!" : ""}
+                <p className="text-[11px] text-muted-foreground">
+                  Store the parsed response body or headers in globals for reuse
+                  in code cells.
                 </p>
               </div>
-            ) : null}
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    Assign body
+                  </span>
+                  <Input
+                    value={assignBodyValue}
+                    onChange={(event) =>
+                      handleAssignBodyChange(event.target.value)
+                    }
+                    onBlur={(event) => handleAssignBodyBlur(event.target.value)}
+                    placeholder="e.g. latestResponse"
+                    disabled={readOnly || isRunning}
+                  />
+                  {assignBodyError ? (
+                    <span className="text-xs font-medium text-rose-500">
+                      {assignBodyError}
+                    </span>
+                  ) : (
+                    <span className={bodyStatusClass}>{bodyStatus.text}</span>
+                  )}
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    Assign headers
+                  </span>
+                  <Input
+                    value={assignHeadersValue}
+                    onChange={(event) =>
+                      handleAssignHeadersChange(event.target.value)
+                    }
+                    onBlur={(event) =>
+                      handleAssignHeadersBlur(event.target.value)
+                    }
+                    placeholder="e.g. latestHeaders"
+                    disabled={readOnly || isRunning}
+                  />
+                  {assignHeadersError ? (
+                    <span className="text-xs font-medium text-rose-500">
+                      {assignHeadersError}
+                    </span>
+                  ) : (
+                    <span className={headersStatusClass}>
+                      {headersStatus.text}
+                    </span>
+                  )}
+                </label>
+              </div>
+            </div>
+            <div className="space-y-4 rounded-lg border border-border bg-card p-4 text-sm">
+              {response ? (
+                <div className="space-y-3">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <span
+                      className={clsx(
+                        "rounded px-2 py-1 text-xs font-semibold",
+                        response.status &&
+                          response.status >= 200 &&
+                          response.status < 300
+                          ? "bg-emerald-500/10 text-emerald-400"
+                          : "bg-rose-500/10 text-rose-400"
+                      )}
+                    >
+                      {response.status ?? "--"}
+                    </span>
+                    {response.statusText ? (
+                      <span className="text-xs text-muted-foreground">
+                        {response.statusText}
+                      </span>
+                    ) : null}
+                    {typeof response.durationMs === "number" ? (
+                      <span className="text-xs text-muted-foreground">
+                        {response.durationMs} ms
+                      </span>
+                    ) : null}
+                    {typeof response.body?.size === "number" ? (
+                      <span className="text-xs text-muted-foreground">
+                        {response.body.size} bytes
+                      </span>
+                    ) : null}
+                    {response.body?.contentType ? (
+                      <span className="text-xs text-muted-foreground">
+                        {response.body.contentType}
+                      </span>
+                    ) : null}
+                    {response.error ? (
+                      <span className="text-xs text-rose-400">
+                        {response.error}
+                      </span>
+                    ) : null}
+                  </div>
+                  {responseBodyContent.text !== null ? (
+                    <div className="space-y-1">
+                      <CodeBlock
+                        code={responseDisplayText}
+                        language={responseLanguage}
+                        themeMode={themeMode}
+                        className="max-h-64"
+                        contentClassName="max-h-64 whitespace-pre-wrap break-words text-xs leading-6"
+                        copyValue={responseCopyPayload ?? null}
+                        onCopy={
+                          responseCopyPayload ? handleResponseCopied : undefined
+                        }
+                        copyButtonClassName="right-3 top-3"
+                      />
+                      <p className="text-[10px] text-muted-foreground">
+                        {responseCopied ? " • Copied!" : ""}
+                      </p>
+                    </div>
+                  ) : null}
+                  {response.body?.type === "binary" ? (
+                    <p className="text-xs text-muted-foreground">
+                      Binary response captured as base64 (
+                      {response.body?.contentType ?? "unknown"}).
+                    </p>
+                  ) : null}
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Response headers
+                    </p>
+                    <div className="rounded-md border border-border/80 bg-muted/30 p-3 text-xs">
+                      {Array.isArray(response.headers) &&
+                      response.headers.length > 0 ? (
+                        <ul className="space-y-1">
+                          {response.headers.map((header) => (
+                            <li
+                              key={`${header.name}-${header.value}`}
+                              className="flex w-full flex-wrap gap-2"
+                            >
+                              <span className="break-all font-medium text-foreground">
+                                {header.name}
+                              </span>
+                              <span className="break-all text-muted-foreground">
+                                {header.value}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="text-muted-foreground">
+                          No headers returned.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Run the request to see the response here.
+                </p>
+              )}
+              {displayedCurl ? (
+                <div className="space-y-1 border-t border-border/60 pt-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    cURL Command
+                  </p>
+                  <CodeBlock
+                    code={displayedCurl}
+                    language="bash"
+                    themeMode={themeMode}
+                    className="max-h-48"
+                    contentClassName="max-h-48 whitespace-pre-wrap break-words text-xs leading-6"
+                    copyValue={displayedCurl}
+                    onCopy={handleCurlCopied}
+                    copyButtonClassName="right-3 top-3"
+                  />
+                  <p className="text-[10px] text-muted-foreground">
+                    {curlCopied ? " • Copied!" : ""}
+                  </p>
+                </div>
+              ) : null}
+            </div>
           </div>
         </TabsContent>
       </Tabs>
