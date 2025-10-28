@@ -42,6 +42,7 @@ export interface NotebookEditorViewProps {
   depBusy: boolean;
   depError: string | null;
   depOutputs: NotebookOutput[];
+  runtimeGlobals: Record<string, unknown>;
   onCellChange(
     id: string,
     updater: NotebookCellUpdater,
@@ -96,6 +97,7 @@ const NotebookEditorView = ({
   onAttachmentUploaded,
   onClearDepOutputs,
   onAbortInstall,
+  runtimeGlobals,
   sqlConnections,
   onRequestAddConnection,
   onUiInteraction,
@@ -259,7 +261,8 @@ const NotebookEditorView = ({
                 const cellCanRun =
                   cell.type === "command" ||
                   cell.type === "http" ||
-                  cell.type === "sql"
+                  cell.type === "sql" ||
+                  cell.type === "plot"
                     ? !readOnly
                     : socketReady && !readOnly;
                 return (
@@ -314,6 +317,7 @@ const NotebookEditorView = ({
                     terminalCellsEnabled={terminalCellsEnabled}
                     dependencies={notebook.env.packages}
                     variables={notebook.env.variables ?? {}}
+                    globals={runtimeGlobals}
                     pendingTerminalPersist={pendingTerminalIds.has(cell.id)}
                     readOnly={readOnly}
                     sqlConnections={sqlConnections}

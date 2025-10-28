@@ -48,6 +48,7 @@ export interface ExecuteResult {
     status: "ok" | "error" | "aborted";
     error?: { name: string; message: string; stack?: string };
   };
+  globals?: Record<string, unknown>;
 }
 
 export interface WorkerPoolOptions {
@@ -182,7 +183,15 @@ export class WorkerPool {
         }
         if (raw && typeof raw === "object" && raw !== null && "type" in raw) {
           const parsed = IpcEventMessageSchema.safeParse(raw);
-          if (!parsed.success) return;
+          if (!parsed.success) {
+            if (process.env.NODE_ENV === "development") {
+              console.error(
+                `[Pool] IPC message validation failed:`,
+                parsed.error
+              );
+            }
+            return;
+          }
           const msg = parsed.data as IpcEventMessage;
           switch (msg.type) {
             case "Error":
@@ -191,7 +200,11 @@ export class WorkerPool {
               break;
             case "Result":
               cleanup();
-              resolve({ outputs: msg.outputs, execution: msg.execution });
+              resolve({
+                outputs: msg.outputs,
+                execution: msg.execution,
+                globals: msg.globals ?? {},
+              });
               break;
           }
           return;
@@ -342,7 +355,11 @@ export class WorkerPool {
             }
             if (msg.type === "Result") {
               cleanup();
-              resolve({ outputs: msg.outputs, execution: msg.execution });
+              resolve({
+                outputs: msg.outputs,
+                execution: msg.execution,
+                globals: msg.globals ?? {},
+              });
               return;
             }
             return;

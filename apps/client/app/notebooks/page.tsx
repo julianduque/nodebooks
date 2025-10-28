@@ -1179,7 +1179,7 @@ export default function NotebooksPage() {
         const url = window.URL.createObjectURL(blob);
         const link = document.createElement("a");
         link.href = url;
-        link.download = `${slugify(notebook.name)}.nbdm`;
+        link.download = `${slugify(notebook.name)}.nb.yml`;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
@@ -1576,7 +1576,7 @@ export default function NotebooksPage() {
             <input
               ref={fileInputRef}
               type="file"
-              accept=".nbdm,.yaml,.yml"
+              accept=".yaml,.yml"
               className="hidden"
               onChange={handleImportFile}
             />

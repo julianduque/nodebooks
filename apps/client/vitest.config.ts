@@ -11,9 +11,12 @@ export default defineConfig({
     include: ["**/*.test.ts", "**/*.test.tsx"],
   },
   resolve: {
-    alias: {
-      "@": rootDir,
-    },
+    alias: [
+      {
+        find: /^@\//,
+        replacement: `${rootDir}/`,
+      },
+    ],
   },
   esbuild: {
     jsx: "automatic",

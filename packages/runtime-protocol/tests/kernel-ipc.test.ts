@@ -43,6 +43,7 @@ describe("kernelIpc schemas", () => {
         ended: Date.now(),
         status: "ok" as const,
       },
+      globals: {},
     };
     const parsed = IpcEventMessageSchema.safeParse(evt);
     expect(parsed.success).toBe(true);

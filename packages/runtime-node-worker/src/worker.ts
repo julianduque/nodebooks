@@ -85,6 +85,33 @@ const handleRun = async (payload: IpcRunCell) => {
         });
       },
     });
+
+    // Convert globals to plain object - VM context objects might not serialize correctly
+    // Use Object.keys() to ensure we capture all enumerable properties
+    const globalsToSend = result.globals ?? {};
+    let plainGlobals: Record<string, unknown> = {};
+    if (
+      globalsToSend &&
+      typeof globalsToSend === "object" &&
+      !Array.isArray(globalsToSend)
+    ) {
+      const keys = Object.keys(globalsToSend);
+      for (const key of keys) {
+        plainGlobals[key] = globalsToSend[key];
+      }
+    }
+
+    // Force serialization/deserialization to ensure it's a plain object
+    // This removes any proxies, getters, setters, or non-plain object properties
+    try {
+      const serialized = JSON.stringify(plainGlobals);
+      plainGlobals = JSON.parse(serialized) as Record<string, unknown>;
+    } catch (err) {
+      // If serialization fails, fall back to empty object
+      console.error(`[Worker] Failed to serialize globals:`, err);
+      plainGlobals = {};
+    }
+
     if (stdoutBuf) {
       const frame = packText(StreamKind.Stdout, jobIdNum, stdoutBuf, true);
       safeSend(frame);
@@ -95,11 +122,13 @@ const handleRun = async (payload: IpcRunCell) => {
       safeSend(frame);
       stderrBuf = "";
     }
+
     safeSend({
       type: "Result",
       jobId: payload.jobId,
       outputs: result.outputs,
       execution: result.execution,
+      globals: plainGlobals,
     });
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error));
@@ -188,6 +217,7 @@ const handleInvoke = async (payload: IpcInvokeHandler) => {
       jobId: payload.jobId,
       outputs: result.outputs,
       execution: result.execution,
+      globals: result.globals ?? {},
     });
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error));

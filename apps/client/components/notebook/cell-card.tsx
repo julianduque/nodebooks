@@ -35,6 +35,7 @@ import CommandCellView from "@/components/notebook/command-cell-view";
 import TerminalCellView from "@/components/notebook/terminal-cell-view";
 import HttpCellView from "@/components/notebook/http-cell-view";
 import SqlCellView from "@/components/notebook/sql-cell-view";
+import PlotCellView from "@/components/notebook/plot-cell-view";
 import AddCellMenu from "@/components/notebook/add-cell-menu";
 import type { AttachmentMetadata } from "@/components/notebook/attachment-utils";
 import {
@@ -75,6 +76,7 @@ interface CellCardProps {
   terminalCellsEnabled: boolean;
   dependencies?: Record<string, string>;
   variables?: Record<string, string>;
+  globals?: Record<string, unknown>;
   pendingTerminalPersist?: boolean;
   readOnly: boolean;
   sqlConnections: SqlConnection[];
@@ -116,6 +118,8 @@ const FONT_SIZE_PRESET_STRINGS = new Set<string>(
 type HttpCellType = Extract<NotebookCell, { type: "http" }>;
 
 type SqlCellType = Extract<NotebookCell, { type: "sql" }>;
+
+type PlotCellType = Extract<NotebookCell, { type: "plot" }>;
 
 interface HttpExecutionDetails {
   method: string;
@@ -470,6 +474,7 @@ const CellCard = ({
   terminalCellsEnabled,
   dependencies,
   variables,
+  globals,
   pendingTerminalPersist = false,
   readOnly,
   sqlConnections,
@@ -483,8 +488,15 @@ const CellCard = ({
   const isCommand = cell.type === "command";
   const isHttp = cell.type === "http";
   const isSql = cell.type === "sql";
+  const isPlot = cell.type === "plot";
   const showAiActions =
-    aiEnabled && !isTerminal && !isCommand && !isHttp && !isSql && !readOnly;
+    aiEnabled &&
+    !isTerminal &&
+    !isCommand &&
+    !isHttp &&
+    !isSql &&
+    !isPlot &&
+    !readOnly;
   const isReadOnly = readOnly;
   const codeLanguage = isCode ? cell.language : undefined;
   const cellContent = isTerminal
@@ -495,7 +507,9 @@ const CellCard = ({
         ? JSON.stringify(cell.request ?? {})
         : isSql
           ? (cell.query ?? "")
-          : (cell.source ?? "");
+          : isPlot
+            ? JSON.stringify(cell.bindings ?? {})
+            : (cell.source ?? "");
   const handleUiInteraction = useCallback(
     (event: UiInteractionEvent) => {
       if (!onUiInteraction) return;
@@ -1347,6 +1361,23 @@ const CellCard = ({
             <Code className="h-4 w-4" />
           </Button>
         </>
+      ) : isPlot ? (
+        <>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onRun}
+            disabled={isReadOnly || !canRun || isRunning}
+            aria-label="Run plot"
+            title="Generate plot data"
+          >
+            {isRunning ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Play className="h-4 w-4" />
+            )}
+          </Button>
+        </>
       ) : isMarkdown ? (
         <>
           <Button
@@ -1556,6 +1587,16 @@ const CellCard = ({
           isRunning={isRunning}
           readOnly={readOnly}
           onRun={onRun}
+        />
+      ) : cell.type === "plot" ? (
+        <PlotCellView
+          cell={cell as PlotCellType}
+          globals={globals ?? {}}
+          onChange={onChange}
+          onRun={onRun}
+          isRunning={isRunning}
+          readOnly={readOnly}
+          canRun={canRun}
         />
       ) : cell.type === "sql" ? (
         <SqlCellView

@@ -39,6 +39,7 @@ export interface ExecuteResult {
     | { type: "error"; ename: string; evalue: string; traceback: string[] }
   >;
   execution: OutputExecution;
+  globals?: Record<string, unknown>;
 }
 
 export class WorkerClient {

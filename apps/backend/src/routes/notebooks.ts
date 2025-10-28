@@ -465,7 +465,7 @@ export const registerNotebookRoutes = (
         .replace(/[^a-z0-9]+/g, "-")
         .replace(/^-+|-+$/g, "")
         .slice(0, 64) || "notebook";
-    const filename = `${baseName}.nbdm`;
+    const filename = `${baseName}.nb.yml`;
 
     reply.header("Content-Type", "application/x-yaml; charset=utf-8");
     reply.header("Content-Disposition", `attachment; filename="${filename}"`);

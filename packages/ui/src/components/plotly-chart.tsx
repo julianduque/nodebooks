@@ -12,11 +12,13 @@ type PlotlyModule = {
     config?: unknown
   ) => Promise<unknown> | unknown;
   purge: (el: HTMLElement) => void;
+  toImage: (el: HTMLElement, opts?: Record<string, unknown>) => Promise<string>;
 };
 
 export type PlotlyChartProps = Omit<UiPlotly, "ui"> & {
   className?: string;
   themeMode?: "light" | "dark";
+  onReady?: (handle: { element: HTMLElement; plotly: PlotlyModule }) => void;
 };
 
 export const PlotlyChart: React.FC<PlotlyChartProps> = ({
@@ -26,6 +28,7 @@ export const PlotlyChart: React.FC<PlotlyChartProps> = ({
   responsive = true,
   className,
   themeMode,
+  onReady,
 }) => {
   const containerRef = React.useRef<HTMLDivElement>(null);
   const mode = useComponentThemeMode(themeMode);
@@ -72,6 +75,9 @@ export const PlotlyChart: React.FC<PlotlyChartProps> = ({
           } as unknown
         );
         if (mounted) setError(null);
+        if (mounted && containerRef.current && typeof onReady === "function") {
+          onReady({ element: containerRef.current, plotly });
+        }
       } catch (err) {
         if (!mounted) return;
         setError(
@@ -96,7 +102,7 @@ export const PlotlyChart: React.FC<PlotlyChartProps> = ({
         }
       }
     };
-  }, [data, layout, config, responsive, mode]);
+  }, [data, layout, config, responsive, mode, onReady]);
 
   return (
     <div

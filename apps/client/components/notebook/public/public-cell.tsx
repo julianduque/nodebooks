@@ -8,15 +8,18 @@ import PublicTerminalCell from "@/components/notebook/public/public-terminal-cel
 import PublicCommandCell from "@/components/notebook/public/public-command-cell";
 import PublicHttpCell from "@/components/notebook/public/public-http-cell";
 import PublicSqlCell from "@/components/notebook/public/public-sql-cell";
+import PublicPlotCell from "@/components/notebook/public/public-plot-cell";
 
 const PublicCell = ({
   cell,
   theme,
   connections,
+  globals,
 }: {
   cell: NotebookCell;
   theme: ThemeMode;
   connections: SqlConnection[];
+  globals?: Record<string, unknown>;
 }) => {
   if (cell.type === "markdown") {
     return <PublicMarkdownCell cell={cell} theme={theme} />;
@@ -37,6 +40,9 @@ const PublicCell = ({
     return (
       <PublicSqlCell cell={cell} connections={connections} theme={theme} />
     );
+  }
+  if (cell.type === "plot") {
+    return <PublicPlotCell cell={cell} globals={globals ?? {}} />;
   }
   return null;
 };
