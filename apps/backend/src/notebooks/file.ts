@@ -89,6 +89,9 @@ const cloneCells = (cells: NotebookFileCell[]): NotebookCell[] => {
         metadata: httpCell.metadata ?? {},
         request: httpCell.request,
         response: httpCell.response,
+        assignVariable: httpCell.assignVariable,
+        assignBody: httpCell.assignBody,
+        assignHeaders: httpCell.assignHeaders,
       });
       result.push(http);
       continue;
@@ -234,6 +237,15 @@ const serializeHttpCell = (cell: HttpCell): NotebookFileCell => {
   }
   if (cell.response) {
     result.response = cell.response;
+  }
+  if (cell.assignVariable) {
+    result.assignVariable = cell.assignVariable;
+  }
+  if (cell.assignBody) {
+    result.assignBody = cell.assignBody;
+  }
+  if (cell.assignHeaders) {
+    result.assignHeaders = cell.assignHeaders;
   }
   return result;
 };

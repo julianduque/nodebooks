@@ -89,6 +89,9 @@ describe("HTTP routes", () => {
             text: '{"hello": "world"}',
           },
         },
+        assignVariable: "httpResult",
+        assignBody: "latestBody",
+        assignHeaders: "latestHeaders",
       },
     });
 
@@ -103,10 +106,67 @@ describe("HTTP routes", () => {
     });
     expect(init?.body).toBe(JSON.stringify({ hello: "world" }));
 
-    const body = response.json() as { data?: { response?: HttpResponse } };
+    const body = response.json() as {
+      data?: {
+        response?: HttpResponse;
+        assignments?: { variable?: string; body?: string; headers?: string };
+      };
+    };
     expect(body?.data?.response?.status).toBe(200);
     expect(body?.data?.response?.body?.type).toBe("json");
     expect(body?.data?.response?.curl).toContain("curl -X POST");
+    expect(body?.data?.assignments).toEqual({
+      variable: "httpResult",
+      body: "latestBody",
+      headers: "latestHeaders",
+    });
+    expect(body?.data?.response?.assignedVariable).toBe("httpResult");
+    expect(body?.data?.response?.assignedBody).toBe("latestBody");
+    expect(body?.data?.response?.assignedHeaders).toBe("latestHeaders");
+    await app.close();
+  });
+
+  it("rejects invalid assignment identifiers", async () => {
+    const store = new InMemoryNotebookStore([]);
+    const collaborators = new InMemoryNotebookCollaboratorStore();
+    const notebook = createEmptyNotebook({
+      id: "nb-assign",
+      env: {
+        runtime: "node",
+        version: "20.10.0",
+        packages: {},
+        variables: {},
+      },
+      cells: [],
+    });
+    await store.save(notebook);
+
+    const app = Fastify();
+    app.addHook("preHandler", (req, _reply, done) => {
+      (req as typeof req & { user: SafeUser }).user = createAdminUser();
+      done();
+    });
+
+    registerHttpRoutes(app, store, collaborators);
+    await app.ready();
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/notebooks/nb-assign/http",
+      payload: {
+        cellId: "cell-x",
+        request: {
+          method: "GET",
+          url: "https://example.com/api",
+        },
+        assignBody: "123-invalid",
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    const body = response.json() as { error?: string };
+    expect(body.error).toBe("Body assignment must be a valid identifier");
     await app.close();
   });
 

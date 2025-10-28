@@ -779,6 +779,9 @@ export const HttpResponseSchema = z.object({
   body: HttpResponseBodySchema.optional(),
   error: z.string().optional(),
   curl: z.string().optional(),
+  assignedVariable: z.string().optional(),
+  assignedBody: z.string().optional(),
+  assignedHeaders: z.string().optional(),
 });
 export type HttpResponse = z.infer<typeof HttpResponseSchema>;
 
@@ -847,6 +850,9 @@ export const HttpCellSchema = z.object({
   metadata: z.record(z.string(), z.unknown()).default({}),
   request: HttpRequestSchema.default(DEFAULT_HTTP_REQUEST),
   response: HttpResponseSchema.optional(),
+  assignVariable: z.string().optional(),
+  assignBody: z.string().optional(),
+  assignHeaders: z.string().optional(),
 });
 
 export const SqlDriverSchema = z.enum(["postgres"]);
@@ -990,6 +996,9 @@ export const NotebookFileHttpCellSchema = z.object({
   metadata: z.record(z.string(), z.unknown()).optional(),
   request: HttpRequestSchema.optional(),
   response: HttpResponseSchema.optional(),
+  assignVariable: z.string().optional(),
+  assignBody: z.string().optional(),
+  assignHeaders: z.string().optional(),
 });
 
 export const NotebookFileSqlCellSchema = z.object({
@@ -1211,6 +1220,9 @@ export const createHttpCell = (partial?: Partial<HttpCell>): HttpCell => {
     metadata: partial?.metadata ?? {},
     request,
     response,
+    assignVariable: partial?.assignVariable,
+    assignBody: partial?.assignBody,
+    assignHeaders: partial?.assignHeaders,
   });
 };
 

@@ -116,9 +116,14 @@ const buildCurlCommand = (
   return parts.join(" ");
 };
 
+const IDENTIFIER_PATTERN = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
+
 const HttpExecutePayloadSchema = z.object({
   cellId: z.string(),
   request: HttpRequestSchema,
+  assignVariable: z.string().optional(),
+  assignBody: z.string().optional(),
+  assignHeaders: z.string().optional(),
 });
 
 const normalizeRequest = (
@@ -207,11 +212,18 @@ const normalizeRequest = (
   };
 };
 
+interface ResponseAssignments {
+  variable?: string;
+  body?: string;
+  headers?: string;
+}
+
 const buildResponsePayload = async (
   response: Response,
   requestedUrl: string,
   curl: string,
-  startedAt: number
+  startedAt: number,
+  assignments: ResponseAssignments
 ): Promise<HttpResponse> => {
   const durationMs = Date.now() - startedAt;
   const buffer = new Uint8Array(await response.arrayBuffer());
@@ -278,14 +290,24 @@ const buildResponsePayload = async (
           }
         : undefined,
     curl,
+    assignedVariable: assignments.variable,
+    assignedBody: assignments.body,
+    assignedHeaders: assignments.headers,
   });
 };
 
-const buildErrorResponse = (message: string, curl: string): HttpResponse => {
+const buildErrorResponse = (
+  message: string,
+  curl: string,
+  assignments: ResponseAssignments
+): HttpResponse => {
   return HttpResponseSchema.parse({
     error: message,
     timestamp: new Date().toISOString(),
     curl,
+    assignedVariable: assignments.variable,
+    assignedBody: assignments.body,
+    assignedHeaders: assignments.headers,
   });
 };
 
@@ -301,6 +323,41 @@ export const registerHttpRoutes = (
   app.post("/notebooks/:id/http", async (request, reply) => {
     const params = z.object({ id: z.string() }).parse(request.params);
     const payload = HttpExecutePayloadSchema.parse(request.body ?? {});
+
+    const normalizeAssignment = (value: string | undefined | null) => {
+      const trimmed = value?.trim() ?? "";
+      return trimmed.length > 0 ? trimmed : undefined;
+    };
+
+    const assignVariable = normalizeAssignment(payload.assignVariable);
+    if (assignVariable && !IDENTIFIER_PATTERN.test(assignVariable)) {
+      reply
+        .code(400)
+        .send({ error: "Assignment target must be a valid identifier" });
+      return;
+    }
+
+    const assignBody = normalizeAssignment(payload.assignBody);
+    if (assignBody && !IDENTIFIER_PATTERN.test(assignBody)) {
+      reply
+        .code(400)
+        .send({ error: "Body assignment must be a valid identifier" });
+      return;
+    }
+
+    const assignHeaders = normalizeAssignment(payload.assignHeaders);
+    if (assignHeaders && !IDENTIFIER_PATTERN.test(assignHeaders)) {
+      reply
+        .code(400)
+        .send({ error: "Header assignment must be a valid identifier" });
+      return;
+    }
+
+    const assignments: ResponseAssignments = {
+      variable: assignVariable,
+      body: assignBody,
+      headers: assignHeaders,
+    };
 
     const notebook = await store.get(params.id);
     if (!notebook) {
@@ -358,14 +415,18 @@ export const registerHttpRoutes = (
         response,
         url,
         normalized.curl,
-        started
+        started,
+        assignments
       );
-      return { data: { response: payloadResponse } };
+      return { data: { response: payloadResponse, assignments } };
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "HTTP request failed";
       return {
-        data: { response: buildErrorResponse(message, normalized.curl) },
+        data: {
+          response: buildErrorResponse(message, normalized.curl, assignments),
+          assignments,
+        },
       };
     }
   });
