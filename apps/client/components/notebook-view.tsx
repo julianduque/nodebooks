@@ -19,6 +19,7 @@ import {
   createTerminalCell,
   createHttpCell,
   createSqlCell,
+  createPlotCell,
   type HttpResponse,
   type KernelExecuteRequest,
   type KernelServerMessage,
@@ -28,11 +29,13 @@ import {
   type NotebookOutput,
   type SqlConnection,
   type SqlResult,
+  type PlotCellResult,
 } from "@nodebooks/notebook-schema";
 import {
   IDENTIFIER_PATTERN,
   computeHttpGlobals,
 } from "./notebook/runtime-globals";
+import { commitPlotLayoutDraft } from "./notebook/plot-layout-committers";
 import type {
   NotebookSessionSummary,
   NotebookTemplateId,
@@ -81,6 +84,13 @@ const normalizeNotebookState = (
 
 const SQL_IDENTIFIER_PATTERN = IDENTIFIER_PATTERN;
 
+const hasLayoutOverrides = (layout?: Record<string, unknown>) => {
+  if (!layout) {
+    return false;
+  }
+  return Object.keys(layout).length > 0;
+};
+
 type CommandCellMetadata = {
   terminalTargetId?: string;
 };
@@ -110,6 +120,9 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
   const [depOutputs, setDepOutputs] = useState<NotebookOutput[]>([]);
   const [aiEnabled, setAiEnabled] = useState(false);
   const [terminalCellsEnabled, setTerminalCellsEnabled] = useState(false);
+  const [kernelGlobals, setKernelGlobals] = useState<Record<string, unknown>>(
+    {}
+  );
   const [socketGeneration, bumpSocketGeneration] = useReducer(
     (current: number) => current + 1,
     0
@@ -360,6 +373,10 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
 
   const notebookId = notebook?.id;
   const sessionId = session?.id;
+
+  useEffect(() => {
+    setKernelGlobals((prev) => (Object.keys(prev).length > 0 ? {} : prev));
+  }, [notebookId]);
 
   const handleProjectNotebookNavigate = useCallback(
     (targetId: string) => {
@@ -822,6 +839,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         runPendingRef.current.clear();
         // Clear any queued runs on fresh session
         setRunQueue([]);
+        setKernelGlobals((prev) => (Object.keys(prev).length > 0 ? {} : prev));
         return;
       }
       if (message.type === "status") {
@@ -832,6 +850,11 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         return;
       }
       if (message.type === "execute_reply") {
+        // Only update globals if they are explicitly provided in the message
+        // Undefined means "no change", not "clear all globals"
+        if (message.globals !== undefined) {
+          setKernelGlobals(message.globals);
+        }
         setRunningCellId((current) =>
           current === message.cellId ? null : current
         );
@@ -1526,7 +1549,9 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
                 ? createHttpCell()
                 : type === "sql"
                   ? createSqlCell()
-                  : createMarkdownCell({ source: "" });
+                  : type === "plot"
+                    ? createPlotCell()
+                    : createMarkdownCell({ source: "" });
       const updatedNotebook = updateNotebook((current) => {
         const cells = [...current.cells];
         if (typeof index === "number") {
@@ -1685,12 +1710,18 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
   const httpGlobals = useMemo(() => computeHttpGlobals(notebook), [notebook]);
 
   const runtimeGlobals = useMemo(() => {
-    const merged: Record<string, unknown> = { ...sqlGlobals };
+    const merged: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(kernelGlobals)) {
+      merged[key] = value;
+    }
+    for (const [key, value] of Object.entries(sqlGlobals)) {
+      merged[key] = value;
+    }
     for (const [key, value] of Object.entries(httpGlobals)) {
       merged[key] = value;
     }
     return merged;
-  }, [sqlGlobals, httpGlobals]);
+  }, [kernelGlobals, sqlGlobals, httpGlobals]);
 
   const handleUiInteraction = useCallback(
     (cellId: string, event: UiInteractionEvent) => {
@@ -1829,7 +1860,10 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
       }
 
       const requiresQueue =
-        cell.type === "code" || cell.type === "http" || cell.type === "sql";
+        cell.type === "code" ||
+        cell.type === "http" ||
+        cell.type === "sql" ||
+        cell.type === "plot";
       if (requiresQueue) {
         const busy =
           runningRef.current !== null ||
@@ -1846,6 +1880,139 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
           setRunQueue((prev) => (prev.includes(id) ? prev : [...prev, id]));
           return;
         }
+      }
+
+      if (cell.type === "plot") {
+        const layoutCommit = commitPlotLayoutDraft(cell.id);
+        if (!layoutCommit.ok) {
+          setActionError(
+            layoutCommit.error ??
+              "Layout overrides must be valid JSON before running this plot."
+          );
+          return;
+        }
+        const chartType = (cell.chartType ?? "").trim() || "scatter";
+        const dataSource = cell.dataSource;
+        if (!chartType) {
+          setActionError("Choose a chart type before running this plot.");
+          return;
+        }
+        if (!dataSource) {
+          setActionError("Select a data source before running this plot.");
+          return;
+        }
+        if (dataSource.type === "global") {
+          const variable = (dataSource.variable ?? "").trim();
+          if (!variable) {
+            setActionError(
+              "Select a dataset variable before running this plot."
+            );
+            return;
+          }
+          if (!sessionId) {
+            setActionError(
+              "Kernel session is not ready. Restart the runtime and try again."
+            );
+            return;
+          }
+        }
+        const layoutEnabled =
+          cell.layoutEnabled ?? hasLayoutOverrides(cell.layout);
+        const requestDataSource =
+          dataSource.type === "global"
+            ? {
+                ...dataSource,
+                variable: (dataSource.variable ?? "").trim(),
+              }
+            : dataSource;
+        const requestPayload: Record<string, unknown> = {
+          cellId: id,
+          chartType,
+          dataSource: requestDataSource,
+          bindings: cell.bindings,
+        };
+        if (dataSource.type === "global" && sessionId) {
+          requestPayload.sessionId = sessionId;
+        }
+        if (layoutEnabled && hasLayoutOverrides(cell.layout)) {
+          requestPayload.layout = cell.layout;
+        }
+        setActionError(null);
+        runningRef.current = id;
+        setRunningCellId(id);
+        void (async () => {
+          try {
+            const response = await fetch(
+              `${API_BASE_URL}/notebooks/${notebook.id}/plot-cells`,
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(requestPayload),
+              }
+            );
+            const payload = (await response.json().catch(() => ({}))) as {
+              error?: string;
+              data?: { result?: PlotCellResult };
+            };
+            const result = payload?.data?.result;
+            // Always update the cell with the result, even if there's an error
+            // This ensures errors are displayed to the user
+            if (result || !response.ok) {
+              updateNotebookCell(
+                id,
+                (current) => {
+                  if (current.type !== "plot") {
+                    return current;
+                  }
+                  const errorMessage = !response.ok
+                    ? typeof payload?.error === "string"
+                      ? payload.error
+                      : `Failed to build plot data (status ${response.status})`
+                    : result?.error;
+                  return {
+                    ...current,
+                    chartType: result?.chartType ?? current.chartType,
+                    result: result
+                      ? result
+                      : {
+                          chartType: current.chartType ?? "scatter",
+                          source: current.dataSource ?? {
+                            type: "global",
+                            variable: "",
+                            path: [],
+                          },
+                          layout: {},
+                          fields: [],
+                          traces: [],
+                          error: errorMessage,
+                          timestamp: new Date().toISOString(),
+                        },
+                  };
+                },
+                { persist: true }
+              );
+            }
+            if (!response.ok) {
+              const message =
+                typeof payload?.error === "string"
+                  ? payload.error
+                  : `Failed to build plot data (status ${response.status})`;
+              setActionError(message);
+            }
+          } catch (error) {
+            setActionError(
+              error instanceof Error
+                ? error.message
+                : "Failed to prepare plot data"
+            );
+          } finally {
+            if (runningRef.current === id) {
+              runningRef.current = null;
+            }
+            setRunningCellId((current) => (current === id ? null : current));
+          }
+        })();
+        return;
       }
 
       if (cell.type === "sql") {
@@ -2147,6 +2314,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
       notebook,
       runtimeGlobals,
       runningCellId,
+      sessionId,
       saveNotebookNow,
       terminalCellsEnabled,
       updateNotebook,
@@ -2311,7 +2479,12 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     );
 
     notebook.cells.forEach((cell) => {
-      if (cell.type === "code" || cell.type === "http" || cell.type === "sql") {
+      if (
+        cell.type === "code" ||
+        cell.type === "http" ||
+        cell.type === "sql" ||
+        cell.type === "plot"
+      ) {
         handleRunCell(cell.id);
       }
     });
@@ -2349,7 +2522,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `${slugify(notebook.name)}.nbdm`;
+      link.download = `${slugify(notebook.name)}.nb.yml`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -2983,6 +3156,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         sqlConnections={notebook?.sql?.connections ?? []}
         onRequestAddConnection={handleRequestAddSqlConnection}
         onUiInteraction={handleUiInteraction}
+        runtimeGlobals={runtimeGlobals}
       />
       <PublishDialog
         open={publishDialogOpen}

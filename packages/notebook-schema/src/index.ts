@@ -907,6 +907,126 @@ export const SqlCellSchema = z.object({
 });
 export type SqlCell = z.infer<typeof SqlCellSchema>;
 
+const PlotSqlDataSourceSchema = z.object({
+  type: z.literal("sql"),
+  cellId: z.string().optional(),
+  resultKey: z.enum(["rows", "assigned"]).default("rows"),
+});
+
+const PlotHttpDataSourceSchema = z.object({
+  type: z.literal("http"),
+  cellId: z.string().optional(),
+  path: z.array(z.union([z.string(), z.number()])).default([]),
+});
+
+const PlotCodeDataSourceSchema = z.object({
+  type: z.literal("code"),
+  cellId: z.string().optional(),
+  outputIndex: z.number().int().nonnegative().optional(),
+  path: z.array(z.union([z.string(), z.number()])).default([]),
+});
+
+const PlotGlobalDataSourceSchema = z.object({
+  type: z.literal("global"),
+  variable: z.string().optional(),
+  path: z.array(z.union([z.string(), z.number()])).default([]),
+});
+
+export const PlotDataSourceSchema = z.discriminatedUnion("type", [
+  PlotSqlDataSourceSchema,
+  PlotHttpDataSourceSchema,
+  PlotCodeDataSourceSchema,
+  PlotGlobalDataSourceSchema,
+]);
+export type PlotDataSource = z.infer<typeof PlotDataSourceSchema>;
+
+export const PlotTraceBindingSchema = z
+  .object({
+    id: z.string().default(() => createId()),
+    name: z.string().optional(),
+    type: z.string().optional(),
+    mode: z.string().optional(),
+    x: z.string().optional(),
+    y: z.string().optional(),
+    z: z.string().optional(),
+    color: z.string().optional(),
+    size: z.string().optional(),
+    text: z.string().optional(),
+    fill: z.string().optional(),
+    stackgroup: z.string().optional(),
+  })
+  .strict();
+export type PlotTraceBinding = z.infer<typeof PlotTraceBindingSchema>;
+
+export const PlotBindingsSchema = z
+  .object({
+    traces: z.array(PlotTraceBindingSchema).default([]),
+  })
+  .strict();
+export type PlotBindings = z.infer<typeof PlotBindingsSchema>;
+
+export const PlotSnapshotSchema = z
+  .object({
+    dataUrl: z
+      .string()
+      .regex(/^data:image\/png;base64,/)
+      .describe("PNG data URL for the captured chart"),
+    width: z.number().int().positive().optional(),
+    height: z.number().int().positive().optional(),
+    capturedAt: z.string().optional(),
+    fileName: z.string().optional(),
+  })
+  .strict();
+export type PlotSnapshot = z.infer<typeof PlotSnapshotSchema>;
+
+export const PlotlyTraceSchema = z
+  .object({
+    id: z.string().default(() => createId()),
+    name: z.string().optional(),
+    type: z.string().optional(),
+    mode: z.string().optional(),
+    x: z.array(z.unknown()).optional(),
+    y: z.array(z.unknown()).optional(),
+    z: z.array(z.unknown()).optional(),
+    text: z.array(z.unknown()).optional(),
+    marker: z.record(z.string(), z.unknown()).optional(),
+    hovertemplate: z.string().optional(),
+    customdata: z.array(z.unknown()).optional(),
+  })
+  .passthrough();
+export type PlotlyTrace = z.infer<typeof PlotlyTraceSchema>;
+
+export const PlotCellResultSchema = z
+  .object({
+    traces: z.array(PlotlyTraceSchema).default([]),
+    layout: z.record(z.string(), z.unknown()).default({}),
+    fields: z.array(z.string()).default([]),
+    source: PlotDataSourceSchema,
+    chartType: z.string().optional(),
+    timestamp: z.string().optional(),
+    error: z.string().optional(),
+  })
+  .strict();
+export type PlotCellResult = z.infer<typeof PlotCellResultSchema>;
+
+export const PlotCellSchema = z.object({
+  id: z.string(),
+  type: z.literal("plot"),
+  metadata: z.record(z.string(), z.unknown()).default({}),
+  chartType: z.string().default("scatter"),
+  dataSource: PlotDataSourceSchema.default({
+    type: "global",
+    variable: "",
+    path: [],
+  }),
+  bindings: PlotBindingsSchema.default({ traces: [] }),
+  layout: z.record(z.string(), z.unknown()).default({}),
+  layoutEnabled: z.boolean().optional(),
+  result: PlotCellResultSchema.optional(),
+  snapshot: PlotSnapshotSchema.optional(),
+});
+export type PlotCell = z.infer<typeof PlotCellSchema>;
+
 export const NOTEBOOK_CELL_SCHEMAS = {
   markdown: MarkdownCellSchema,
   terminal: TerminalCellSchema,
@@ -914,6 +1034,7 @@ export const NOTEBOOK_CELL_SCHEMAS = {
   code: CodeCellSchema,
   http: HttpCellSchema,
   sql: SqlCellSchema,
+  plot: PlotCellSchema,
 } as const;
 
 export type NotebookCellType = keyof typeof NOTEBOOK_CELL_SCHEMAS;
@@ -930,6 +1051,7 @@ const NOTEBOOK_CELL_SCHEMA_LIST = Object.values(NOTEBOOK_CELL_SCHEMAS) as [
   typeof CodeCellSchema,
   typeof HttpCellSchema,
   typeof SqlCellSchema,
+  typeof PlotCellSchema,
 ];
 
 const NOTEBOOK_CELL_SCHEMA_LIST_WITH_LEGACY = [
@@ -1010,6 +1132,18 @@ export const NotebookFileSqlCellSchema = z.object({
   result: SqlResultSchema.optional(),
 });
 
+export const NotebookFilePlotCellSchema = z.object({
+  type: z.literal("plot"),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+  chartType: z.string().optional(),
+  dataSource: PlotDataSourceSchema.optional(),
+  bindings: PlotBindingsSchema.optional(),
+  layout: z.record(z.string(), z.unknown()).optional(),
+  layoutEnabled: z.boolean().optional(),
+  result: PlotCellResultSchema.optional(),
+  snapshot: PlotSnapshotSchema.optional(),
+});
+
 export const NOTEBOOK_FILE_CELL_SCHEMAS = {
   markdown: NotebookFileMarkdownCellSchema,
   terminal: NotebookFileTerminalCellSchema,
@@ -1018,6 +1152,7 @@ export const NOTEBOOK_FILE_CELL_SCHEMAS = {
   code: NotebookFileCodeCellSchema,
   http: NotebookFileHttpCellSchema,
   sql: NotebookFileSqlCellSchema,
+  plot: NotebookFilePlotCellSchema,
 } as const;
 
 export type NotebookFileCellType = keyof typeof NOTEBOOK_FILE_CELL_SCHEMAS;
@@ -1036,6 +1171,7 @@ const NOTEBOOK_FILE_CELL_SCHEMA_LIST = Object.values(
   typeof NotebookFileCodeCellSchema,
   typeof NotebookFileHttpCellSchema,
   typeof NotebookFileSqlCellSchema,
+  typeof NotebookFilePlotCellSchema,
 ];
 
 export const NotebookFileCellSchema = z.discriminatedUnion(
@@ -1115,6 +1251,7 @@ export type NotebookFileLegacyShellCell = z.infer<
 export type NotebookFileCodeCell = z.infer<typeof NotebookFileCodeCellSchema>;
 export type NotebookFileHttpCell = z.infer<typeof NotebookFileHttpCellSchema>;
 export type NotebookFileSqlCell = z.infer<typeof NotebookFileSqlCellSchema>;
+export type NotebookFilePlotCell = z.infer<typeof NotebookFilePlotCellSchema>;
 export type NotebookFileCell = z.infer<typeof NotebookFileCellSchema>;
 export type NotebookFileNotebook = z.infer<typeof NotebookFileNotebookSchema>;
 export type NotebookFileSummary = z.infer<typeof NotebookFileSummarySchema>;
@@ -1238,6 +1375,33 @@ export const createSqlCell = (partial?: Partial<SqlCell>): SqlCell => {
   });
 };
 
+export const createPlotCell = (partial?: Partial<PlotCell>): PlotCell => {
+  const dataSource = partial?.dataSource
+    ? PlotDataSourceSchema.parse(partial.dataSource)
+    : PlotDataSourceSchema.parse({ type: "sql", resultKey: "rows" });
+  const bindings = partial?.bindings
+    ? PlotBindingsSchema.parse(partial.bindings)
+    : PlotBindingsSchema.parse({});
+  const layout = partial?.layout
+    ? PlotCellSchema.shape.layout.parse(partial.layout)
+    : {};
+  const layoutEnabled =
+    partial?.layoutEnabled ??
+    (partial?.layout ? Object.keys(partial.layout).length > 0 : false);
+  return PlotCellSchema.parse({
+    id: partial?.id ?? createId(),
+    type: "plot",
+    metadata: partial?.metadata ?? {},
+    chartType: partial?.chartType ?? "scatter",
+    dataSource,
+    bindings,
+    layout,
+    layoutEnabled,
+    result: partial?.result,
+    snapshot: partial?.snapshot,
+  });
+};
+
 export const createMarkdownCell = (
   partial?: Partial<MarkdownCell>
 ): MarkdownCell => {
@@ -1297,6 +1461,7 @@ export const KernelExecuteReplySchema = z.object({
   cellId: z.string(),
   status: z.enum(["ok", "error", "aborted"]).default("ok"),
   execTimeMs: z.number().nonnegative(),
+  globals: z.record(z.string(), z.unknown()).optional(),
 });
 
 export const KernelStreamMessageSchema = StreamOutputSchema.extend({

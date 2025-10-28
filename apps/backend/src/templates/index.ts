@@ -79,7 +79,7 @@ const loadTemplates = () => {
   }
   const entries = fs.readdirSync(TEMPLATE_DIR, { withFileTypes: true });
   for (const entry of entries) {
-    if (!entry.isFile() || !entry.name.endsWith(".nbmd")) {
+    if (!entry.isFile() || !entry.name.endsWith(".nb.yml")) {
       continue;
     }
     const fullPath = path.join(TEMPLATE_DIR, entry.name);

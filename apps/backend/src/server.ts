@@ -29,6 +29,7 @@ import { registerPublicViewRoutes } from "./routes/public.js";
 import { registerProjectSharingRoutes } from "./routes/project-sharing.js";
 import { registerHttpRoutes } from "./routes/http.js";
 import { registerSqlRoutes } from "./routes/sql.js";
+import { registerPlotCellRoutes } from "./routes/plot-cells.js";
 import { createKernelUpgradeHandler } from "./kernel/router.js";
 import { createTerminalUpgradeHandler } from "./terminal/router.js";
 import { NotebookCollaborationService } from "./notebooks/collaboration.js";
@@ -659,6 +660,7 @@ export const createServer = async ({ logger }: CreateServerOptions = {}) => {
       registerProjectSharingRoutes(api, { auth: authService });
       registerHttpRoutes(api, store, collaborators);
       registerSqlRoutes(api, store, collaborators);
+      registerPlotCellRoutes(api, store, collaborators, kernelSessions);
       registerDependencyRoutes(api, store, collaborators);
       registerSessionRoutes(api, kernelSessions, store, collaborators);
       registerTemplateRoutes(api);

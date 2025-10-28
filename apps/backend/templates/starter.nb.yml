@@ -1,0 +1,307 @@
+id: starter
+title: Starter Notebook
+description: >-
+  Combine Markdown and TypeScript cells with ready-to-run UI displays,
+  sample dependencies, and environment variables.
+badge:
+  text: Starter
+  tone: emerald
+tags:
+  - quickstart
+  - typescript
+order: 10
+notebook:
+  name: Starter Notebook
+  env:
+    runtime: node
+    version: "20.x"
+    packages:
+      chalk: "^5.3.0"
+      date-fns: "^3.6.0"
+    variables:
+      SAMPLE_NAME: NodeBooks Explorer
+      FAV_NUMBER: "7"
+  cells:
+    - type: markdown
+      source: |-
+        # Welcome to the starter notebook
+
+        This template demonstrates how Markdown, TypeScript, dependencies,
+        environment variables, and UI components fit together inside NodeBooks.
+
+        Use it as a sandbox to explore the runtime before creating your own notebooks.
+    - type: markdown
+      source: |-
+        ## What's included
+
+        - Markdown cells for rich documentation
+        - TypeScript execution with npm dependencies (`chalk`, `date-fns`)
+        - Environment variables: `SAMPLE_NAME`, `FAV_NUMBER`
+        - UI components rendered from code outputs to summarize results
+        - LaTeX rendering for mathematical notation
+        - Mermaid diagrams for visualizing flows and architecture
+    - type: code
+      language: ts
+      source: |-
+        import chalk from "chalk";
+        import { format } from "date-fns";
+
+        const name = process.env.SAMPLE_NAME ?? "friend";
+        const favorite = Number.parseInt(process.env.FAV_NUMBER ?? "7", 10);
+
+        console.log(chalk.bold(`👋 Welcome, ${name}!`));
+        console.log("We can install npm packages directly from the notebook.");
+        console.log(`Current time: ${format(new Date(), "PPpp")}`);
+        console.log(`Favorite number squared: ${favorite ** 2}`);
+    - type: code
+      language: ts
+      source: |-
+        import { json } from "@nodebooks/ui";
+        const checklist = {
+          markdown: true,
+          code: true,
+          uiComponents: true,
+        };
+
+        console.log("Starter template components ready:", checklist);
+        json(checklist);
+    - type: markdown
+      source: |-
+        ## Math with LaTeX
+
+        Inline math like $E = mc^2$ renders alongside your narrative, and block
+        expressions stay centered:
+
+        $$
+        \nabla \cdot \vec{E} = \frac{\rho}{\varepsilon_0}
+        $$
+
+        Combine LaTeX with text to explain formulas, derivations, or proofs.
+    - type: markdown
+      source: |-
+        ## Visualize with Mermaid
+
+        Capture flows, architecture, or dependencies with Mermaid diagrams defined
+        inline inside Markdown fences:
+
+        ```mermaid
+        graph TD
+          Start[Notebook Idea] --> Draft
+          Draft --> Review
+          Review --> Launch
+        ```
+
+    - type: code
+      id: starter-plot-data
+      language: ts
+      source: |-
+        import { json } from "@nodebooks/ui";
+
+        const readinessBySprint = [
+          { sprint: "Sprint 1", readiness: 55, teamSize: 5, completed: 24, planned: 30 },
+          { sprint: "Sprint 2", readiness: 62, teamSize: 6, completed: 28, planned: 32 },
+          { sprint: "Sprint 3", readiness: 70, teamSize: 6, completed: 31, planned: 34 },
+          { sprint: "Sprint 4", readiness: 82, teamSize: 7, completed: 35, planned: 36 },
+        ];
+
+        const workDistribution = [
+          { category: "Features", hours: 120 },
+          { category: "Maintenance", hours: 48 },
+          { category: "Research", hours: 32 },
+          { category: "Support", hours: 20 },
+        ];
+
+        const sprintHealth = [
+          { sprint: "Sprint 1", defects: 6, escalations: 1 },
+          { sprint: "Sprint 2", defects: 4, escalations: 2 },
+          { sprint: "Sprint 3", defects: 3, escalations: 1 },
+          { sprint: "Sprint 4", defects: 2, escalations: 0 },
+        ];
+
+        json({
+          readinessBySprint,
+          workDistribution,
+          sprintHealth,
+        });
+
+    - type: plot
+      chartType: scatter
+      dataSource:
+        type: global
+        variable: readinessBySprint
+        path: []
+      bindings:
+        traces:
+          - id: starter-trace
+            name: Launch readiness
+            x: sprint
+            y: readiness
+            mode: lines+markers
+      layout:
+        title:
+          text: Launch readiness tracker
+        xaxis:
+          title: Sprint
+        yaxis:
+          title: Readiness (%)
+      result:
+        chartType: scatter
+        source:
+          type: global
+          variable: readinessBySprint
+          path: []
+        fields:
+          - sprint
+          - readiness
+        traces:
+          - id: starter-trace
+            name: Launch readiness
+            type: scatter
+            mode: lines+markers
+            x:
+              - Sprint 1
+              - Sprint 2
+              - Sprint 3
+              - Sprint 4
+            y:
+              - 55
+              - 62
+              - 70
+              - 82
+        layout:
+          title:
+            text: Launch readiness tracker
+          xaxis:
+            title:
+              text: Sprint
+          yaxis:
+            title:
+              text: Readiness (%)
+        timestamp: 2024-01-01T00:00:00.000Z
+
+    - type: plot
+      chartType: area
+      dataSource:
+        type: global
+        variable: readinessBySprint
+        path: []
+      bindings:
+        traces:
+          - id: area-completed
+            name: Completed work
+            x: sprint
+            y: completed
+            fill: tozeroy
+            stackgroup: area
+          - id: area-planned
+            name: Planned work
+            x: sprint
+            y: planned
+            fill: tozeroy
+            stackgroup: area
+      layout:
+        title:
+          text: Planned vs completed work
+        legend:
+          orientation: h
+      result:
+        chartType: area
+        source:
+          type: global
+          variable: readinessBySprint
+          path: []
+        fields:
+          - sprint
+          - completed
+          - planned
+        traces:
+          - id: area-completed
+            name: Completed work
+            type: scatter
+            mode: lines
+            fill: tozeroy
+            stackgroup: area
+            x:
+              - Sprint 1
+              - Sprint 2
+              - Sprint 3
+              - Sprint 4
+            y:
+              - 24
+              - 28
+              - 31
+              - 35
+          - id: area-planned
+            name: Planned work
+            type: scatter
+            mode: lines
+            fill: tozeroy
+            stackgroup: area
+            x:
+              - Sprint 1
+              - Sprint 2
+              - Sprint 3
+              - Sprint 4
+            y:
+              - 30
+              - 32
+              - 34
+              - 36
+        layout:
+          title:
+            text: Planned vs completed work
+          legend:
+            orientation: h
+        timestamp: 2024-01-01T00:00:00.000Z
+
+    - type: plot
+      chartType: pie
+      dataSource:
+        type: global
+        variable: workDistribution
+        path: []
+      bindings:
+        traces:
+          - id: pie-allocation
+            name: Hours by category
+            x: category
+            y: hours
+      layout:
+        title:
+          text: Workload allocation
+      result:
+        chartType: pie
+        source:
+          type: global
+          variable: workDistribution
+          path: []
+        fields:
+          - category
+          - hours
+        traces:
+          - id: pie-allocation
+            name: Hours by category
+            type: pie
+            labels:
+              - Features
+              - Maintenance
+              - Research
+              - Support
+            values:
+              - 120
+              - 48
+              - 32
+              - 20
+            text:
+              - Features
+              - Maintenance
+              - Research
+              - Support
+        layout:
+          title:
+            text: Workload allocation
+        timestamp: 2024-01-01T00:00:00.000Z
+
+    - type: markdown
+      source: |-
+        Modify the diagram text, and the preview updates instantly to match.

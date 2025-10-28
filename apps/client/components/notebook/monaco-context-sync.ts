@@ -1,5 +1,6 @@
 "use client";
 
+import type { NotebookCell } from "@nodebooks/notebook-schema";
 import { getMonaco } from "@/components/notebook/monaco-setup";
 import { ensureCellModel, cellUri } from "@/components/notebook/monaco-models";
 import {
@@ -8,21 +9,10 @@ import {
   setGlobalsDts,
 } from "@/components/notebook/monaco-extra-libs";
 
-type NotebookCell = {
-  id: string;
-  type: "code" | "markdown" | "terminal" | "command" | "http" | "sql";
-  language?: "js" | "ts";
-  source?: string;
-};
-
-type CodeCell = Required<Pick<NotebookCell, "id">> & {
-  type: "code";
-  language: "js" | "ts";
-  source: string;
-};
+type CodeCell = Extract<NotebookCell, { type: "code" }>;
 
 function isCodeCell(cell: NotebookCell): cell is CodeCell {
-  return cell.type === "code" && !!cell.language;
+  return cell.type === "code";
 }
 
 // Very lightweight top-level decl extraction using regex

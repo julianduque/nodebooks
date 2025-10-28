@@ -9,6 +9,7 @@ import {
   createCommandCell,
   createHttpCell,
   createSqlCell,
+  createPlotCell,
 } from "../src/index.js";
 
 describe("notebook schema", () => {
@@ -25,6 +26,7 @@ describe("notebook schema", () => {
     const command = createCommandCell({ command: "echo 'hi'" });
     const http = createHttpCell();
     const sql = createSqlCell({ query: "select 1" });
+    const plot = createPlotCell({ chartType: "bar" });
     expect(code.id).not.toEqual(markdown.id);
     expect(code.type).toBe("code");
     expect(markdown.type).toBe("markdown");
@@ -36,6 +38,9 @@ describe("notebook schema", () => {
     expect(http.request.method).toBe("GET");
     expect(sql.type).toBe("sql");
     expect(sql.query).toBe("select 1");
+    expect(plot.type).toBe("plot");
+    expect(plot.chartType).toBe("bar");
+    expect(Array.isArray(plot.bindings.traces)).toBe(true);
   });
 
   it("validates kernel protocol messages", () => {

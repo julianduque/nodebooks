@@ -74,6 +74,7 @@ export interface ExecuteOptions {
 export interface ExecuteResult {
   outputs: NotebookOutput[];
   execution: OutputExecution;
+  globals?: Record<string, unknown>;
 }
 
 type UiHandlerFunction = (
@@ -125,6 +126,35 @@ const cloneForContext = <T>(value: T): T => {
   } catch {
     return value;
   }
+};
+
+const shouldSnapshotValue = (value: unknown): boolean => {
+  if (Array.isArray(value)) {
+    return true;
+  }
+  // Accept any object that's not null/undefined and not an array
+  // This is more lenient than isPlainObject to handle objects that might
+  // have been created in different ways but are still valid data structures
+  if (value !== null && value !== undefined && typeof value === "object") {
+    // Exclude specific built-in objects that we don't want to snapshot
+    const tag = Object.prototype.toString.call(value);
+    if (
+      tag === "[object RegExp]" ||
+      tag === "[object Date]" ||
+      tag === "[object Error]" ||
+      tag === "[object Function]" ||
+      tag === "[object Promise]" ||
+      tag === "[object Map]" ||
+      tag === "[object Set]" ||
+      tag === "[object WeakMap]" ||
+      tag === "[object WeakSet]"
+    ) {
+      return false;
+    }
+    // Accept plain objects and other object-like structures
+    return true;
+  }
+  return false;
 };
 
 // Best-effort rewrite to make top-level declarations idempotent and persistent.
@@ -641,6 +671,8 @@ export class NotebookRuntime {
   private uiHandlers = new Map<string, UiHandlerEntry>();
   private nextUiHandlerId = 1;
   private activeCellId: string | null = null;
+  private readonly baselineGlobals: Set<string>;
+  private userGlobals = new Set<string>();
 
   constructor(options: NotebookRuntimeOptions = {}) {
     this.workspaceRoot = options.workspaceRoot ?? DEFAULT_WORKSPACE_ROOT;
@@ -729,6 +761,11 @@ export class NotebookRuntime {
     } catch {
       /* noop */
     }
+
+    this.baselineGlobals = new Set(
+      Object.getOwnPropertyNames(this.context as Record<string, unknown>)
+    );
+    this.userGlobals = new Set<string>();
   }
 
   private createTimerAPI() {
@@ -1258,6 +1295,14 @@ export class NotebookRuntime {
       const displayOutputs = toDisplayData(result);
       outputs.push(...displayOutputs);
 
+      let globalsSnapshot: Record<string, unknown>;
+      try {
+        globalsSnapshot = this.snapshotGlobals();
+      } catch (error) {
+        // If snapshotGlobals fails, use empty object
+        console.error("[Runtime] snapshotGlobals failed:", error);
+        globalsSnapshot = {};
+      }
       const ended = Date.now();
       return {
         outputs,
@@ -1266,6 +1311,7 @@ export class NotebookRuntime {
           ended,
           status: softWaitTimedOut ? "error" : "ok",
         },
+        globals: globalsSnapshot ?? {},
       } satisfies ExecuteResult;
     } catch (error) {
       const ended = Date.now();
@@ -1301,6 +1347,7 @@ export class NotebookRuntime {
         evalue: details.message,
         traceback: details.stack ? details.stack.split("\n") : [],
       });
+      const globalsSnapshot = this.snapshotGlobals();
       return {
         outputs,
         execution: {
@@ -1309,6 +1356,7 @@ export class NotebookRuntime {
           status: "error",
           error: details,
         },
+        globals: globalsSnapshot ?? {},
       } satisfies ExecuteResult;
     } finally {
       // Always clear any leftover timers to avoid leaks across cells.
@@ -1385,6 +1433,53 @@ export class NotebookRuntime {
       }
       this.injectedGlobals.clear();
     }
+  }
+
+  private snapshotGlobals(): Record<string, unknown> {
+    const snapshot: Record<string, unknown> = {};
+    // Use both getOwnPropertyNames and Object.keys to catch all properties
+    // Object.keys gets enumerable properties, getOwnPropertyNames gets all own properties
+    const ownPropertyNames = Object.getOwnPropertyNames(
+      this.context as Record<string, unknown>
+    );
+    const enumerableKeys = Object.keys(this.context as Record<string, unknown>);
+    // Combine both lists (Set removes duplicates)
+    const allNames = Array.from(
+      new Set([...ownPropertyNames, ...enumerableKeys])
+    );
+    const nextUserGlobals = new Set<string>();
+    for (const name of allNames) {
+      if (this.baselineGlobals.has(name)) continue;
+      if (name.startsWith("__nodebooks")) continue;
+      if (
+        name === "module" ||
+        name === "exports" ||
+        name === "__filename" ||
+        name === "__dirname"
+      ) {
+        continue;
+      }
+      nextUserGlobals.add(name);
+      const value = (this.context as Record<string, unknown>)[name];
+      const shouldSnapshot = shouldSnapshotValue(value);
+      if (!shouldSnapshot) {
+        continue;
+      }
+      try {
+        snapshot[name] = cloneForContext(value);
+      } catch (_error) {
+        // Still try to use the value directly if cloning fails
+        try {
+          snapshot[name] = value;
+        } catch {
+          // If even assigning the raw value fails, skip it
+          continue;
+        }
+      }
+    }
+    this.userGlobals = nextUserGlobals;
+    // Always return an object, never undefined
+    return snapshot;
   }
 
   private registerUiHandler(
@@ -1589,6 +1684,7 @@ export class NotebookRuntime {
       const displayOutputs = toDisplayData(result);
       outputs.push(...displayOutputs);
 
+      const globalsSnapshot = this.snapshotGlobals();
       const ended = Date.now();
       return {
         outputs,
@@ -1597,6 +1693,7 @@ export class NotebookRuntime {
           ended,
           status: softWaitTimedOut ? "error" : "ok",
         },
+        globals: globalsSnapshot ?? {},
       };
     } catch (error) {
       const ended = Date.now();
@@ -1607,6 +1704,7 @@ export class NotebookRuntime {
         evalue: details.message,
         traceback: details.stack ? details.stack.split("\n") : [],
       });
+      const globalsSnapshot = this.snapshotGlobals();
       return {
         outputs,
         execution: {
@@ -1615,6 +1713,7 @@ export class NotebookRuntime {
           status: "error",
           error: details,
         },
+        globals: globalsSnapshot ?? {},
       };
     } finally {
       try {

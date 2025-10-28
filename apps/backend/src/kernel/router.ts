@@ -25,6 +25,44 @@ import { getWorkerPool } from "./runtime-pool.js";
 import { loadServerConfig } from "@nodebooks/config";
 
 const runtimes = new Map<string, WorkerClient>();
+const sessionGlobals = new Map<string, Record<string, unknown>>();
+
+export const getSessionGlobals = (
+  sessionId: string
+): Record<string, unknown> | undefined => {
+  const snapshot = sessionGlobals.get(sessionId);
+  if (!snapshot) {
+    return undefined;
+  }
+  return snapshot;
+};
+
+const coerceGlobals = (value: unknown): Record<string, unknown> | undefined => {
+  // The runtime should always return an object (even if empty {}), but handle edge cases
+  if (value === null || value === undefined) {
+    return undefined;
+  }
+  if (typeof value !== "object") {
+    return undefined;
+  }
+  // Handle arrays (not valid globals)
+  if (Array.isArray(value)) {
+    return undefined;
+  }
+  return value as Record<string, unknown>;
+};
+
+const setSessionGlobals = (
+  sessionId: string,
+  globals: Record<string, unknown> | undefined
+) => {
+  if (globals !== undefined) {
+    // Store globals even if empty {} - this represents the runtime's actual state
+    sessionGlobals.set(sessionId, globals);
+  } else {
+    sessionGlobals.delete(sessionId);
+  }
+};
 
 // Heartbeat interval in ms to keep WebSocket connections alive behind proxies
 // like Heroku's router (55s idle timeout). Default to 25s, overridable via config/env.
@@ -246,6 +284,7 @@ const handleConnection = async (
       void err;
     }
     runtimes.delete(session.id);
+    sessionGlobals.delete(session.id);
     void sessions.closeSession(session.id);
   });
 };
@@ -392,6 +431,7 @@ const handleExecuteRequest = async ({
       ended: number;
       status: "ok" | "error" | "aborted";
     };
+    globals?: Record<string, unknown>;
   } | null = null;
   try {
     const cfg = loadServerConfig();
@@ -424,6 +464,10 @@ const handleExecuteRequest = async ({
         sendMessage(connection, { ...enriched, cellId: cell.id });
       },
     });
+    // Ensure globals are always present, even if runtime didn't return them
+    if (result.globals === undefined) {
+      result.globals = {};
+    }
   } catch (e) {
     void e;
     // Treat cancellations as aborted without tearing down the session context
@@ -432,6 +476,7 @@ const handleExecuteRequest = async ({
       cellId: cell.id,
       status: "aborted",
       execTimeMs: 0,
+      globals: undefined,
     });
     sendMessage(connection, { type: "status", state: "idle" });
     return;
@@ -448,11 +493,30 @@ const handleExecuteRequest = async ({
     sendMessage(connection, { ...output, cellId: cell.id });
   }
 
+  const globalsSnapshot = coerceGlobals(result.globals);
+  // Always store the runtime's globals snapshot when provided
+  // The runtime snapshot includes ALL current globals in the context (user-created + injected)
+  // This is the source of truth for what variables are available
+  if (globalsSnapshot !== undefined) {
+    // Store the snapshot - this represents the runtime's actual state
+    // Even if empty {}, it means the runtime has no globals (and we should store that)
+    setSessionGlobals(session.id, globalsSnapshot);
+  }
+
+  // Always send the current session globals snapshot to frontend
+  // This ensures the frontend stays in sync with the runtime state
+  const currentSessionGlobals = getSessionGlobals(session.id) ?? {};
+  const globalsPayload =
+    Object.keys(currentSessionGlobals).length > 0
+      ? currentSessionGlobals
+      : undefined;
+
   sendMessage(connection, {
     type: "execute_reply",
     cellId: cell.id,
     status: result.execution.status,
     execTimeMs: result.execution.ended - result.execution.started,
+    globals: globalsPayload,
   });
 
   sendMessage(connection, { type: "status", state: "idle" });
@@ -527,6 +591,7 @@ const handleUiEvent = async ({
       ended: number;
       status: "ok" | "error" | "aborted";
     };
+    globals?: Record<string, unknown>;
   } | null = null;
 
   try {
@@ -583,6 +648,11 @@ const handleUiEvent = async ({
       continue;
     }
     sendMessage(connection, { ...output, cellId: cell.id });
+  }
+
+  const interactionGlobals = coerceGlobals(result.globals);
+  if (interactionGlobals !== undefined) {
+    setSessionGlobals(session.id, interactionGlobals);
   }
 };
 

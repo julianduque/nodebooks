@@ -57,6 +57,7 @@ export const IpcResultSchema = z.object({
   jobId: z.string(),
   outputs: z.array(NotebookOutputSchema),
   execution: OutputExecutionSchema,
+  globals: z.record(z.string(), z.unknown()),
 });
 
 export const IpcErrorSchema = z.object({

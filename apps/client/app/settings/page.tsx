@@ -15,6 +15,7 @@ import { useTheme, type ThemeMode } from "@/components/theme-context";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import { Switch } from "@/components/ui/switch";
 import LoadingOverlay from "@/components/ui/loading-overlay";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import ConfirmDialog from "@/components/ui/confirm";
@@ -225,39 +226,6 @@ const KernelSection = ({
   );
 };
 
-const SettingsToggle = ({
-  enabled,
-  onToggle,
-  disabled,
-}: {
-  enabled: boolean;
-  onToggle: (value: boolean) => void;
-  disabled: boolean;
-}) => {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={enabled}
-      onClick={() => onToggle(!enabled)}
-      disabled={disabled}
-      className={cn(
-        "relative inline-flex h-6 w-11 items-center rounded-full border border-border transition-colors",
-        enabled ? "bg-emerald-500/20" : "bg-muted",
-        disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer"
-      )}
-    >
-      <span className="sr-only">Toggle AI assistant</span>
-      <span
-        className={cn(
-          "inline-block h-5 w-5 transform rounded-full bg-background shadow transition-transform",
-          enabled ? "translate-x-5" : "translate-x-1"
-        )}
-      />
-    </button>
-  );
-};
-
 const AiEnabledSection = ({
   enabled,
   onToggle,
@@ -288,10 +256,11 @@ const AiEnabledSection = ({
         >
           {enabled ? "Enabled" : "Disabled"}
         </span>
-        <SettingsToggle
-          enabled={enabled}
-          onToggle={onToggle}
+        <Switch
+          checked={enabled}
+          onCheckedChange={onToggle}
           disabled={saving}
+          srLabel="AI assistant"
         />
       </div>
     </div>
@@ -336,10 +305,11 @@ const TerminalCellsSection = ({
         >
           {enabled ? "Enabled" : "Disabled"}
         </span>
-        <SettingsToggle
-          enabled={enabled}
-          onToggle={onToggle}
+        <Switch
+          checked={enabled}
+          onCheckedChange={onToggle}
           disabled={saving}
+          srLabel="Terminal cells"
         />
       </div>
     </div>

@@ -2407,9 +2407,9 @@ const HttpCellView = ({
                   </div>
                 </div>
               ) : (
-                <p className="text-xs text-muted-foreground">
+                <div className="rounded-md border border-dashed border-border px-4 py-6 text-center text-xs text-muted-foreground">
                   Run the request to see the response here.
-                </p>
+                </div>
               )}
               {displayedCurl ? (
                 <div className="space-y-1 border-t border-border/60 pt-3">

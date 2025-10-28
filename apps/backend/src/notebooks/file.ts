@@ -6,6 +6,7 @@ import {
   createCommandCell,
   createHttpCell,
   createSqlCell,
+  createPlotCell,
   ensureNotebookRuntimeVersion,
   NotebookEnvSchema,
   NotebookSqlSchema,
@@ -26,8 +27,10 @@ import {
   type NotebookFileNotebook,
   type NotebookFileTerminalCell,
   type NotebookFileSqlCell,
+  type NotebookFilePlotCell,
   type NotebookSql,
   type SqlCell,
+  type PlotCell,
 } from "@nodebooks/notebook-schema";
 
 const cloneEnv = (env?: NotebookFileNotebook["env"]): NotebookEnv => {
@@ -106,6 +109,20 @@ const cloneCells = (cells: NotebookFileCell[]): NotebookCell[] => {
         result: sqlCell.result,
       });
       result.push(sql);
+      continue;
+    }
+    if (cell.type === "plot") {
+      const plotCell = cell as NotebookFilePlotCell;
+      const plot = createPlotCell({
+        metadata: plotCell.metadata ?? {},
+        chartType: plotCell.chartType,
+        dataSource: plotCell.dataSource,
+        bindings: plotCell.bindings,
+        layout: plotCell.layout,
+        result: plotCell.result,
+        snapshot: plotCell.snapshot,
+      });
+      result.push(plot);
       continue;
     }
     const codeCell = cell as NotebookFileCodeCell;
@@ -270,6 +287,32 @@ const serializeSqlCell = (cell: SqlCell): NotebookFileCell => {
   return result;
 };
 
+const serializePlotCell = (cell: PlotCell): NotebookFileCell => {
+  const result: NotebookFilePlotCell = {
+    type: "plot",
+    chartType: cell.chartType,
+  };
+  if (!isEmptyRecord(cell.metadata)) {
+    result.metadata = cell.metadata;
+  }
+  if (cell.dataSource) {
+    result.dataSource = cell.dataSource;
+  }
+  if (cell.bindings) {
+    result.bindings = cell.bindings;
+  }
+  if (cell.layout && Object.keys(cell.layout).length > 0) {
+    result.layout = cell.layout;
+  }
+  if (cell.result) {
+    result.result = cell.result;
+  }
+  if (cell.snapshot) {
+    result.snapshot = cell.snapshot;
+  }
+  return result;
+};
+
 const serializeCells = (cells: NotebookCell[]): NotebookFileCell[] => {
   return cells.map((cell) => {
     if (cell.type === "markdown") {
@@ -286,6 +329,9 @@ const serializeCells = (cells: NotebookCell[]): NotebookFileCell[] => {
     }
     if (cell.type === "sql") {
       return serializeSqlCell(cell as SqlCell);
+    }
+    if (cell.type === "plot") {
+      return serializePlotCell(cell as PlotCell);
     }
     return serializeCodeCell(cell as CodeCell);
   });

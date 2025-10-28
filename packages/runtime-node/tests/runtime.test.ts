@@ -101,6 +101,34 @@ describe("NotebookRuntime", () => {
     });
   });
 
+  it("captures runtime globals for subsequent cells", async () => {
+    await withRuntime(undefined, async (runtime) => {
+      const cell = createCodeCell({ id: "cell-globals", language: "js" });
+
+      const result = await runtime.execute({
+        cell,
+        code: [
+          "const sales = [",
+          "  { month: 'Jan', total: 120 },",
+          "  { month: 'Feb', total: 160 },",
+          "];",
+          "sales;",
+        ].join("\n"),
+        notebookId: "notebook-globals",
+        env: createEnv(),
+      });
+
+      expect(result.execution.status).toBe("ok");
+      expect(result.globals).toBeDefined();
+      const snapshot = result.globals ?? {};
+      expect(Array.isArray(snapshot.sales)).toBe(true);
+      expect(snapshot.sales).toEqual([
+        { month: "Jan", total: 120 },
+        { month: "Feb", total: 160 },
+      ]);
+    });
+  });
+
   it("loads sandboxed dependencies using the installer hook", async () => {
     await withRuntime(
       {
