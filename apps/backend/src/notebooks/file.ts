@@ -8,7 +8,6 @@ import {
   createSqlCell,
   createPlotCell,
   createAiCell,
-  createPlotCell,
   ensureNotebookRuntimeVersion,
   NotebookEnvSchema,
   NotebookSqlSchema,

@@ -9,6 +9,7 @@ import { AlertCallout } from "@nodebooks/ui";
 import { renderMarkdownToHtml } from "@/components/notebook/markdown-preview-utils";
 import { ChevronDown, ChevronUp, Settings, Sparkles } from "lucide-react";
 import { useMermaidRenderer } from "@/components/notebook/hooks/use-mermaid-renderer";
+import { useTheme } from "@/components/theme-context";
 
 interface AiCellViewProps {
   cell: Extract<NotebookCell, { type: "ai" }>;
@@ -44,6 +45,7 @@ const AiCellView = ({
   aiEnabled,
 }: AiCellViewProps) => {
   const [showConfig, setShowConfig] = useState(false);
+  const { theme } = useTheme();
 
   const handlePromptChange = useCallback(
     (value: string) => {
@@ -150,13 +152,13 @@ const AiCellView = ({
   const promptContainerRef = useMermaidRenderer({
     cellId: `${cell.id}-prompt`,
     html: promptHtml ?? "",
-    theme: "auto",
+    theme,
   });
 
   const responseContainerRef = useMermaidRenderer({
     cellId: `${cell.id}-response`,
     html: responseHtml ?? "",
-    theme: "auto",
+    theme,
   });
 
   const usageSummary = useMemo(() => {

@@ -9,6 +9,10 @@ NodeBooks ([nbks](https://nbks.dev)) is a JS/TS notebook environment. It support
 - 📝 Edit Markdown and code cells
 - ⚡ Run TypeScript/JavaScript in a sandboxed runtime
 - 💻 Run collaborative terminal cells and commands
+- 🌐 Execute HTTP requests
+- 🗄️ Query databases with SQL
+- 🤖 Conversational AI assistants
+- 📈 Create interactive plots
 - 📡 Stream outputs to the browser in real time
 - 📦 Install and use npm dependencies per notebook
 - 🔐 Notebook-scoped environment variables

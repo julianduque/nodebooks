@@ -11,7 +11,6 @@ import {
   createSqlCell,
   createPlotCell,
   createAiCell,
-  createPlotCell,
 } from "../src/index.js";
 
 describe("notebook schema", () => {
@@ -30,7 +29,6 @@ describe("notebook schema", () => {
     const sql = createSqlCell({ query: "select 1" });
     const plot = createPlotCell({ chartType: "bar" });
     const ai = createAiCell({ prompt: "Hello" });
-    const plot = createPlotCell({ chartType: "bar" });
     expect(code.id).not.toEqual(markdown.id);
     expect(code.type).toBe("code");
     expect(markdown.type).toBe("markdown");
@@ -47,9 +45,6 @@ describe("notebook schema", () => {
     expect(Array.isArray(plot.bindings.traces)).toBe(true);
     expect(ai.type).toBe("ai");
     expect(ai.prompt).toBe("Hello");
-    expect(plot.type).toBe("plot");
-    expect(plot.chartType).toBe("bar");
-    expect(Array.isArray(plot.bindings.traces)).toBe(true);
   });
 
   it("validates kernel protocol messages", () => {
