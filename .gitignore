@@ -22,3 +22,4 @@ data/
 .data/
 *.sqlite
 *.tsbuildinfo
+.cursor/
