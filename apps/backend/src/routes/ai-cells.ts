@@ -1,4 +1,4 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { loadServerConfig } from "@nodebooks/config";
 import { ChatOpenAI } from "@langchain/openai";
@@ -8,6 +8,7 @@ import {
   SystemMessage,
   isAIMessage,
   type AIMessage,
+  type AIMessageChunk,
 } from "@langchain/core/messages";
 import type { SettingsService } from "../settings/service.js";
 
@@ -16,8 +17,35 @@ const AiCellRequestSchema = z
     prompt: z.string().min(1),
     system: z.string().optional(),
     model: z.string().optional(),
+    temperature: z.number().min(0).max(2).optional(),
+    maxTokens: z.number().int().positive().optional(),
+    topP: z.number().min(0).max(1).optional(),
+    frequencyPenalty: z.number().min(-2).max(2).optional(),
+    presencePenalty: z.number().min(-2).max(2).optional(),
   })
   .strict();
+
+const extractChunkText = (chunk: AIMessageChunk): string => {
+  const { content } = chunk;
+  if (typeof content === "string") {
+    return content;
+  }
+  if (Array.isArray(content)) {
+    return content
+      .map((part) => {
+        if (typeof part === "string") {
+          return part;
+        }
+        if (part && typeof part === "object" && "text" in part) {
+          const text = (part as { text?: unknown }).text;
+          return typeof text === "string" ? text : "";
+        }
+        return "";
+      })
+      .join("");
+  }
+  return "";
+};
 
 const resolveNumber = (value: unknown): number | undefined => {
   if (typeof value !== "number") {
@@ -79,7 +107,10 @@ const readTokenCounts = (
   return { inputTokens, outputTokens, totalTokens };
 };
 
-const OPENAI_PRICING_USD_PER_1K: Record<string, { input: number; output: number }> = {
+const OPENAI_PRICING_USD_PER_1K: Record<
+  string,
+  { input: number; output: number }
+> = {
   "gpt-4o": { input: 0.005, output: 0.015 },
   "gpt-4o-mini": { input: 0.00015, output: 0.0006 },
   "gpt-4.1": { input: 0.005, output: 0.015 },
@@ -191,6 +222,106 @@ export interface RegisterAiCellRoutesOptions {
   settings: SettingsService;
 }
 
+const streamAiCellResponse = async (
+  request: FastifyRequest,
+  reply: FastifyReply,
+  getStream: () => Promise<AsyncIterable<AIMessageChunk>>,
+  {
+    provider,
+    model,
+  }: {
+    provider: "openai" | "heroku";
+    model: string;
+  }
+) => {
+  let headersSent = false;
+  let producedOutput = false;
+  let lastChunk: AIMessageChunk | null = null;
+  let accumulatedText = "";
+  const sendStreamHeaders = () => {
+    if (headersSent) {
+      return;
+    }
+    reply.raw.writeHead(200, {
+      "Content-Type": "application/x-ndjson",
+      "Transfer-Encoding": "chunked",
+      "Cache-Control": "no-cache",
+    });
+    if (typeof reply.raw.flushHeaders === "function") {
+      reply.raw.flushHeaders();
+    }
+    headersSent = true;
+  };
+
+  try {
+    const stream = await getStream();
+    sendStreamHeaders();
+    for await (const chunk of stream) {
+      lastChunk = chunk;
+      const text = extractChunkText(chunk);
+      if (text.length === 0) {
+        continue;
+      }
+      producedOutput = true;
+      accumulatedText += text;
+      const chunkLine = JSON.stringify({ type: "chunk", text }) + "\n";
+      reply.raw.write(chunkLine);
+    }
+
+    // Try to extract metadata from the last chunk
+    if (lastChunk && isAIMessage(lastChunk)) {
+      const metadata = normalizeAiMessage(lastChunk, { provider, model });
+      // Include the accumulated text in metadata
+      const metadataLine =
+        JSON.stringify({
+          type: "done",
+          metadata: {
+            ...metadata,
+            text: accumulatedText || metadata.text,
+          },
+        }) + "\n";
+      reply.raw.write(metadataLine);
+    } else {
+      // If we can't get metadata, send what we have
+      const metadataLine =
+        JSON.stringify({
+          type: "done",
+          metadata: {
+            text: accumulatedText,
+            timestamp: new Date().toISOString(),
+          },
+        }) + "\n";
+      reply.raw.write(metadataLine);
+    }
+  } catch (error) {
+    request.log.error({ err: error }, "AI cell streaming failed");
+    if (!headersSent && !reply.raw.headersSent) {
+      reply.code(500);
+      reply.send({ error: "Failed to generate content" });
+      return;
+    }
+    const errorLine =
+      JSON.stringify({
+        type: "error",
+        error:
+          error instanceof Error ? error.message : "Failed to generate content",
+      }) + "\n";
+    reply.raw.write(errorLine);
+    reply.raw.end();
+    return;
+  }
+
+  if (!producedOutput) {
+    if (!headersSent && !reply.raw.headersSent) {
+      reply.code(500);
+      reply.send({ error: "AI assistant did not return any content." });
+      return;
+    }
+  }
+
+  reply.raw.end();
+};
+
 export const registerAiCellRoutes = async (
   app: FastifyInstance,
   options: RegisterAiCellRoutesOptions
@@ -202,7 +333,16 @@ export const registerAiCellRoutes = async (
       return { error: "Invalid AI cell request" };
     }
 
-    const { prompt, system, model } = parsed.data;
+    const {
+      prompt,
+      system,
+      model,
+      temperature,
+      maxTokens,
+      topP,
+      frequencyPenalty,
+      presencePenalty,
+    } = parsed.data;
     const cfg = loadServerConfig(undefined, options.settings.getSettings());
     if (!cfg.ai.enabled) {
       reply.code(403);
@@ -225,23 +365,46 @@ export const registerAiCellRoutes = async (
       if ((cfg.ai.provider ?? "openai") === "openai") {
         const openai = cfg.ai.openai;
         if (!openai?.apiKey) {
-          request.log.warn("AI cell request failed: missing OpenAI credentials");
+          request.log.warn(
+            "AI cell request failed: missing OpenAI credentials"
+          );
           reply.code(500);
           return { error: "AI assistant is not configured for OpenAI." };
         }
         const resolvedModelBase = model ?? openai.model ?? "gpt-4o-mini";
         const resolvedModel =
           resolvedModelBase.trim() || openai.model || "gpt-4o-mini";
-        const client = new ChatOpenAI({
+
+        const clientOptions: {
+          apiKey: string;
+          model: string;
+          streaming: boolean;
+          temperature?: number;
+          maxTokens?: number;
+          topP?: number;
+          frequencyPenalty?: number;
+          presencePenalty?: number;
+        } = {
           apiKey: openai.apiKey,
           model: resolvedModel,
-          streaming: false,
+          streaming: true,
+        };
+        if (temperature !== undefined) clientOptions.temperature = temperature;
+        if (maxTokens !== undefined) clientOptions.maxTokens = maxTokens;
+        if (topP !== undefined) clientOptions.topP = topP;
+        if (frequencyPenalty !== undefined)
+          clientOptions.frequencyPenalty = frequencyPenalty;
+        if (presencePenalty !== undefined)
+          clientOptions.presencePenalty = presencePenalty;
+
+        const client = new ChatOpenAI(clientOptions);
+
+        const stream = await client.stream(messages);
+        await streamAiCellResponse(request, reply, async () => stream, {
+          provider: "openai",
+          model: resolvedModel,
         });
-        const response = await client.invoke(messages);
-        if (!isAIMessage(response)) {
-          throw new Error("Model did not return an AI message");
-        }
-        return { data: normalizeAiMessage(response, { provider: "openai", model: resolvedModel }) };
+        return reply;
       }
 
       const heroku = cfg.ai.heroku;
@@ -252,16 +415,39 @@ export const registerAiCellRoutes = async (
       }
       const resolvedModelBase = model ?? heroku.modelId;
       const resolvedModel = resolvedModelBase.trim() || heroku.modelId;
-      const client = new ChatHeroku({
+
+      const clientOptions: {
+        model: string;
+        apiKey: string;
+        apiUrl: string;
+        streaming: boolean;
+        temperature?: number;
+        maxTokens?: number;
+        topP?: number;
+        frequencyPenalty?: number;
+        presencePenalty?: number;
+      } = {
         model: resolvedModel,
         apiKey: heroku.inferenceKey,
         apiUrl: heroku.inferenceUrl,
+        streaming: true,
+      };
+      if (temperature !== undefined) clientOptions.temperature = temperature;
+      if (maxTokens !== undefined) clientOptions.maxTokens = maxTokens;
+      if (topP !== undefined) clientOptions.topP = topP;
+      if (frequencyPenalty !== undefined)
+        clientOptions.frequencyPenalty = frequencyPenalty;
+      if (presencePenalty !== undefined)
+        clientOptions.presencePenalty = presencePenalty;
+
+      const client = new ChatHeroku(clientOptions);
+
+      const stream = await client.stream(messages);
+      await streamAiCellResponse(request, reply, async () => stream, {
+        provider: "heroku",
+        model: resolvedModel,
       });
-      const response = await client.invoke(messages);
-      if (!isAIMessage(response)) {
-        throw new Error("Model did not return an AI message");
-      }
-      return { data: normalizeAiMessage(response, { provider: "heroku", model: resolvedModel }) };
+      return reply;
     } catch (error) {
       request.log.error({ err: error }, "AI cell request failed");
       reply.code(500);

@@ -58,10 +58,10 @@ const AddCellMenu = ({
   }, [menuOpen]);
 
   useEffect(() => {
-    if (disabled && menuOpen) {
+    if ((disabled || (!terminalCellsEnabled && !aiEnabled)) && menuOpen) {
       setMenuOpen(false);
     }
-  }, [disabled, menuOpen]);
+  }, [disabled, menuOpen, terminalCellsEnabled, aiEnabled]);
 
   useEffect(() => {
     if (!menuOpen) {
@@ -134,6 +134,7 @@ const AddCellMenu = ({
     }
     return items;
   }, [terminalCellsEnabled]);
+  const hasSpecialCells = terminalCellsEnabled || aiEnabled;
 
   return (
     <div
@@ -163,24 +164,95 @@ const AddCellMenu = ({
         <Plus className="h-3 w-3" />
         Code
       </Button>
-      {aiEnabled ? (
-        <Button
-          variant="outline"
-          size="sm"
-          className="gap-2"
-          onClick={() => handleAdd("ai")}
-          disabled={disabled}
-        >
-          <Sparkles className="h-4 w-4" />
-          AI Cell
-        </Button>
-      ) : null}
-      {terminalCellsEnabled ? (
+      {hasSpecialCells ? (
         <>
           <Button
             variant="ghost"
             size="sm"
             className="h-7 gap-1.5 rounded-lg border border-border/50 bg-background/50 px-2.5 text-xs font-medium text-muted-foreground shadow-sm transition-all hover:border-border hover:bg-background hover:text-foreground hover:shadow"
+            onClick={() => {
+              if (disabled) return;
+              setMenuOpen((open) => !open);
+            }}
+            ref={triggerRef}
+            disabled={disabled}
+            aria-expanded={menuOpen}
+            aria-haspopup="menu"
+          >
+            <Zap className="h-4 w-4" />
+            {SPECIAL_CELL_LABEL}
+          </Button>
+          {menuOpen && menuPosition && typeof document !== "undefined"
+            ? createPortal(
+                <div
+                  className="z-[1000] rounded-md border border-slate-700 bg-slate-900/95 p-1 text-sm shadow-lg"
+                  ref={(node) => {
+                    menuRef.current = node;
+                  }}
+                  style={{
+                    position: "absolute",
+                    top: menuPosition.top,
+                    left: menuPosition.left,
+                    width: menuPosition.width,
+                  }}
+                >
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-slate-200 hover:bg-slate-800"
+                    onClick={() => handleAdd("http")}
+                  >
+                    <Globe className="h-4 w-4" />
+                    HTTP Request
+                  </button>
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-slate-200 hover:bg-slate-800"
+                    onClick={() => handleAdd("sql")}
+                  >
+                    <Database className="h-4 w-4" />
+                    SQL Query
+                  </button>
+                  {aiEnabled ? (
+                    <button
+                      type="button"
+                      className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-slate-200 hover:bg-slate-800"
+                      onClick={() => handleAdd("ai")}
+                    >
+                      <Sparkles className="h-4 w-4" />
+                      AI Cell
+                    </button>
+                  ) : null}
+                  {terminalCellsEnabled ? (
+                    <>
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-slate-200 hover:bg-slate-800"
+                        onClick={() => handleAdd("terminal")}
+                      >
+                        <Terminal className="h-4 w-4" />
+                        Terminal
+                      </button>
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-slate-200 hover:bg-slate-800"
+                        onClick={() => handleAdd("command")}
+                      >
+                        <Zap className="h-4 w-4" />
+                        Command
+                      </button>
+                    </>
+                  ) : null}
+                </div>,
+                document.body
+              )
+            : null}
+        </>
+      ) : (
+        <>
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-2"
             onClick={() => handleAdd("http")}
             disabled={disabled}
           >
