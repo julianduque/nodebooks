@@ -4,7 +4,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import clsx from "clsx";
 import { Button } from "@/components/ui/button";
-import { Database, Globe, LineChart, Plus, Sparkles, Terminal, Zap } from "lucide-react";
+import {
+  Database,
+  Globe,
+  LineChart,
+  Plus,
+  Sparkles,
+  Terminal,
+  Zap,
+} from "lucide-react";
 import type { NotebookCell } from "@nodebooks/notebook-schema";
 
 const SPECIAL_CELL_LABEL = "Special";
@@ -58,10 +66,10 @@ const AddCellMenu = ({
   }, [menuOpen]);
 
   useEffect(() => {
-    if ((disabled || (!terminalCellsEnabled && !aiEnabled)) && menuOpen) {
+    if (disabled && menuOpen) {
       setMenuOpen(false);
     }
-  }, [disabled, menuOpen, terminalCellsEnabled, aiEnabled]);
+  }, [disabled, menuOpen]);
 
   useEffect(() => {
     if (!menuOpen) {
@@ -95,11 +103,9 @@ const AddCellMenu = ({
   const handleAdd = (type: NotebookCell["type"]) => {
     if (
       disabled ||
-      (!terminalCellsEnabled && (type === "terminal" || type === "command"))
+      (!terminalCellsEnabled && (type === "terminal" || type === "command")) ||
+      (!aiEnabled && type === "ai")
     ) {
-      return;
-    }
-    if (!aiEnabled && type === "ai") {
       return;
     }
     setMenuOpen(false);
@@ -114,6 +120,7 @@ const AddCellMenu = ({
         | typeof LineChart
         | typeof Globe
         | typeof Database
+        | typeof Sparkles
         | typeof Terminal
         | typeof Zap;
     }> = [];
@@ -121,19 +128,21 @@ const AddCellMenu = ({
       items.push(
         { type: "http", label: "HTTP Request", icon: Globe },
         { type: "sql", label: "SQL Query", icon: Database },
+        ...(aiEnabled
+          ? ([{ type: "ai", label: "AI Cell", icon: Sparkles }] as const)
+          : []),
         { type: "plot", label: "Plot", icon: LineChart },
         { type: "terminal", label: "Terminal", icon: Terminal },
         { type: "command", label: "Command", icon: Zap }
       );
     } else {
-      items.push({
-        type: "plot",
-        label: "Plot",
-        icon: LineChart,
-      });
+      if (aiEnabled) {
+        items.push({ type: "ai", label: "AI Cell", icon: Sparkles });
+      }
+      items.push({ type: "plot", label: "Plot", icon: LineChart });
     }
     return items;
-  }, [terminalCellsEnabled]);
+  }, [aiEnabled, terminalCellsEnabled]);
   const hasSpecialCells = terminalCellsEnabled || aiEnabled;
 
   return (
@@ -164,7 +173,7 @@ const AddCellMenu = ({
         <Plus className="h-3 w-3" />
         Code
       </Button>
-      {hasSpecialCells ? (
+      {!terminalCellsEnabled ? (
         <>
           <Button
             variant="ghost"

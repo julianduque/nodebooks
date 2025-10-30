@@ -1275,59 +1275,6 @@ const CellCard = ({
             <SettingsIcon className="h-4 w-4" />
           </Button>
         </>
-      ) : isAi ? (
-        <>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={onRun}
-            disabled={
-              isReadOnly ||
-              isRunning ||
-              !canRun ||
-              !aiEnabled ||
-              (cell.prompt ?? "").trim().length === 0
-            }
-            aria-label="Run AI cell"
-            title="Run AI cell (Shift+Enter)"
-          >
-            {isRunning ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Sparkles className="h-4 w-4" />
-            )}
-          </Button>
-          {isRunning && !isReadOnly && (
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={onInterrupt}
-              aria-label="Abort AI cell"
-              title="Abort AI cell"
-              className="text-rose-600 hover:text-rose-600"
-            >
-              <XCircle className="h-4 w-4" />
-            </Button>
-          )}
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() =>
-              onChange(
-                (current) =>
-                  current.type === "ai"
-                    ? { ...current, response: undefined }
-                    : current,
-                { persist: true }
-              )
-            }
-            aria-label="Clear response"
-            title="Clear response"
-            disabled={isReadOnly || !cell.response}
-          >
-            <Eraser className="h-4 w-4" />
-          </Button>
-        </>
       ) : isCommand ? (
         <>
           <Button
@@ -1417,6 +1364,59 @@ const CellCard = ({
             disabled={isReadOnly}
           >
             <Code className="h-4 w-4" />
+          </Button>
+        </>
+      ) : isAi ? (
+        <>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onRun}
+            disabled={
+              isReadOnly ||
+              isRunning ||
+              !canRun ||
+              !aiEnabled ||
+              (cell.prompt ?? "").trim().length === 0
+            }
+            aria-label="Run AI cell"
+            title="Run AI cell (Shift+Enter)"
+          >
+            {isRunning ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Sparkles className="h-4 w-4" />
+            )}
+          </Button>
+          {isRunning && !isReadOnly && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={onInterrupt}
+              aria-label="Abort AI cell"
+              title="Abort AI cell"
+              className="text-rose-600 hover:text-rose-600"
+            >
+              <XCircle className="h-4 w-4" />
+            </Button>
+          )}
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() =>
+              onChange(
+                (current) =>
+                  current.type === "ai"
+                    ? { ...current, response: undefined }
+                    : current,
+                { persist: true }
+              )
+            }
+            aria-label="Clear response"
+            title="Clear response"
+            disabled={isReadOnly || !cell.response}
+          >
+            <Eraser className="h-4 w-4" />
           </Button>
         </>
       ) : isPlot ? (
@@ -1620,15 +1620,6 @@ const CellCard = ({
           readOnly={readOnly}
           onUiInteraction={handleUiInteraction}
         />
-      ) : cell.type === "ai" ? (
-        <AiCellView
-          cell={cell}
-          onChange={onChange}
-          onRun={onRun}
-          isRunning={isRunning}
-          readOnly={readOnly}
-          aiEnabled={aiEnabled}
-        />
       ) : cell.type === "markdown" ? (
         <MarkdownCellView
           editorKey={editorKey}
@@ -1654,6 +1645,15 @@ const CellCard = ({
           isRunning={isRunning}
           readOnly={readOnly}
           onRun={onRun}
+        />
+      ) : cell.type === "ai" ? (
+        <AiCellView
+          cell={cell}
+          onChange={onChange}
+          onRun={onRun}
+          isRunning={isRunning}
+          readOnly={readOnly}
+          aiEnabled={aiEnabled}
         />
       ) : cell.type === "plot" ? (
         <PlotCellView

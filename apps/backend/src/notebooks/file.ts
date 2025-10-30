@@ -8,6 +8,7 @@ import {
   createSqlCell,
   createPlotCell,
   createAiCell,
+  createPlotCell,
   ensureNotebookRuntimeVersion,
   NotebookEnvSchema,
   NotebookSqlSchema,
@@ -96,6 +97,11 @@ const cloneCells = (cells: NotebookFileCell[]): NotebookCell[] => {
         prompt: aiCell.prompt ?? "",
         system: aiCell.system ?? "",
         model: aiCell.model,
+        temperature: aiCell.temperature,
+        maxTokens: aiCell.maxTokens,
+        topP: aiCell.topP,
+        frequencyPenalty: aiCell.frequencyPenalty,
+        presencePenalty: aiCell.presencePenalty,
         response: aiCell.response,
       });
       result.push(ai);
@@ -272,6 +278,21 @@ const serializeAiCell = (cell: AiCell): NotebookFileCell => {
   }
   if (cell.model) {
     result.model = cell.model;
+  }
+  if (cell.temperature !== undefined) {
+    result.temperature = cell.temperature;
+  }
+  if (cell.maxTokens !== undefined) {
+    result.maxTokens = cell.maxTokens;
+  }
+  if (cell.topP !== undefined) {
+    result.topP = cell.topP;
+  }
+  if (cell.frequencyPenalty !== undefined) {
+    result.frequencyPenalty = cell.frequencyPenalty;
+  }
+  if (cell.presencePenalty !== undefined) {
+    result.presencePenalty = cell.presencePenalty;
   }
   if (cell.response) {
     result.response = cell.response;
