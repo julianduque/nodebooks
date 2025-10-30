@@ -2293,8 +2293,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
                   return {
                     ...current,
                     response: {
-                      text:
-                        accumulatedText || current.response?.text || "",
+                      text: accumulatedText || current.response?.text || "",
                       error: "Generation cancelled.",
                       timestamp: new Date().toISOString(),
                     },
@@ -2327,138 +2326,6 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
             }
             if (aiAbortControllerRef.current === controller) {
               aiAbortControllerRef.current = null;
-            }
-            setRunningCellId((current) => (current === id ? null : current));
-          }
-        })();
-        return;
-      }
-      if (cell.type === "plot") {
-        const layoutCommit = commitPlotLayoutDraft(cell.id);
-        if (!layoutCommit.ok) {
-          setActionError(
-            layoutCommit.error ??
-              "Layout overrides must be valid JSON before running this plot."
-          );
-          return;
-        }
-        const chartType = (cell.chartType ?? "").trim() || "scatter";
-        const dataSource = cell.dataSource;
-        if (!chartType) {
-          setActionError("Choose a chart type before running this plot.");
-          return;
-        }
-        if (!dataSource) {
-          setActionError("Select a data source before running this plot.");
-          return;
-        }
-        if (dataSource.type === "global") {
-          const variable = (dataSource.variable ?? "").trim();
-          if (!variable) {
-            setActionError(
-              "Select a dataset variable before running this plot."
-            );
-            return;
-          }
-          if (!sessionId) {
-            setActionError(
-              "Kernel session is not ready. Restart the runtime and try again."
-            );
-            return;
-          }
-        }
-        const layoutEnabled =
-          cell.layoutEnabled ?? hasLayoutOverrides(cell.layout);
-        const requestDataSource =
-          dataSource.type === "global"
-            ? {
-                ...dataSource,
-                variable: (dataSource.variable ?? "").trim(),
-              }
-            : dataSource;
-        const requestPayload: Record<string, unknown> = {
-          cellId: id,
-          chartType,
-          dataSource: requestDataSource,
-          bindings: cell.bindings,
-        };
-        if (dataSource.type === "global" && sessionId) {
-          requestPayload.sessionId = sessionId;
-        }
-        if (layoutEnabled && hasLayoutOverrides(cell.layout)) {
-          requestPayload.layout = cell.layout;
-        }
-        setActionError(null);
-        runningRef.current = id;
-        setRunningCellId(id);
-        void (async () => {
-          try {
-            const response = await fetch(
-              `${API_BASE_URL}/notebooks/${notebook.id}/plot-cells`,
-              {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(requestPayload),
-              }
-            );
-            const payload = (await response.json().catch(() => ({}))) as {
-              error?: string;
-              data?: { result?: PlotCellResult };
-            };
-            const result = payload?.data?.result;
-            // Always update the cell with the result, even if there's an error
-            // This ensures errors are displayed to the user
-            if (result || !response.ok) {
-              updateNotebookCell(
-                id,
-                (current) => {
-                  if (current.type !== "plot") {
-                    return current;
-                  }
-                  const errorMessage = !response.ok
-                    ? typeof payload?.error === "string"
-                      ? payload.error
-                      : `Failed to build plot data (status ${response.status})`
-                    : result?.error;
-                  return {
-                    ...current,
-                    chartType: result?.chartType ?? current.chartType,
-                    result: result
-                      ? result
-                      : {
-                          chartType: current.chartType ?? "scatter",
-                          source: current.dataSource ?? {
-                            type: "global",
-                            variable: "",
-                            path: [],
-                          },
-                          layout: {},
-                          fields: [],
-                          traces: [],
-                          error: errorMessage,
-                          timestamp: new Date().toISOString(),
-                        },
-                  };
-                },
-                { persist: true }
-              );
-            }
-            if (!response.ok) {
-              const message =
-                typeof payload?.error === "string"
-                  ? payload.error
-                  : `Failed to build plot data (status ${response.status})`;
-              setActionError(message);
-            }
-          } catch (error) {
-            setActionError(
-              error instanceof Error
-                ? error.message
-                : "Failed to prepare plot data"
-            );
-          } finally {
-            if (runningRef.current === id) {
-              runningRef.current = null;
             }
             setRunningCellId((current) => (current === id ? null : current));
           }

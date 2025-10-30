@@ -513,7 +513,7 @@ const CellCard = ({
           : isPlot
             ? JSON.stringify(cell.bindings ?? {})
             : isAi
-              ? cell.prompt ?? ""
+              ? (cell.prompt ?? "")
               : (cell.source ?? "");
   const handleUiInteraction = useCallback(
     (event: UiInteractionEvent) => {

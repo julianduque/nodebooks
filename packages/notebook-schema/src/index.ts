@@ -1479,33 +1479,6 @@ export const createAiCell = (partial?: Partial<AiCell>): AiCell => {
   });
 };
 
-export const createPlotCell = (partial?: Partial<PlotCell>): PlotCell => {
-  const dataSource = partial?.dataSource
-    ? PlotDataSourceSchema.parse(partial.dataSource)
-    : PlotDataSourceSchema.parse({ type: "sql", resultKey: "rows" });
-  const bindings = partial?.bindings
-    ? PlotBindingsSchema.parse(partial.bindings)
-    : PlotBindingsSchema.parse({});
-  const layout = partial?.layout
-    ? PlotCellSchema.shape.layout.parse(partial.layout)
-    : {};
-  const layoutEnabled =
-    partial?.layoutEnabled ??
-    (partial?.layout ? Object.keys(partial.layout).length > 0 : false);
-  return PlotCellSchema.parse({
-    id: partial?.id ?? createId(),
-    type: "plot",
-    metadata: partial?.metadata ?? {},
-    chartType: partial?.chartType ?? "scatter",
-    dataSource,
-    bindings,
-    layout,
-    layoutEnabled,
-    result: partial?.result,
-    snapshot: partial?.snapshot,
-  });
-};
-
 export const createMarkdownCell = (
   partial?: Partial<MarkdownCell>
 ): MarkdownCell => {

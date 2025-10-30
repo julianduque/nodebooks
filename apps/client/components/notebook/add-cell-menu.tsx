@@ -143,7 +143,6 @@ const AddCellMenu = ({
     }
     return items;
   }, [aiEnabled, terminalCellsEnabled]);
-  const hasSpecialCells = terminalCellsEnabled || aiEnabled;
 
   return (
     <div
@@ -255,29 +254,6 @@ const AddCellMenu = ({
                 document.body
               )
             : null}
-        </>
-      ) : (
-        <>
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-2"
-            onClick={() => handleAdd("http")}
-            disabled={disabled}
-          >
-            <Plus className="h-3 w-3" />
-            HTTP Request
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 gap-1.5 rounded-lg border border-border/50 bg-background/50 px-2.5 text-xs font-medium text-muted-foreground shadow-sm transition-all hover:border-border hover:bg-background hover:text-foreground hover:shadow"
-            onClick={() => handleAdd("sql")}
-            disabled={disabled}
-          >
-            <Database className="h-3 w-3" />
-            SQL Query
-          </Button>
         </>
       ) : null}
       <Button
