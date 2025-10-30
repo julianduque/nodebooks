@@ -122,6 +122,8 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
   const [depOutputs, setDepOutputs] = useState<NotebookOutput[]>([]);
   const [aiEnabled, setAiEnabled] = useState(false);
   const [terminalCellsEnabled, setTerminalCellsEnabled] = useState(false);
+  const [aiFeatureKnown, setAiFeatureKnown] = useState(false);
+  const [terminalFeatureKnown, setTerminalFeatureKnown] = useState(false);
   const [kernelGlobals, setKernelGlobals] = useState<Record<string, unknown>>(
     {}
   );
@@ -159,6 +161,10 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
   const suppressCollabBroadcastRef = useRef(false);
   const activeCellIdRef = useRef<string | null>(null);
   const aiAbortControllerRef = useRef<AbortController | null>(null);
+  const aiAvailable = aiFeatureKnown ? aiEnabled : true;
+  const terminalCellsAvailable = terminalFeatureKnown
+    ? terminalCellsEnabled
+    : true;
   const {
     currentUser,
     setCurrentUser,
@@ -516,24 +522,26 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         cache: "no-store",
       });
       if (response.status === 403) {
-        setAiEnabled(false);
-        setTerminalCellsEnabled(false);
+        setAiFeatureKnown(false);
+        setTerminalFeatureKnown(false);
         return;
       }
       if (!response.ok) {
         throw new Error(`Request failed with status ${response.status}`);
       }
       const payload = await response.json();
-      const aiAvailable =
-        typeof payload?.data?.aiEnabled === "boolean"
-          ? payload.data.aiEnabled
-          : false;
-      const terminalsAvailable =
-        typeof payload?.data?.terminalCellsEnabled === "boolean"
-          ? payload.data.terminalCellsEnabled
-          : false;
-      setAiEnabled(aiAvailable);
-      setTerminalCellsEnabled(terminalsAvailable);
+      const featureData = payload?.data ?? {};
+      const hasAiFlag = typeof featureData.aiEnabled === "boolean";
+      const hasTerminalFlag =
+        typeof featureData.terminalCellsEnabled === "boolean";
+      if (hasAiFlag) {
+        setAiEnabled(featureData.aiEnabled as boolean);
+      }
+      if (hasTerminalFlag) {
+        setTerminalCellsEnabled(featureData.terminalCellsEnabled as boolean);
+      }
+      setAiFeatureKnown(hasAiFlag);
+      setTerminalFeatureKnown(hasTerminalFlag);
     } catch (error) {
       console.error("Failed to load notebook feature availability", error);
     }
@@ -1543,12 +1551,12 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
       }
       if (
         (type === "terminal" || type === "command") &&
-        !terminalCellsEnabled
+        !terminalCellsAvailable
       ) {
         setActionError("Terminal cells are disabled for this workspace.");
         return;
       }
-      if (type === "ai" && !aiEnabled) {
+      if (type === "ai" && !aiAvailable) {
         setActionError("AI cells are disabled for this workspace.");
         return;
       }
@@ -1596,8 +1604,8 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
       saveNotebookNow,
       clearPendingSave,
       markTerminalPendingPersistence,
-      terminalCellsEnabled,
-      aiEnabled,
+      terminalCellsAvailable,
+      aiAvailable,
     ]
   );
 
@@ -1782,7 +1790,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
       }
 
       if (cell.type === "command") {
-        if (!terminalCellsEnabled) {
+        if (!terminalCellsAvailable) {
           setActionError("Terminal cells are disabled for this workspace.");
           return;
         }
@@ -2034,7 +2042,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
       }
 
       if (cell.type === "ai") {
-        if (!aiEnabled) {
+        if (!aiAvailable) {
           setActionError("AI assistant is disabled for this workspace.");
           return;
         }
@@ -2048,8 +2056,8 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         setRunningCellId(id);
         const controller = new AbortController();
         aiAbortControllerRef.current = controller;
+        let accumulatedText = "";
         void (async () => {
-          let accumulatedText = "";
           try {
             const body: Record<string, string | number | undefined> = {
               prompt: promptText,
@@ -2325,7 +2333,6 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         })();
         return;
       }
-
       if (cell.type === "plot") {
         const layoutCommit = commitPlotLayoutDraft(cell.id);
         if (!layoutCommit.ok) {
@@ -2758,10 +2765,10 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
       notebook,
       runtimeGlobals,
       runningCellId,
-      aiEnabled,
+      aiAvailable,
       sessionId,
       saveNotebookNow,
-      terminalCellsEnabled,
+      terminalCellsAvailable,
       updateNotebook,
       updateNotebookCell,
     ]
@@ -3578,8 +3585,8 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         runQueue={runQueue}
         activeCellId={activeCellId}
         themeMode={theme}
-        aiEnabled={aiEnabled}
-        terminalCellsEnabled={terminalCellsEnabled}
+        aiEnabled={aiAvailable}
+        terminalCellsEnabled={terminalCellsAvailable}
         readOnly={!canEditNotebook}
         readOnlyMessage={readOnlyMessage}
         pendingTerminalIds={pendingTerminalIds}
