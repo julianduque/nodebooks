@@ -49,6 +49,39 @@ export type AiHerokuSettings = z.infer<typeof AiHerokuSettingsSchema>;
 export type AiSettings = z.infer<typeof AiSettingsSchema>;
 export type GlobalSettings = z.infer<typeof GlobalSettingsSchema>;
 
+const AiCellResponseUsageSchema = z
+  .object({
+    inputTokens: z.number().int().nonnegative().optional(),
+    outputTokens: z.number().int().nonnegative().optional(),
+    totalTokens: z.number().int().nonnegative().optional(),
+  })
+  .strict()
+  .partial();
+
+export const AiCellResponseSchema = z
+  .object({
+    text: z.string().default(""),
+    model: z.string().optional(),
+    finishReason: z.string().optional(),
+    timestamp: z.string().optional(),
+    usage: AiCellResponseUsageSchema.optional(),
+    costUsd: z.number().nonnegative().optional(),
+    error: z.string().optional(),
+    raw: z.unknown().optional(),
+  })
+  .strict()
+  .partial();
+
+export const AiCellSchema = z.object({
+  id: z.string(),
+  type: z.literal("ai"),
+  metadata: z.record(z.string(), z.unknown()).default({}),
+  prompt: z.string().default(""),
+  system: z.string().default(""),
+  model: z.string().optional(),
+  response: AiCellResponseSchema.optional(),
+});
+
 // Vendor MIME type for structured UI displays
 export const NODEBOOKS_UI_MIME = "application/vnd.nodebooks.ui+json" as const;
 
@@ -1031,6 +1064,7 @@ export const NOTEBOOK_CELL_SCHEMAS = {
   markdown: MarkdownCellSchema,
   terminal: TerminalCellSchema,
   command: CommandCellSchema,
+  ai: AiCellSchema,
   code: CodeCellSchema,
   http: HttpCellSchema,
   sql: SqlCellSchema,
@@ -1048,6 +1082,7 @@ const NOTEBOOK_CELL_SCHEMA_LIST = Object.values(NOTEBOOK_CELL_SCHEMAS) as [
   typeof MarkdownCellSchema,
   typeof TerminalCellSchema,
   typeof CommandCellSchema,
+  typeof AiCellSchema,
   typeof CodeCellSchema,
   typeof HttpCellSchema,
   typeof SqlCellSchema,
@@ -1092,6 +1127,15 @@ export const NotebookFileCommandCellSchema = z.object({
   metadata: z.record(z.string(), z.unknown()).optional(),
   command: z.string().optional(),
   notes: z.string().optional(),
+});
+
+export const NotebookFileAiCellSchema = z.object({
+  type: z.literal("ai"),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+  prompt: z.string().optional(),
+  system: z.string().optional(),
+  model: z.string().optional(),
+  response: AiCellResponseSchema.optional(),
 });
 
 export const NotebookFileLegacyShellCellSchema = z.object({
@@ -1149,6 +1193,7 @@ export const NOTEBOOK_FILE_CELL_SCHEMAS = {
   terminal: NotebookFileTerminalCellSchema,
   command: NotebookFileCommandCellSchema,
   legacyShell: NotebookFileLegacyShellCellSchema,
+  ai: NotebookFileAiCellSchema,
   code: NotebookFileCodeCellSchema,
   http: NotebookFileHttpCellSchema,
   sql: NotebookFileSqlCellSchema,
@@ -1168,6 +1213,7 @@ const NOTEBOOK_FILE_CELL_SCHEMA_LIST = Object.values(
   typeof NotebookFileTerminalCellSchema,
   typeof NotebookFileCommandCellSchema,
   typeof NotebookFileLegacyShellCellSchema,
+  typeof NotebookFileAiCellSchema,
   typeof NotebookFileCodeCellSchema,
   typeof NotebookFileHttpCellSchema,
   typeof NotebookFileSqlCellSchema,
@@ -1229,7 +1275,9 @@ export type HttpCell = z.infer<typeof HttpCellSchema>;
 export type MarkdownCell = z.infer<typeof MarkdownCellSchema>;
 export type TerminalCell = z.infer<typeof TerminalCellSchema>;
 export type CommandCell = z.infer<typeof CommandCellSchema>;
+export type AiCell = z.infer<typeof AiCellSchema>;
 export type LegacyShellCell = z.infer<typeof LegacyShellCellSchema>;
+export type AiCellResponse = z.infer<typeof AiCellResponseSchema>;
 export type NotebookOutput = z.infer<typeof NotebookOutputSchema>;
 export type StreamOutput = z.infer<typeof StreamOutputSchema>;
 export type DisplayDataOutput = z.infer<typeof DisplayDataSchema>;
@@ -1248,6 +1296,7 @@ export type NotebookFileCommandCell = z.infer<
 export type NotebookFileLegacyShellCell = z.infer<
   typeof NotebookFileLegacyShellCellSchema
 >;
+export type NotebookFileAiCell = z.infer<typeof NotebookFileAiCellSchema>;
 export type NotebookFileCodeCell = z.infer<typeof NotebookFileCodeCellSchema>;
 export type NotebookFileHttpCell = z.infer<typeof NotebookFileHttpCellSchema>;
 export type NotebookFileSqlCell = z.infer<typeof NotebookFileSqlCellSchema>;
@@ -1399,6 +1448,18 @@ export const createPlotCell = (partial?: Partial<PlotCell>): PlotCell => {
     layoutEnabled,
     result: partial?.result,
     snapshot: partial?.snapshot,
+  });
+};
+
+export const createAiCell = (partial?: Partial<AiCell>): AiCell => {
+  return AiCellSchema.parse({
+    id: partial?.id ?? createId(),
+    type: "ai",
+    metadata: partial?.metadata ?? {},
+    prompt: partial?.prompt ?? "",
+    system: partial?.system ?? "",
+    model: partial?.model,
+    response: partial?.response,
   });
 };
 

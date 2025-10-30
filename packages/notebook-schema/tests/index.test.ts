@@ -10,6 +10,7 @@ import {
   createHttpCell,
   createSqlCell,
   createPlotCell,
+  createAiCell,
 } from "../src/index.js";
 
 describe("notebook schema", () => {
@@ -27,6 +28,7 @@ describe("notebook schema", () => {
     const http = createHttpCell();
     const sql = createSqlCell({ query: "select 1" });
     const plot = createPlotCell({ chartType: "bar" });
+    const ai = createAiCell({ prompt: "Hello" });
     expect(code.id).not.toEqual(markdown.id);
     expect(code.type).toBe("code");
     expect(markdown.type).toBe("markdown");
@@ -41,6 +43,8 @@ describe("notebook schema", () => {
     expect(plot.type).toBe("plot");
     expect(plot.chartType).toBe("bar");
     expect(Array.isArray(plot.bindings.traces)).toBe(true);
+    expect(ai.type).toBe("ai");
+    expect(ai.prompt).toBe("Hello");
   });
 
   it("validates kernel protocol messages", () => {

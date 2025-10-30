@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import clsx from "clsx";
 import { Button } from "@/components/ui/button";
-import { Database, Globe, LineChart, Plus, Terminal, Zap } from "lucide-react";
+import { Database, Globe, LineChart, Plus, Sparkles, Terminal, Zap } from "lucide-react";
 import type { NotebookCell } from "@nodebooks/notebook-schema";
 
 const SPECIAL_CELL_LABEL = "Special";
@@ -15,11 +15,13 @@ const AddCellMenu = ({
   className,
   disabled = false,
   terminalCellsEnabled = false,
+  aiEnabled = false,
 }: {
   onAdd: (type: NotebookCell["type"]) => void | Promise<void>;
   className?: string;
   disabled?: boolean;
   terminalCellsEnabled?: boolean;
+  aiEnabled?: boolean;
 }) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -97,6 +99,9 @@ const AddCellMenu = ({
     ) {
       return;
     }
+    if (!aiEnabled && type === "ai") {
+      return;
+    }
     setMenuOpen(false);
     void onAdd(type);
   };
@@ -158,7 +163,19 @@ const AddCellMenu = ({
         <Plus className="h-3 w-3" />
         Code
       </Button>
-      {!terminalCellsEnabled ? (
+      {aiEnabled ? (
+        <Button
+          variant="outline"
+          size="sm"
+          className="gap-2"
+          onClick={() => handleAdd("ai")}
+          disabled={disabled}
+        >
+          <Sparkles className="h-4 w-4" />
+          AI Cell
+        </Button>
+      ) : null}
+      {terminalCellsEnabled ? (
         <>
           <Button
             variant="ghost"

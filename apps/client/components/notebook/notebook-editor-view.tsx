@@ -220,6 +220,7 @@ const NotebookEditorView = ({
                 className="mt-0 flex justify-center gap-2 text-[13px]"
                 disabled={readOnly}
                 terminalCellsEnabled={terminalCellsEnabled}
+                aiEnabled={aiEnabled}
               />
             </>
           )}
@@ -264,7 +265,9 @@ const NotebookEditorView = ({
                   cell.type === "sql" ||
                   cell.type === "plot"
                     ? !readOnly
-                    : socketReady && !readOnly;
+                    : cell.type === "ai"
+                      ? aiEnabled && !readOnly
+                      : socketReady && !readOnly;
                 return (
                   <CellCard
                     key={cell.id}
