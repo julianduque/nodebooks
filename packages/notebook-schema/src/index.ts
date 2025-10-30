@@ -79,6 +79,11 @@ export const AiCellSchema = z.object({
   prompt: z.string().default(""),
   system: z.string().default(""),
   model: z.string().optional(),
+  temperature: z.number().min(0).max(2).optional(),
+  maxTokens: z.number().int().positive().optional(),
+  topP: z.number().min(0).max(1).optional(),
+  frequencyPenalty: z.number().min(-2).max(2).optional(),
+  presencePenalty: z.number().min(-2).max(2).optional(),
   response: AiCellResponseSchema.optional(),
 });
 

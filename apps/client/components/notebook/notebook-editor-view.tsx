@@ -56,6 +56,7 @@ export interface NotebookEditorViewProps {
   onCloneSqlToCode(id: string, source: string): void;
   onActivateCell(id: string): void;
   onInterruptKernel(): void;
+  onInterruptAiCell?: () => void;
   onAttachmentUploaded(attachment: AttachmentMetadata): void;
   onClearDepOutputs(): void;
   onAbortInstall(): void;
@@ -94,6 +95,7 @@ const NotebookEditorView = ({
   onCloneSqlToCode,
   onActivateCell,
   onInterruptKernel,
+  onInterruptAiCell,
   onAttachmentUploaded,
   onClearDepOutputs,
   onAbortInstall,
@@ -304,7 +306,11 @@ const NotebookEditorView = ({
                     }}
                     onInterrupt={() => {
                       if (readOnly) return;
-                      onInterruptKernel();
+                      if (cell.type === "ai" && onInterruptAiCell) {
+                        onInterruptAiCell();
+                      } else {
+                        onInterruptKernel();
+                      }
                     }}
                     onMove={(direction) => {
                       if (readOnly) return;

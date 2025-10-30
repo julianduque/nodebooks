@@ -1297,13 +1297,27 @@ const CellCard = ({
               <Sparkles className="h-4 w-4" />
             )}
           </Button>
+          {isRunning && !isReadOnly && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={onInterrupt}
+              aria-label="Abort AI cell"
+              title="Abort AI cell"
+              className="text-rose-600 hover:text-rose-600"
+            >
+              <XCircle className="h-4 w-4" />
+            </Button>
+          )}
           <Button
             variant="ghost"
             size="icon"
             onClick={() =>
               onChange(
                 (current) =>
-                  current.type === "ai" ? { ...current, response: undefined } : current,
+                  current.type === "ai"
+                    ? { ...current, response: undefined }
+                    : current,
                 { persist: true }
               )
             }

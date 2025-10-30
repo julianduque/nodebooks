@@ -468,6 +468,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
   const runPendingRef = useRef<Set<string>>(new Set());
   // Immediate view of currently-running cell to avoid setState race during bursts
   const runningRef = useRef<string | null>(null);
+  const aiAbortControllerRef = useRef<AbortController | null>(null);
 
   const runQueueRef = useRef<string[]>([]);
   useEffect(() => {
@@ -1183,6 +1184,13 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
       // ignore send errors; status handler will reflect kernel state
     }
   }, [ensureEditable, notebook]);
+
+  const handleInterruptAiCell = useCallback(() => {
+    if (aiAbortControllerRef.current) {
+      aiAbortControllerRef.current.abort();
+      aiAbortControllerRef.current = null;
+    }
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -2037,9 +2045,13 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         setActionError(null);
         runningRef.current = id;
         setRunningCellId(id);
+        const controller = new AbortController();
+        aiAbortControllerRef.current = controller;
         void (async () => {
           try {
-            const body: Record<string, string> = { prompt: promptText };
+            const body: Record<string, string | number | undefined> = {
+              prompt: promptText,
+            };
             const systemText = (cell.system ?? "").trim();
             if (systemText) {
               body.system = systemText;
@@ -2048,34 +2060,65 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
             if (modelOverride) {
               body.model = modelOverride;
             }
+            // Add model parameters
+            if (cell.temperature !== undefined) {
+              body.temperature = cell.temperature;
+            }
+            if (cell.maxTokens !== undefined) {
+              body.maxTokens = cell.maxTokens;
+            }
+            if (cell.topP !== undefined) {
+              body.topP = cell.topP;
+            }
+            if (cell.frequencyPenalty !== undefined) {
+              body.frequencyPenalty = cell.frequencyPenalty;
+            }
+            if (cell.presencePenalty !== undefined) {
+              body.presencePenalty = cell.presencePenalty;
+            }
+
+            // Initialize empty response
+            updateNotebookCell(
+              id,
+              (current) => {
+                if (current.type !== "ai") {
+                  return current;
+                }
+                return {
+                  ...current,
+                  response: {
+                    text: "",
+                    timestamp: new Date().toISOString(),
+                  },
+                };
+              },
+              { persist: false, touch: true }
+            );
+
             const response = await fetch(`${API_BASE_URL}/ai/cells`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify(body),
+              signal: controller.signal,
             });
-            const payload = (await response.json().catch(() => ({}))) as {
-              error?: string;
-              data?: {
-                text?: string;
-                model?: string;
-                finishReason?: string;
-                usage?: {
-                  inputTokens?: number;
-                  outputTokens?: number;
-                  totalTokens?: number;
-                };
-                costUsd?: number;
-                timestamp?: string;
-                raw?: unknown;
-              };
-            };
-            if (!response.ok || payload?.error) {
-              const message =
-                payload?.error ??
-                (response.status === 403
-                  ? "AI assistant is disabled."
-                  : `Failed to run AI cell (status ${response.status})`);
-              setActionError(message);
+
+            if (!response.ok) {
+              const errorText = await response.text();
+              let errorMessage: string;
+              try {
+                const errorJson = JSON.parse(errorText);
+                errorMessage =
+                  errorJson.error ??
+                  (response.status === 403
+                    ? "AI assistant is disabled."
+                    : `Failed to run AI cell (status ${response.status})`);
+              } catch {
+                errorMessage =
+                  response.status === 403
+                    ? "AI assistant is disabled."
+                    : `Failed to run AI cell (status ${response.status})`;
+              }
+              setActionError(errorMessage);
               updateNotebookCell(
                 id,
                 (current) => {
@@ -2085,7 +2128,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
                   return {
                     ...current,
                     response: {
-                      error: message,
+                      error: errorMessage,
                       timestamp: new Date().toISOString(),
                     },
                   };
@@ -2094,8 +2137,151 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
               );
               return;
             }
-            const aiData = payload?.data;
-            if (aiData) {
+
+            const reader = response.body?.getReader();
+            if (!reader) {
+              throw new Error(
+                "This browser does not support streaming responses."
+              );
+            }
+
+            const decoder = new TextDecoder();
+            let buffer = "";
+            let accumulatedText = "";
+
+            while (true) {
+              const { value, done } = await reader.read();
+              if (done) {
+                break;
+              }
+
+              buffer += decoder.decode(value, { stream: true });
+              const lines = buffer.split("\n");
+              buffer = lines.pop() ?? "";
+
+              for (const line of lines) {
+                if (!line.trim()) {
+                  continue;
+                }
+                try {
+                  const parsed = JSON.parse(line) as
+                    | { type: "chunk"; text: string }
+                    | {
+                        type: "done";
+                        metadata: {
+                          text?: string;
+                          model?: string;
+                          finishReason?: string;
+                          usage?: {
+                            inputTokens?: number;
+                            outputTokens?: number;
+                            totalTokens?: number;
+                          };
+                          costUsd?: number;
+                          timestamp?: string;
+                          raw?: unknown;
+                        };
+                      }
+                    | { type: "error"; error: string };
+
+                  if (parsed.type === "chunk") {
+                    accumulatedText += parsed.text;
+                    updateNotebookCell(
+                      id,
+                      (current) => {
+                        if (current.type !== "ai") {
+                          return current;
+                        }
+                        return {
+                          ...current,
+                          response: {
+                            text: accumulatedText,
+                            timestamp: new Date().toISOString(),
+                          },
+                        };
+                      },
+                      { persist: false, touch: true }
+                    );
+                  } else if (parsed.type === "done") {
+                    const metadata = parsed.metadata;
+                    // Use metadata.text if it exists and is non-empty, otherwise use accumulatedText
+                    const finalText = metadata.text?.trim() || accumulatedText;
+                    updateNotebookCell(
+                      id,
+                      (current) => {
+                        if (current.type !== "ai") {
+                          return current;
+                        }
+                        return {
+                          ...current,
+                          response: {
+                            text: finalText,
+                            model: metadata.model ?? current.model,
+                            finishReason: metadata.finishReason,
+                            usage: metadata.usage,
+                            costUsd: metadata.costUsd,
+                            timestamp:
+                              metadata.timestamp ?? new Date().toISOString(),
+                            raw: metadata.raw,
+                          },
+                        };
+                      },
+                      { persist: true }
+                    );
+                  } else if (parsed.type === "error") {
+                    throw new Error(parsed.error);
+                  }
+                } catch (parseError) {
+                  // Skip invalid JSON lines
+                  console.warn(
+                    "Failed to parse streaming line:",
+                    line,
+                    parseError
+                  );
+                }
+              }
+            }
+
+            // Process any remaining buffer
+            if (buffer.trim()) {
+              try {
+                const parsed = JSON.parse(buffer);
+                if (parsed.type === "done") {
+                  const metadata = parsed.metadata;
+                  // Use metadata.text if it exists and is non-empty, otherwise use accumulatedText
+                  const finalText = metadata.text?.trim() || accumulatedText;
+                  updateNotebookCell(
+                    id,
+                    (current) => {
+                      if (current.type !== "ai") {
+                        return current;
+                      }
+                      return {
+                        ...current,
+                        response: {
+                          text: finalText,
+                          model: metadata.model ?? current.model,
+                          finishReason: metadata.finishReason,
+                          usage: metadata.usage,
+                          costUsd: metadata.costUsd,
+                          timestamp:
+                            metadata.timestamp ?? new Date().toISOString(),
+                          raw: metadata.raw,
+                        },
+                      };
+                    },
+                    { persist: true }
+                  );
+                }
+              } catch {
+                // Ignore parse errors for final buffer
+              }
+            }
+          } catch (error) {
+            const message =
+              error instanceof Error ? error.message : "Failed to run AI cell";
+            // Ignore abort errors
+            if ((error as DOMException)?.name === "AbortError") {
               updateNotebookCell(
                 id,
                 (current) => {
@@ -2105,22 +2291,16 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
                   return {
                     ...current,
                     response: {
-                      text: aiData.text ?? "",
-                      model: aiData.model ?? current.model,
-                      finishReason: aiData.finishReason,
-                      usage: aiData.usage,
-                      costUsd: aiData.costUsd,
-                      timestamp: aiData.timestamp ?? new Date().toISOString(),
-                      raw: aiData.raw,
+                      text: accumulatedText || current.response?.text || "",
+                      error: "Generation cancelled.",
+                      timestamp: new Date().toISOString(),
                     },
                   };
                 },
                 { persist: true }
               );
+              return;
             }
-          } catch (error) {
-            const message =
-              error instanceof Error ? error.message : "Failed to run AI cell";
             setActionError(message);
             updateNotebookCell(
               id,
@@ -2141,6 +2321,9 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
           } finally {
             if (runningRef.current === id) {
               runningRef.current = null;
+            }
+            if (aiAbortControllerRef.current === controller) {
+              aiAbortControllerRef.current = null;
             }
             setRunningCellId((current) => {
               if (current !== id) {
@@ -3293,6 +3476,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         onCloneSqlToCode={handleCloneSqlToCode}
         onActivateCell={setActiveCellId}
         onInterruptKernel={handleInterruptKernel}
+        onInterruptAiCell={handleInterruptAiCell}
         onAttachmentUploaded={handleAttachmentUploaded}
         onClearDepOutputs={handleClearDepOutputs}
         onAbortInstall={handleAbortInstall}

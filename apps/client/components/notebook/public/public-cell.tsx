@@ -9,6 +9,7 @@ import PublicCommandCell from "@/components/notebook/public/public-command-cell"
 import PublicHttpCell from "@/components/notebook/public/public-http-cell";
 import PublicSqlCell from "@/components/notebook/public/public-sql-cell";
 import PublicPlotCell from "@/components/notebook/public/public-plot-cell";
+import PublicAiCell from "@/components/notebook/public/public-ai-cell";
 
 const PublicCell = ({
   cell,
@@ -43,6 +44,9 @@ const PublicCell = ({
   }
   if (cell.type === "plot") {
     return <PublicPlotCell cell={cell} globals={globals ?? {}} />;
+  }
+  if (cell.type === "ai") {
+    return <PublicAiCell cell={cell} theme={theme} />;
   }
   return null;
 };
