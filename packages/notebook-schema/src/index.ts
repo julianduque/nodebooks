@@ -87,6 +87,9 @@ export const AiCellSchema = z.object({
   response: AiCellResponseSchema.optional(),
 });
 
+export type AiCell = z.infer<typeof AiCellSchema>;
+export type AiCellResponse = z.infer<typeof AiCellResponseSchema>;
+
 // Vendor MIME type for structured UI displays
 export const NODEBOOKS_UI_MIME = "application/vnd.nodebooks.ui+json" as const;
 
@@ -1069,8 +1072,8 @@ export const NOTEBOOK_CELL_SCHEMAS = {
   markdown: MarkdownCellSchema,
   terminal: TerminalCellSchema,
   command: CommandCellSchema,
-  ai: AiCellSchema,
   code: CodeCellSchema,
+  ai: AiCellSchema,
   http: HttpCellSchema,
   sql: SqlCellSchema,
   plot: PlotCellSchema,
@@ -1087,8 +1090,8 @@ const NOTEBOOK_CELL_SCHEMA_LIST = Object.values(NOTEBOOK_CELL_SCHEMAS) as [
   typeof MarkdownCellSchema,
   typeof TerminalCellSchema,
   typeof CommandCellSchema,
-  typeof AiCellSchema,
   typeof CodeCellSchema,
+  typeof AiCellSchema,
   typeof HttpCellSchema,
   typeof SqlCellSchema,
   typeof PlotCellSchema,
@@ -1134,15 +1137,6 @@ export const NotebookFileCommandCellSchema = z.object({
   notes: z.string().optional(),
 });
 
-export const NotebookFileAiCellSchema = z.object({
-  type: z.literal("ai"),
-  metadata: z.record(z.string(), z.unknown()).optional(),
-  prompt: z.string().optional(),
-  system: z.string().optional(),
-  model: z.string().optional(),
-  response: AiCellResponseSchema.optional(),
-});
-
 export const NotebookFileLegacyShellCellSchema = z.object({
   type: z.literal("shell"),
   metadata: z.record(z.string(), z.unknown()).optional(),
@@ -1160,6 +1154,20 @@ export const NotebookFileCodeCellSchema = z.object({
     })
     .optional(),
   outputs: z.array(NotebookOutputSchema).optional(),
+});
+
+export const NotebookFileAiCellSchema = z.object({
+  type: z.literal("ai"),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+  prompt: z.string().optional(),
+  system: z.string().optional(),
+  model: z.string().optional(),
+  temperature: z.number().min(0).max(2).optional(),
+  maxTokens: z.number().int().positive().optional(),
+  topP: z.number().min(0).max(1).optional(),
+  frequencyPenalty: z.number().min(-2).max(2).optional(),
+  presencePenalty: z.number().min(-2).max(2).optional(),
+  response: AiCellResponseSchema.optional(),
 });
 
 export const NotebookFileHttpCellSchema = z.object({
@@ -1198,8 +1206,8 @@ export const NOTEBOOK_FILE_CELL_SCHEMAS = {
   terminal: NotebookFileTerminalCellSchema,
   command: NotebookFileCommandCellSchema,
   legacyShell: NotebookFileLegacyShellCellSchema,
-  ai: NotebookFileAiCellSchema,
   code: NotebookFileCodeCellSchema,
+  ai: NotebookFileAiCellSchema,
   http: NotebookFileHttpCellSchema,
   sql: NotebookFileSqlCellSchema,
   plot: NotebookFilePlotCellSchema,
@@ -1218,8 +1226,8 @@ const NOTEBOOK_FILE_CELL_SCHEMA_LIST = Object.values(
   typeof NotebookFileTerminalCellSchema,
   typeof NotebookFileCommandCellSchema,
   typeof NotebookFileLegacyShellCellSchema,
-  typeof NotebookFileAiCellSchema,
   typeof NotebookFileCodeCellSchema,
+  typeof NotebookFileAiCellSchema,
   typeof NotebookFileHttpCellSchema,
   typeof NotebookFileSqlCellSchema,
   typeof NotebookFilePlotCellSchema,
@@ -1280,9 +1288,7 @@ export type HttpCell = z.infer<typeof HttpCellSchema>;
 export type MarkdownCell = z.infer<typeof MarkdownCellSchema>;
 export type TerminalCell = z.infer<typeof TerminalCellSchema>;
 export type CommandCell = z.infer<typeof CommandCellSchema>;
-export type AiCell = z.infer<typeof AiCellSchema>;
 export type LegacyShellCell = z.infer<typeof LegacyShellCellSchema>;
-export type AiCellResponse = z.infer<typeof AiCellResponseSchema>;
 export type NotebookOutput = z.infer<typeof NotebookOutputSchema>;
 export type StreamOutput = z.infer<typeof StreamOutputSchema>;
 export type DisplayDataOutput = z.infer<typeof DisplayDataSchema>;
@@ -1301,8 +1307,8 @@ export type NotebookFileCommandCell = z.infer<
 export type NotebookFileLegacyShellCell = z.infer<
   typeof NotebookFileLegacyShellCellSchema
 >;
-export type NotebookFileAiCell = z.infer<typeof NotebookFileAiCellSchema>;
 export type NotebookFileCodeCell = z.infer<typeof NotebookFileCodeCellSchema>;
+export type NotebookFileAiCell = z.infer<typeof NotebookFileAiCellSchema>;
 export type NotebookFileHttpCell = z.infer<typeof NotebookFileHttpCellSchema>;
 export type NotebookFileSqlCell = z.infer<typeof NotebookFileSqlCellSchema>;
 export type NotebookFilePlotCell = z.infer<typeof NotebookFilePlotCellSchema>;
@@ -1464,7 +1470,39 @@ export const createAiCell = (partial?: Partial<AiCell>): AiCell => {
     prompt: partial?.prompt ?? "",
     system: partial?.system ?? "",
     model: partial?.model,
+    temperature: partial?.temperature,
+    maxTokens: partial?.maxTokens,
+    topP: partial?.topP,
+    frequencyPenalty: partial?.frequencyPenalty,
+    presencePenalty: partial?.presencePenalty,
     response: partial?.response,
+  });
+};
+
+export const createPlotCell = (partial?: Partial<PlotCell>): PlotCell => {
+  const dataSource = partial?.dataSource
+    ? PlotDataSourceSchema.parse(partial.dataSource)
+    : PlotDataSourceSchema.parse({ type: "sql", resultKey: "rows" });
+  const bindings = partial?.bindings
+    ? PlotBindingsSchema.parse(partial.bindings)
+    : PlotBindingsSchema.parse({});
+  const layout = partial?.layout
+    ? PlotCellSchema.shape.layout.parse(partial.layout)
+    : {};
+  const layoutEnabled =
+    partial?.layoutEnabled ??
+    (partial?.layout ? Object.keys(partial.layout).length > 0 : false);
+  return PlotCellSchema.parse({
+    id: partial?.id ?? createId(),
+    type: "plot",
+    metadata: partial?.metadata ?? {},
+    chartType: partial?.chartType ?? "scatter",
+    dataSource,
+    bindings,
+    layout,
+    layoutEnabled,
+    result: partial?.result,
+    snapshot: partial?.snapshot,
   });
 };
 

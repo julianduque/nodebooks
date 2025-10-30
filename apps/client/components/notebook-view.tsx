@@ -31,6 +31,7 @@ import {
   type SqlConnection,
   type SqlResult,
   type PlotCellResult,
+  type AiCell,
 } from "@nodebooks/notebook-schema";
 import {
   IDENTIFIER_PATTERN,
@@ -157,6 +158,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
   const collabSocketRef = useRef<WebSocket | null>(null);
   const suppressCollabBroadcastRef = useRef(false);
   const activeCellIdRef = useRef<string | null>(null);
+  const aiAbortControllerRef = useRef<AbortController | null>(null);
   const {
     currentUser,
     setCurrentUser,
@@ -468,7 +470,6 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
   const runPendingRef = useRef<Set<string>>(new Set());
   // Immediate view of currently-running cell to avoid setState race during bursts
   const runningRef = useRef<string | null>(null);
-  const aiAbortControllerRef = useRef<AbortController | null>(null);
 
   const runQueueRef = useRef<string[]>([]);
   useEffect(() => {
@@ -1548,7 +1549,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         return;
       }
       if (type === "ai" && !aiEnabled) {
-        setActionError("AI assistant is disabled for this workspace.");
+        setActionError("AI cells are disabled for this workspace.");
         return;
       }
       const nextCell =
@@ -2048,6 +2049,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         const controller = new AbortController();
         aiAbortControllerRef.current = controller;
         void (async () => {
+          let accumulatedText = "";
           try {
             const body: Record<string, string | number | undefined> = {
               prompt: promptText,
@@ -2060,7 +2062,6 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
             if (modelOverride) {
               body.model = modelOverride;
             }
-            // Add model parameters
             if (cell.temperature !== undefined) {
               body.temperature = cell.temperature;
             }
@@ -2077,7 +2078,6 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
               body.presencePenalty = cell.presencePenalty;
             }
 
-            // Initialize empty response
             updateNotebookCell(
               id,
               (current) => {
@@ -2090,7 +2090,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
                     text: "",
                     timestamp: new Date().toISOString(),
                   },
-                };
+                } as AiCell;
               },
               { persist: false, touch: true }
             );
@@ -2131,7 +2131,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
                       error: errorMessage,
                       timestamp: new Date().toISOString(),
                     },
-                  };
+                  } as AiCell;
                 },
                 { persist: true }
               );
@@ -2147,7 +2147,6 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
 
             const decoder = new TextDecoder();
             let buffer = "";
-            let accumulatedText = "";
 
             while (true) {
               const { value, done } = await reader.read();
@@ -2198,13 +2197,12 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
                             text: accumulatedText,
                             timestamp: new Date().toISOString(),
                           },
-                        };
+                        } as AiCell;
                       },
                       { persist: false, touch: true }
                     );
                   } else if (parsed.type === "done") {
                     const metadata = parsed.metadata;
-                    // Use metadata.text if it exists and is non-empty, otherwise use accumulatedText
                     const finalText = metadata.text?.trim() || accumulatedText;
                     updateNotebookCell(
                       id,
@@ -2224,7 +2222,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
                               metadata.timestamp ?? new Date().toISOString(),
                             raw: metadata.raw,
                           },
-                        };
+                        } as AiCell;
                       },
                       { persist: true }
                     );
@@ -2232,7 +2230,6 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
                     throw new Error(parsed.error);
                   }
                 } catch (parseError) {
-                  // Skip invalid JSON lines
                   console.warn(
                     "Failed to parse streaming line:",
                     line,
@@ -2242,13 +2239,11 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
               }
             }
 
-            // Process any remaining buffer
             if (buffer.trim()) {
               try {
                 const parsed = JSON.parse(buffer);
                 if (parsed.type === "done") {
                   const metadata = parsed.metadata;
-                  // Use metadata.text if it exists and is non-empty, otherwise use accumulatedText
                   const finalText = metadata.text?.trim() || accumulatedText;
                   updateNotebookCell(
                     id,
@@ -2268,19 +2263,18 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
                             metadata.timestamp ?? new Date().toISOString(),
                           raw: metadata.raw,
                         },
-                      };
+                      } as AiCell;
                     },
                     { persist: true }
                   );
                 }
               } catch {
-                // Ignore parse errors for final buffer
+                // ignore parse errors for trailing buffer
               }
             }
           } catch (error) {
             const message =
               error instanceof Error ? error.message : "Failed to run AI cell";
-            // Ignore abort errors
             if ((error as DOMException)?.name === "AbortError") {
               updateNotebookCell(
                 id,
@@ -2291,11 +2285,12 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
                   return {
                     ...current,
                     response: {
-                      text: accumulatedText || current.response?.text || "",
+                      text:
+                        accumulatedText || current.response?.text || "",
                       error: "Generation cancelled.",
                       timestamp: new Date().toISOString(),
                     },
-                  };
+                  } as AiCell;
                 },
                 { persist: true }
               );
@@ -2314,7 +2309,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
                     error: message,
                     timestamp: new Date().toISOString(),
                   },
-                };
+                } as AiCell;
               },
               { persist: true }
             );
@@ -2325,12 +2320,140 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
             if (aiAbortControllerRef.current === controller) {
               aiAbortControllerRef.current = null;
             }
-            setRunningCellId((current) => {
-              if (current !== id) {
-                return current;
+            setRunningCellId((current) => (current === id ? null : current));
+          }
+        })();
+        return;
+      }
+
+      if (cell.type === "plot") {
+        const layoutCommit = commitPlotLayoutDraft(cell.id);
+        if (!layoutCommit.ok) {
+          setActionError(
+            layoutCommit.error ??
+              "Layout overrides must be valid JSON before running this plot."
+          );
+          return;
+        }
+        const chartType = (cell.chartType ?? "").trim() || "scatter";
+        const dataSource = cell.dataSource;
+        if (!chartType) {
+          setActionError("Choose a chart type before running this plot.");
+          return;
+        }
+        if (!dataSource) {
+          setActionError("Select a data source before running this plot.");
+          return;
+        }
+        if (dataSource.type === "global") {
+          const variable = (dataSource.variable ?? "").trim();
+          if (!variable) {
+            setActionError(
+              "Select a dataset variable before running this plot."
+            );
+            return;
+          }
+          if (!sessionId) {
+            setActionError(
+              "Kernel session is not ready. Restart the runtime and try again."
+            );
+            return;
+          }
+        }
+        const layoutEnabled =
+          cell.layoutEnabled ?? hasLayoutOverrides(cell.layout);
+        const requestDataSource =
+          dataSource.type === "global"
+            ? {
+                ...dataSource,
+                variable: (dataSource.variable ?? "").trim(),
               }
-              return null;
-            });
+            : dataSource;
+        const requestPayload: Record<string, unknown> = {
+          cellId: id,
+          chartType,
+          dataSource: requestDataSource,
+          bindings: cell.bindings,
+        };
+        if (dataSource.type === "global" && sessionId) {
+          requestPayload.sessionId = sessionId;
+        }
+        if (layoutEnabled && hasLayoutOverrides(cell.layout)) {
+          requestPayload.layout = cell.layout;
+        }
+        setActionError(null);
+        runningRef.current = id;
+        setRunningCellId(id);
+        void (async () => {
+          try {
+            const response = await fetch(
+              `${API_BASE_URL}/notebooks/${notebook.id}/plot-cells`,
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(requestPayload),
+              }
+            );
+            const payload = (await response.json().catch(() => ({}))) as {
+              error?: string;
+              data?: { result?: PlotCellResult };
+            };
+            const result = payload?.data?.result;
+            // Always update the cell with the result, even if there's an error
+            // This ensures errors are displayed to the user
+            if (result || !response.ok) {
+              updateNotebookCell(
+                id,
+                (current) => {
+                  if (current.type !== "plot") {
+                    return current;
+                  }
+                  const errorMessage = !response.ok
+                    ? typeof payload?.error === "string"
+                      ? payload.error
+                      : `Failed to build plot data (status ${response.status})`
+                    : result?.error;
+                  return {
+                    ...current,
+                    chartType: result?.chartType ?? current.chartType,
+                    result: result
+                      ? result
+                      : {
+                          chartType: current.chartType ?? "scatter",
+                          source: current.dataSource ?? {
+                            type: "global",
+                            variable: "",
+                            path: [],
+                          },
+                          layout: {},
+                          fields: [],
+                          traces: [],
+                          error: errorMessage,
+                          timestamp: new Date().toISOString(),
+                        },
+                  };
+                },
+                { persist: true }
+              );
+            }
+            if (!response.ok) {
+              const message =
+                typeof payload?.error === "string"
+                  ? payload.error
+                  : `Failed to build plot data (status ${response.status})`;
+              setActionError(message);
+            }
+          } catch (error) {
+            setActionError(
+              error instanceof Error
+                ? error.message
+                : "Failed to prepare plot data"
+            );
+          } finally {
+            if (runningRef.current === id) {
+              runningRef.current = null;
+            }
+            setRunningCellId((current) => (current === id ? null : current));
           }
         })();
         return;
@@ -2635,10 +2758,10 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
       notebook,
       runtimeGlobals,
       runningCellId,
+      aiEnabled,
       sessionId,
       saveNotebookNow,
       terminalCellsEnabled,
-      aiEnabled,
       updateNotebook,
       updateNotebookCell,
     ]
@@ -2933,10 +3056,6 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         }
         if (cell.type === "sql") {
           const { result: _result, ...rest } = cell;
-          return rest;
-        }
-        if (cell.type === "ai") {
-          const { response: _response, ...rest } = cell;
           return rest;
         }
         return cell;
