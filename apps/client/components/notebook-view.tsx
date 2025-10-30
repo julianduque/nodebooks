@@ -20,6 +20,7 @@ import {
   createHttpCell,
   createSqlCell,
   createPlotCell,
+  createAiCell,
   type HttpResponse,
   type KernelExecuteRequest,
   type KernelServerMessage,
@@ -1538,6 +1539,10 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         setActionError("Terminal cells are disabled for this workspace.");
         return;
       }
+      if (type === "ai" && !aiEnabled) {
+        setActionError("AI assistant is disabled for this workspace.");
+        return;
+      }
       const nextCell =
         type === "code"
           ? createCodeCell({ language: "ts" })
@@ -1551,7 +1556,9 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
                   ? createSqlCell()
                   : type === "plot"
                     ? createPlotCell()
-                    : createMarkdownCell({ source: "" });
+                    : type === "ai"
+                      ? createAiCell()
+                      : createMarkdownCell({ source: "" });
       const updatedNotebook = updateNotebook((current) => {
         const cells = [...current.cells];
         if (typeof index === "number") {
@@ -1581,6 +1588,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
       clearPendingSave,
       markTerminalPendingPersistence,
       terminalCellsEnabled,
+      aiEnabled,
     ]
   );
 
@@ -1863,7 +1871,8 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         cell.type === "code" ||
         cell.type === "http" ||
         cell.type === "sql" ||
-        cell.type === "plot";
+        cell.type === "plot" ||
+        cell.type === "ai";
       if (requiresQueue) {
         const busy =
           runningRef.current !== null ||
@@ -2010,6 +2019,135 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
               runningRef.current = null;
             }
             setRunningCellId((current) => (current === id ? null : current));
+          }
+        })();
+        return;
+      }
+
+      if (cell.type === "ai") {
+        if (!aiEnabled) {
+          setActionError("AI assistant is disabled for this workspace.");
+          return;
+        }
+        const promptText = (cell.prompt ?? "").trim();
+        if (!promptText) {
+          setActionError("Enter a prompt before running this cell.");
+          return;
+        }
+        setActionError(null);
+        runningRef.current = id;
+        setRunningCellId(id);
+        void (async () => {
+          try {
+            const body: Record<string, string> = { prompt: promptText };
+            const systemText = (cell.system ?? "").trim();
+            if (systemText) {
+              body.system = systemText;
+            }
+            const modelOverride = (cell.model ?? "").trim();
+            if (modelOverride) {
+              body.model = modelOverride;
+            }
+            const response = await fetch(`${API_BASE_URL}/ai/cells`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(body),
+            });
+            const payload = (await response.json().catch(() => ({}))) as {
+              error?: string;
+              data?: {
+                text?: string;
+                model?: string;
+                finishReason?: string;
+                usage?: {
+                  inputTokens?: number;
+                  outputTokens?: number;
+                  totalTokens?: number;
+                };
+                costUsd?: number;
+                timestamp?: string;
+                raw?: unknown;
+              };
+            };
+            if (!response.ok || payload?.error) {
+              const message =
+                payload?.error ??
+                (response.status === 403
+                  ? "AI assistant is disabled."
+                  : `Failed to run AI cell (status ${response.status})`);
+              setActionError(message);
+              updateNotebookCell(
+                id,
+                (current) => {
+                  if (current.type !== "ai") {
+                    return current;
+                  }
+                  return {
+                    ...current,
+                    response: {
+                      error: message,
+                      timestamp: new Date().toISOString(),
+                    },
+                  };
+                },
+                { persist: true }
+              );
+              return;
+            }
+            const aiData = payload?.data;
+            if (aiData) {
+              updateNotebookCell(
+                id,
+                (current) => {
+                  if (current.type !== "ai") {
+                    return current;
+                  }
+                  return {
+                    ...current,
+                    response: {
+                      text: aiData.text ?? "",
+                      model: aiData.model ?? current.model,
+                      finishReason: aiData.finishReason,
+                      usage: aiData.usage,
+                      costUsd: aiData.costUsd,
+                      timestamp: aiData.timestamp ?? new Date().toISOString(),
+                      raw: aiData.raw,
+                    },
+                  };
+                },
+                { persist: true }
+              );
+            }
+          } catch (error) {
+            const message =
+              error instanceof Error ? error.message : "Failed to run AI cell";
+            setActionError(message);
+            updateNotebookCell(
+              id,
+              (current) => {
+                if (current.type !== "ai") {
+                  return current;
+                }
+                return {
+                  ...current,
+                  response: {
+                    error: message,
+                    timestamp: new Date().toISOString(),
+                  },
+                };
+              },
+              { persist: true }
+            );
+          } finally {
+            if (runningRef.current === id) {
+              runningRef.current = null;
+            }
+            setRunningCellId((current) => {
+              if (current !== id) {
+                return current;
+              }
+              return null;
+            });
           }
         })();
         return;
@@ -2317,6 +2455,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
       sessionId,
       saveNotebookNow,
       terminalCellsEnabled,
+      aiEnabled,
       updateNotebook,
       updateNotebookCell,
     ]
@@ -2611,6 +2750,10 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         }
         if (cell.type === "sql") {
           const { result: _result, ...rest } = cell;
+          return rest;
+        }
+        if (cell.type === "ai") {
+          const { response: _response, ...rest } = cell;
           return rest;
         }
         return cell;

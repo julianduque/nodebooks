@@ -36,6 +36,7 @@ import TerminalCellView from "@/components/notebook/terminal-cell-view";
 import HttpCellView from "@/components/notebook/http-cell-view";
 import SqlCellView from "@/components/notebook/sql-cell-view";
 import PlotCellView from "@/components/notebook/plot-cell-view";
+import AiCellView from "@/components/notebook/ai-cell-view";
 import AddCellMenu from "@/components/notebook/add-cell-menu";
 import type { AttachmentMetadata } from "@/components/notebook/attachment-utils";
 import {
@@ -489,6 +490,7 @@ const CellCard = ({
   const isHttp = cell.type === "http";
   const isSql = cell.type === "sql";
   const isPlot = cell.type === "plot";
+  const isAi = cell.type === "ai";
   const showAiActions =
     aiEnabled &&
     !isTerminal &&
@@ -496,6 +498,7 @@ const CellCard = ({
     !isHttp &&
     !isSql &&
     !isPlot &&
+    !isAi &&
     !readOnly;
   const isReadOnly = readOnly;
   const codeLanguage = isCode ? cell.language : undefined;
@@ -509,7 +512,9 @@ const CellCard = ({
           ? (cell.query ?? "")
           : isPlot
             ? JSON.stringify(cell.bindings ?? {})
-            : (cell.source ?? "");
+            : isAi
+              ? cell.prompt ?? ""
+              : (cell.source ?? "");
   const handleUiInteraction = useCallback(
     (event: UiInteractionEvent) => {
       if (!onUiInteraction) return;
@@ -1270,6 +1275,45 @@ const CellCard = ({
             <SettingsIcon className="h-4 w-4" />
           </Button>
         </>
+      ) : isAi ? (
+        <>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onRun}
+            disabled={
+              isReadOnly ||
+              isRunning ||
+              !canRun ||
+              !aiEnabled ||
+              (cell.prompt ?? "").trim().length === 0
+            }
+            aria-label="Run AI cell"
+            title="Run AI cell (Shift+Enter)"
+          >
+            {isRunning ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Sparkles className="h-4 w-4" />
+            )}
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() =>
+              onChange(
+                (current) =>
+                  current.type === "ai" ? { ...current, response: undefined } : current,
+                { persist: true }
+              )
+            }
+            aria-label="Clear response"
+            title="Clear response"
+            disabled={isReadOnly || !cell.response}
+          >
+            <Eraser className="h-4 w-4" />
+          </Button>
+        </>
       ) : isCommand ? (
         <>
           <Button
@@ -1562,6 +1606,15 @@ const CellCard = ({
           readOnly={readOnly}
           onUiInteraction={handleUiInteraction}
         />
+      ) : cell.type === "ai" ? (
+        <AiCellView
+          cell={cell}
+          onChange={onChange}
+          onRun={onRun}
+          isRunning={isRunning}
+          readOnly={readOnly}
+          aiEnabled={aiEnabled}
+        />
       ) : cell.type === "markdown" ? (
         <MarkdownCellView
           editorKey={editorKey}
@@ -1634,6 +1687,7 @@ const CellCard = ({
             className="ml-auto flex flex-wrap items-center gap-1 text-[11px] [&>button]:h-8 [&>button]:w-auto [&>button]:rounded-lg sm:border-l sm:border-border/60 sm:pl-2 sm:[&>button]:min-w-[6.5rem]"
             disabled={readOnly}
             terminalCellsEnabled={terminalCellsEnabled}
+            aiEnabled={aiEnabled}
           />
         </div>
       </div>

@@ -7,6 +7,7 @@ import {
   createHttpCell,
   createSqlCell,
   createPlotCell,
+  createAiCell,
   ensureNotebookRuntimeVersion,
   NotebookEnvSchema,
   NotebookSqlSchema,
@@ -15,6 +16,7 @@ import {
   type HttpCell,
   type MarkdownCell,
   type TerminalCell,
+  type AiCell,
   type Notebook,
   type NotebookCell,
   type NotebookEnv,
@@ -26,6 +28,7 @@ import {
   type NotebookFileLegacyShellCell,
   type NotebookFileNotebook,
   type NotebookFileTerminalCell,
+  type NotebookFileAiCell,
   type NotebookFileSqlCell,
   type NotebookFilePlotCell,
   type NotebookSql,
@@ -84,6 +87,18 @@ const cloneCells = (cells: NotebookFileCell[]): NotebookCell[] => {
         notes: commandCell.notes ?? "",
       });
       result.push(command);
+      continue;
+    }
+    if (cell.type === "ai") {
+      const aiCell = cell as NotebookFileAiCell;
+      const ai = createAiCell({
+        metadata: aiCell.metadata ?? {},
+        prompt: aiCell.prompt ?? "",
+        system: aiCell.system ?? "",
+        model: aiCell.model,
+        response: aiCell.response,
+      });
+      result.push(ai);
       continue;
     }
     if (cell.type === "http") {
@@ -242,6 +257,28 @@ const serializeCommandCell = (cell: CommandCell): NotebookFileCell => {
   return result;
 };
 
+const serializeAiCell = (cell: AiCell): NotebookFileCell => {
+  const result: NotebookFileAiCell = {
+    type: "ai",
+  };
+  if (!isEmptyRecord(cell.metadata)) {
+    result.metadata = cell.metadata;
+  }
+  if (cell.prompt && cell.prompt.length > 0) {
+    result.prompt = cell.prompt;
+  }
+  if (cell.system && cell.system.length > 0) {
+    result.system = cell.system;
+  }
+  if (cell.model) {
+    result.model = cell.model;
+  }
+  if (cell.response) {
+    result.response = cell.response;
+  }
+  return result;
+};
+
 const serializeHttpCell = (cell: HttpCell): NotebookFileCell => {
   const result: NotebookFileCell = {
     type: "http",
@@ -323,6 +360,9 @@ const serializeCells = (cells: NotebookCell[]): NotebookFileCell[] => {
     }
     if (cell.type === "command") {
       return serializeCommandCell(cell as CommandCell);
+    }
+    if (cell.type === "ai") {
+      return serializeAiCell(cell as AiCell);
     }
     if (cell.type === "http") {
       return serializeHttpCell(cell as HttpCell);

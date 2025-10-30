@@ -22,6 +22,7 @@ import { registerSessionRoutes } from "./routes/sessions.js";
 import { registerTemplateRoutes } from "./routes/templates.js";
 import { registerTypesRoutes } from "./routes/types.js";
 import { registerAiRoutes } from "./routes/ai.js";
+import { registerAiCellRoutes } from "./routes/ai-cells.js";
 import { registerAttachmentRoutes } from "./routes/attachments.js";
 import { registerNotebookSharingRoutes } from "./routes/notebook-sharing.js";
 import { registerProjectRoutes } from "./routes/projects.js";
@@ -646,6 +647,7 @@ export const createServer = async ({ logger }: CreateServerOptions = {}) => {
         settings: settingsService,
       });
       await registerAiRoutes(api, { settings: settingsService });
+      await registerAiCellRoutes(api, { settings: settingsService });
       registerAttachmentRoutes(api, store, collaborators);
       registerNotebookRoutes(api, store, collaborators);
       registerProjectRoutes(api, {
