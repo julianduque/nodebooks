@@ -2,7 +2,7 @@
 
 import React from "react";
 import type { UiVegaLite } from "@nodebooks/notebook-schema";
-import { useComponentThemeMode } from "./utils";
+import { useComponentThemeMode } from "./utils.js";
 
 export type VegaLiteProps = Omit<UiVegaLite, "ui"> & {
   className?: string;
@@ -30,6 +30,9 @@ export const VegaLiteChart: React.FC<VegaLiteProps> = ({
       try {
         const embedModule = await import("vega-embed");
         const embed = embedModule.default ?? embedModule;
+        if (typeof embed !== "function") {
+          throw new Error("Invalid vega-embed export");
+        }
         if (!containerRef.current) return;
         const mergedSpec: Record<string, unknown> = {
           ...(spec as Record<string, unknown>),
@@ -70,14 +73,11 @@ export const VegaLiteChart: React.FC<VegaLiteProps> = ({
 
   return (
     <div
-      className={`rounded-md border p-3 text-sm ${className ?? ""} ${
-        mode === "light"
-          ? "border-slate-200 bg-slate-100"
-          : "border-slate-800 bg-slate-900"
-      }`}
+      data-theme-mode={mode}
+      className={`rounded-xl border border-border bg-card p-3 text-sm text-card-foreground shadow-sm ${className ?? ""}`}
     >
       {error ? (
-        <div className="text-red-500">
+        <div className="text-[color:var(--destructive)]">
           Failed to render Vega-Lite chart: {error}
         </div>
       ) : (

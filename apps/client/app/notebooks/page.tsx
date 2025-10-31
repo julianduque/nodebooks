@@ -18,21 +18,21 @@ import {
 import { HTML5Backend } from "react-dnd-html5-backend";
 import { useRouter } from "next/navigation";
 import AppShell from "@/components/app-shell";
-import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import ConfirmDialog from "@/components/ui/confirm";
-import LoadingOverlay from "@/components/ui/loading-overlay";
-import NewNotebookCallout from "@/components/notebook/new-notebook-callout";
-import { Input } from "@/components/ui/input";
 import {
+  Button,
+  Card,
+  Badge,
+  ConfirmDialog,
+  LoadingOverlay,
+  Input,
   Dialog,
   DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
+} from "@nodebooks/client-ui/components/ui";
+import NewNotebookCallout from "@/components/notebook/new-notebook-callout";
 import {
   Play,
   Trash2,
@@ -40,7 +40,7 @@ import {
   Upload,
   Loader2,
   Users,
-  Plus,
+  Plus as PlusIcon,
   Edit2,
   GripVertical,
   Megaphone,
@@ -194,7 +194,7 @@ const NotebookCard = ({
               {notebook.name}
             </h3>
             {notebook.published ? (
-              <Badge className="flex items-center gap-1 bg-emerald-600 text-xs font-semibold text-white">
+              <Badge className="flex items-center gap-1 bg-primary text-xs font-semibold text-primary-foreground">
                 <Globe2 className="h-3 w-3" />
                 Published
               </Badge>
@@ -281,7 +281,7 @@ const NotebookCard = ({
           <Button
             variant="ghost"
             size="icon"
-            className="text-rose-600 hover:text-rose-700"
+            className="text-destructive hover:text-destructive/90"
             onClick={() => onDelete(notebook.id)}
             aria-label={`Delete ${notebook.name}`}
           >
@@ -466,7 +466,7 @@ const ProjectSidebar = ({
             onClick={onCreateProject}
             title="Create project"
           >
-            <Plus className="h-4 w-4" />
+            <PlusIcon className="h-4 w-4" />
           </Button>
         ) : null}
       </div>
@@ -1728,7 +1728,7 @@ export default function NotebooksPage() {
                       <Button
                         size="icon"
                         variant="ghost"
-                        className="text-rose-600 hover:text-rose-700"
+                        className="text-destructive hover:text-destructive/90"
                         onClick={() => handleDeleteProject(group.project.id)}
                         title="Delete project"
                       >

@@ -9,12 +9,14 @@ import { formatWithOptions, inspect, promisify } from "node:util";
 import vm from "node:vm";
 import { transform } from "esbuild";
 import { loadRuntimeConfig } from "@nodebooks/config";
-import { uiHelpersDts } from "@nodebooks/ui/runtime/ui-helpers-dts";
-import { uiHelpersModuleJs } from "@nodebooks/ui/runtime/ui-helpers-module";
+import { uiHelpersDts } from "@nodebooks/ui-runtime/runtime/ui-helpers-dts";
+import { uiHelpersModuleJs } from "@nodebooks/ui-runtime/runtime/ui-helpers-module";
 
 const execFileAsync = promisify(execFile);
 const DEFAULT_WORKSPACE_ROOT = join(tmpdir(), "nodebooks-runtime");
-// Hook used to stream UI display values from the sandboxed '@nodebooks/ui'
+const UI_HELPER_ALIAS = "@nodebooks/ui";
+const UI_RUNTIME_PACKAGE = "@nodebooks/ui-runtime";
+// Hook used to stream UI display values from the sandboxed '@nodebooks/ui-runtime'
 // helper back to the host while a cell is running.
 interface DisplayEmitOptions {
   displayId?: string;
@@ -675,6 +677,14 @@ export class NotebookRuntime {
   private userGlobals = new Set<string>();
 
   constructor(options: NotebookRuntimeOptions = {}) {
+    try {
+      fs.appendFileSync(
+        "/tmp/nodebooks-runtime.log",
+        `[NotebookRuntime] loaded ${Date.now()}\n`
+      );
+    } catch {
+      /* ignore */
+    }
     this.workspaceRoot = options.workspaceRoot ?? DEFAULT_WORKSPACE_ROOT;
     this.installDeps =
       options.installDependencies ?? defaultInstallDependencies;
@@ -1128,6 +1138,28 @@ export class NotebookRuntime {
         supported: { "dynamic-import": false },
       });
 
+      const debugDir = process.env.NODEBOOKS_RUNTIME_DEBUG_DIR;
+      if (debugDir) {
+        try {
+          await fsPromises.mkdir(debugDir, { recursive: true });
+          const debugPath = join(
+            debugDir,
+            `${cell.id}.${cell.language}.compiled.js`
+          );
+          await fsPromises.writeFile(debugPath, compiled.code, "utf8");
+          try {
+            fs.appendFileSync(
+              "/tmp/nodebooks-runtime.log",
+              `[NotebookRuntime] wrote compiled ${debugPath} ${Date.now()}\n`
+            );
+          } catch {
+            /* ignore */
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+
       if (!this.sandboxDir || !this.sandboxRequire) {
         throw new Error("Notebook runtime environment is not ready");
       }
@@ -1459,12 +1491,24 @@ export class NotebookRuntime {
       ) {
         continue;
       }
-      nextUserGlobals.add(name);
       const value = (this.context as Record<string, unknown>)[name];
       const shouldSnapshot = shouldSnapshotValue(value);
       if (!shouldSnapshot) {
         continue;
       }
+      if (
+        value &&
+        typeof value === "object" &&
+        (Reflect.ownKeys(value).some(
+          (key) =>
+            typeof (value as Record<string, unknown>)[key as string] ===
+            "function"
+        ) ||
+          (name.startsWith("import_") && /\bui\b/i.test(name)))
+      ) {
+        continue;
+      }
+      nextUserGlobals.add(name);
       try {
         snapshot[name] = cloneForContext(value);
       } catch (_error) {
@@ -1850,10 +1894,12 @@ export class NotebookRuntime {
 
   private assignSandboxBindings(sandboxDir: string) {
     const sandboxFs = createSandboxFs(sandboxDir);
+    const uiModulePath = join(sandboxDir, "node_modules", "@nodebooks", "ui");
     const sandboxRequire = createSandboxRequire(
       sandboxDir,
       sandboxFs,
-      this.processProxy
+      this.processProxy,
+      uiModulePath
     );
 
     this.sandboxDir = sandboxDir;
@@ -2336,7 +2382,8 @@ const ensureEntryModule = async (entryPath: string) => {
 
 // Provide a lightweight helper package '@nodebooks/ui' inside the sandbox
 const writeUiHelpersModule = async (sandboxDir: string) => {
-  const pkgDir = join(sandboxDir, "node_modules", "@nodebooks", "ui");
+  const helperSegments = UI_HELPER_ALIAS.split("/");
+  const pkgDir = join(sandboxDir, "node_modules", ...helperSegments);
   await fsPromises.mkdir(pkgDir, { recursive: true });
 
   const pkgJsonPath = join(pkgDir, "package.json");
@@ -2344,7 +2391,7 @@ const writeUiHelpersModule = async (sandboxDir: string) => {
   const dtsPath = join(pkgDir, "index.d.ts");
 
   const pkgJson = {
-    name: "@nodebooks/ui",
+    name: UI_HELPER_ALIAS,
     version: "0.0.0",
     main: "index.js",
     types: "index.d.ts",
@@ -2387,14 +2434,159 @@ const createPlaceholderRequire = (): NodeJS.Require => {
 const createSandboxRequire = (
   root: string,
   fsModule: typeof fs,
-  processProxy: NodeJS.Process
+  processProxy: NodeJS.Process,
+  uiModulePath?: string
 ): NodeJS.Require => {
   const entry = join(root, "__runtime__.cjs");
   const base = createRequire(entry);
+  let cachedHelperExports: Record<string, unknown> | null = null;
+
+  const helperFilename = uiModulePath
+    ? join(uiModulePath, "index.js")
+    : join(root, "__nodebooks_ui_helper__.js");
+  const helperDir = dirname(helperFilename);
+
+  const evaluateHelperModule = () => {
+    if (cachedHelperExports) return cachedHelperExports;
+    const moduleExports: { exports: Record<string, unknown> } = {
+      exports: {},
+    };
+    const wrapper = new Function(
+      "exports",
+      "require",
+      "module",
+      "__filename",
+      "__dirname",
+      uiHelpersModuleJs
+    );
+    wrapper(
+      moduleExports.exports,
+      base,
+      moduleExports,
+      helperFilename,
+      helperDir
+    );
+    cachedHelperExports = moduleExports.exports;
+    return cachedHelperExports;
+  };
+
+  const loadUiModule = () => {
+    const evaluated = evaluateHelperModule();
+    const clone: Record<string, unknown> = Object.create(null);
+    for (const key of Object.keys(evaluated)) {
+      const value = (evaluated as Record<string, unknown>)[key];
+      if (
+        key === "ui" &&
+        value &&
+        typeof value === "object" &&
+        !Array.isArray(value)
+      ) {
+        clone.ui = { ...(value as Record<string, unknown>) };
+        continue;
+      }
+      clone[key] = value;
+    }
+    if (
+      clone.ui &&
+      typeof clone.ui === "object" &&
+      (clone.ui as Record<string, unknown>).slider &&
+      typeof clone.slider !== "function"
+    ) {
+      clone.slider = (clone.ui as Record<string, unknown>).slider;
+    }
+    if (
+      clone.ui &&
+      typeof clone.ui === "object" &&
+      (clone.ui as Record<string, unknown>).progress &&
+      typeof clone.progress !== "function"
+    ) {
+      clone.progress = (clone.ui as Record<string, unknown>).progress;
+    }
+    if (
+      clone.ui &&
+      typeof clone.ui === "object" &&
+      (clone.ui as Record<string, unknown>).metric &&
+      typeof clone.metric !== "function"
+    ) {
+      clone.metric = (clone.ui as Record<string, unknown>).metric;
+    }
+    if (
+      clone.ui &&
+      typeof clone.ui === "object" &&
+      (clone.ui as Record<string, unknown>).textInput &&
+      typeof clone.textInput !== "function"
+    ) {
+      clone.textInput = (clone.ui as Record<string, unknown>).textInput;
+    }
+    if (
+      clone.ui &&
+      typeof clone.ui === "object" &&
+      (clone.ui as Record<string, unknown>).button &&
+      typeof clone.button !== "function"
+    ) {
+      clone.button = (clone.ui as Record<string, unknown>).button;
+    }
+    return clone;
+  };
 
   const sandboxRequire = ((specifier: string) => {
-    if (specifier === "@nodebooks/ui") {
-      return base(specifier);
+    if (typeof specifier !== "string") {
+      return base(specifier as never);
+    }
+    let resolvedPath: string | null = null;
+    try {
+      resolvedPath = base.resolve(specifier);
+    } catch {
+      resolvedPath = null;
+    }
+    const helperSpecifiers = [UI_HELPER_ALIAS, UI_RUNTIME_PACKAGE];
+    const helperPaths = helperSpecifiers.map((name) => {
+      const segments = name.split("/");
+      return `${sep}${segments.join(sep)}${sep}`;
+    });
+    const shouldServeHelper =
+      helperSpecifiers.some(
+        (name) => specifier === name || specifier.startsWith(`${name}/`)
+      ) ||
+      (resolvedPath !== null &&
+        helperPaths.some((target) => resolvedPath.includes(target)));
+
+    if (shouldServeHelper) {
+      const helper = loadUiModule();
+      if (!helper) {
+        console.log("[NotebookRuntime] helper missing entirely");
+        throw new Error(`Unable to load ${UI_HELPER_ALIAS} helper`);
+      }
+      const helperExports = helper as Record<string, unknown>;
+      const logDetails = {
+        sliderType: typeof helperExports.slider,
+        progressType: typeof helperExports.progress,
+        metricType: typeof helperExports.metric,
+        textInputType: typeof helperExports.textInput,
+        buttonType: typeof helperExports.button,
+        keys: Object.keys(helperExports).slice(0, 10),
+        request: specifier,
+        resolved: resolvedPath ?? "unknown",
+      };
+      if (
+        helperExports.ui &&
+        typeof helperExports.ui === "object" &&
+        (helperExports.ui as Record<string, unknown>).slider &&
+        helperExports.ui !== helperExports
+      ) {
+        helperExports.slider = (
+          helperExports.ui as Record<string, unknown>
+        ).slider;
+      }
+      try {
+        fs.appendFileSync(
+          "/tmp/nodebooks-runtime.log",
+          `[NotebookRuntime] helper request ${JSON.stringify(logDetails)} ${Date.now()}\n`
+        );
+      } catch {
+        /* ignore */
+      }
+      return helperExports;
     }
     if (specifier === "fs" || specifier === "node:fs") {
       return fsModule;

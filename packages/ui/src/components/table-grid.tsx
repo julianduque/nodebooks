@@ -6,8 +6,9 @@ import {
   deriveColumns,
   renderCellValue,
   useComponentThemeMode,
-} from "./utils";
+} from "./utils.js";
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import clsx from "clsx";
 
 type TableGridProps = Omit<UiTable, "ui"> & {
   className?: string;
@@ -76,19 +77,13 @@ export const TableGrid: React.FC<TableGridProps> = ({
   };
 
   return (
-    <div className={`relative ${className ?? ""}`}>
-      <div
-        className={`overflow-auto rounded-md border ${
-          mode === "light"
-            ? "border-slate-200 bg-slate-100"
-            : "border-slate-800 bg-slate-900"
-        }`}
-      >
+    <div
+      data-theme-mode={mode}
+      className={clsx("relative space-y-2", className)}
+    >
+      <div className="overflow-auto rounded-xl border border-border bg-card text-card-foreground shadow-sm">
         <table className="min-w-full border-collapse">
-          <thead
-            className={mode === "light" ? "" : ""}
-            style={{ background: "var(--muted)" }}
-          >
+          <thead>
             <tr>
               {cols.map(
                 (c: {
@@ -98,24 +93,16 @@ export const TableGrid: React.FC<TableGridProps> = ({
                 }) => (
                   <th
                     key={c.key}
-                    className={`sticky top-0 z-10 select-none cursor-pointer text-left text-sm font-semibold ${cellPad} border ${
-                      mode === "light" ? "text-slate-700" : "text-slate-100"
-                    }`}
-                    style={{
-                      borderColor: "var(--border)",
-                      background: "var(--muted)",
-                    }}
+                    className={clsx(
+                      "sticky top-0 z-10 select-none border-b border-border/70 bg-muted/80 text-left text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground transition-colors",
+                      "hover:text-foreground",
+                      cellPad
+                    )}
                     onClick={() => onHeaderClick(c.key)}
                   >
                     <span>{c.label ?? c.key}</span>
                     {sortKey === c.key && (
-                      <span
-                        className={
-                          mode === "light"
-                            ? "ml-1 text-xs text-slate-400"
-                            : "ml-1 text-xs text-slate-400"
-                        }
-                      >
+                      <span className="ml-1 text-[0.65rem] text-muted-foreground">
                         {sortDir === "asc" ? "▲" : "▼"}
                       </span>
                     )}
@@ -128,15 +115,10 @@ export const TableGrid: React.FC<TableGridProps> = ({
             {pageRows.map((r, i) => (
               <tr
                 key={i}
-                className={`${
-                  mode === "light"
-                    ? i % 2 === 0
-                      ? "bg-slate-100"
-                      : "bg-slate-50"
-                    : i % 2 === 0
-                      ? "bg-slate-900"
-                      : "bg-slate-800/60"
-                }`}
+                className={clsx(
+                  "border-b border-border/40 transition-colors",
+                  i % 2 === 0 ? "bg-background" : "bg-muted/40"
+                )}
               >
                 {cols.map(
                   (c: {
@@ -149,16 +131,17 @@ export const TableGrid: React.FC<TableGridProps> = ({
                     return (
                       <td
                         key={c.key}
-                        className={`${cellPad} text-sm align-top border ${
+                        className={clsx(
+                          "border-border/40 text-sm align-top text-foreground",
+                          cellPad,
                           align === "right"
                             ? "text-right"
                             : align === "center"
                               ? "text-center"
                               : "text-left"
-                        } ${mode === "light" ? "text-slate-700" : "text-slate-200"}`}
-                        style={{ borderColor: "var(--border)" }}
+                        )}
                       >
-                        {renderCellValue(v, mode)}
+                        {renderCellValue(v)}
                       </td>
                     );
                   }
@@ -168,10 +151,10 @@ export const TableGrid: React.FC<TableGridProps> = ({
             {pageRows.length === 0 && (
               <tr>
                 <td
-                  className={`${cellPad} text-sm border ${
-                    mode === "light" ? "text-slate-500" : "text-slate-400"
-                  }`}
-                  style={{ borderColor: "var(--border)" }}
+                  className={clsx(
+                    "border border-dashed border-border/50 text-sm text-muted-foreground",
+                    cellPad
+                  )}
                   colSpan={cols.length}
                 >
                   No rows
@@ -181,20 +164,12 @@ export const TableGrid: React.FC<TableGridProps> = ({
           </tbody>
         </table>
       </div>
-      <div
-        className={`mt-2 flex items-center justify-between text-sm ${
-          mode === "light" ? "text-slate-700" : "text-slate-300"
-        }`}
-      >
+      <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-muted-foreground">
         <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={() => setPageIndex((p) => Math.max(0, p - 1))}
-            className={`inline-flex h-8 items-center gap-1 rounded px-3 disabled:opacity-50 ${
-              mode === "light"
-                ? "border border-slate-300 bg-slate-100 text-slate-700 hover:bg-slate-50"
-                : "border border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700"
-            }`}
+            className="inline-flex h-8 items-center gap-1 rounded-md border border-border bg-background px-3 font-medium text-foreground transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
             disabled={clampedIndex <= 0}
           >
             <ChevronLeft size={16} /> Prev
@@ -202,30 +177,20 @@ export const TableGrid: React.FC<TableGridProps> = ({
           <button
             type="button"
             onClick={() => setPageIndex((p) => Math.min(maxPage, p + 1))}
-            className={`inline-flex h-8 items-center gap-1 rounded px-3 disabled:opacity-50 ${
-              mode === "light"
-                ? "border border-slate-300 bg-slate-100 text-slate-700 hover:bg-slate-50"
-                : "border border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700"
-            }`}
+            className="inline-flex h-8 items-center gap-1 rounded-md border border-border bg-background px-3 font-medium text-foreground transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
             disabled={clampedIndex >= maxPage}
           >
             Next <ChevronRight size={16} />
           </button>
         </div>
-        <div
-          className={`flex items-center gap-3 ${mode === "light" ? "text-slate-700" : "text-slate-200"}`}
-        >
+        <div className="flex flex-wrap items-center gap-3 text-foreground">
           <span>
             Page {clampedIndex + 1} / {maxPage + 1}
           </span>
           <label className="inline-flex items-center gap-1">
             <span>Rows:</span>
             <select
-              className={`h-8 rounded px-2 ${
-                mode === "light"
-                  ? "border border-slate-300 bg-slate-100 text-slate-700"
-                  : "border border-slate-700 bg-slate-800 text-slate-200"
-              }`}
+              className="h-8 appearance-none rounded-md border border-input bg-background px-2 text-sm text-foreground shadow-xs transition focus-visible:outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/70 focus-visible:ring-offset-0 disabled:cursor-not-allowed disabled:opacity-50"
               value={pageSize}
               onChange={(e) => {
                 const size = Number(e.target.value) || 20;
@@ -240,11 +205,7 @@ export const TableGrid: React.FC<TableGridProps> = ({
               ))}
             </select>
           </label>
-          <span
-            className={mode === "light" ? "text-slate-500" : "text-slate-400"}
-          >
-            {total} total
-          </span>
+          <span className="text-muted-foreground">{total} total</span>
         </div>
       </div>
     </div>

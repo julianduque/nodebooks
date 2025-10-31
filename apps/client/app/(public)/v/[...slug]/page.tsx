@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
-import type { Notebook, Project } from "@nodebooks/notebook-schema";
+import type { Notebook } from "@/types/notebook";
+import type { Project } from "@nodebooks/notebook-schema";
 import NotebookPublicView from "@/components/notebook/notebook-public-view";
 import { headers } from "next/headers";
 import { notFound } from "next/navigation";

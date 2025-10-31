@@ -2,13 +2,15 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import AppShell from "@/components/app-shell";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import {
+  Button,
+  Badge,
+  ConfirmDialog,
+  LoadingOverlay,
+} from "@nodebooks/client-ui/components/ui";
 import { ChevronRight, NotebookPen, Trash2 } from "lucide-react";
-import ConfirmDialog from "@/components/ui/confirm";
 import type { Notebook } from "@nodebooks/notebook-schema";
 import { useRouter } from "next/navigation";
-import LoadingOverlay from "@/components/ui/loading-overlay";
 import NewNotebookCallout from "@/components/notebook/new-notebook-callout";
 
 import { clientConfig } from "@nodebooks/config/client";
@@ -151,7 +153,7 @@ export default function HomePage() {
               <Button
                 variant="ghost"
                 size="icon"
-                className="text-rose-600 hover:text-rose-700"
+                className="text-destructive hover:text-destructive/90"
                 onClick={() => {
                   setPendingDeleteId(item.id);
                   setConfirmOpen(true);

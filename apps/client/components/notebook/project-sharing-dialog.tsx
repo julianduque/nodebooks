@@ -1,8 +1,7 @@
 import type { FormEvent } from "react";
 
 import { AlertCallout } from "@nodebooks/ui";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Badge, Button } from "@nodebooks/client-ui/components/ui";
 import {
   Dialog,
   DialogContent,
@@ -10,7 +9,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
+} from "@nodebooks/client-ui/components/ui";
 import type {
   ProjectCollaboratorSummary,
   ProjectInvitationSummary,
@@ -130,7 +129,7 @@ const ProjectSharingDialog = ({
                 onChange={(event) =>
                   onInvitationRoleChange(event.target.value as ProjectRole)
                 }
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring"
+                className="w-full appearance-none rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground shadow-sm transition focus-visible:outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/70 focus-visible:ring-offset-0 disabled:cursor-not-allowed disabled:opacity-50"
                 disabled={shareSubmitting}
               >
                 <option value="editor">Editor</option>
@@ -306,7 +305,7 @@ const ProjectSharingDialog = ({
                             isCurrentUser ||
                             updatingCollaboratorId === collaborator.userId
                           }
-                          className="rounded-md border border-input bg-background px-2 py-1 text-xs"
+                          className="appearance-none rounded-md border border-input bg-background px-2 py-1 text-xs text-foreground shadow-sm transition focus-visible:outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/70 focus-visible:ring-offset-0 disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           <option value="editor">Editor</option>
                           <option value="viewer">Viewer</option>

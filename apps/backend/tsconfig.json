@@ -6,15 +6,15 @@
     "outDir": "dist",
     "noEmit": false,
     "paths": {
-      "@nodebooks/ui/runtime/ui-helpers-dts": [
-        "../../packages/ui/src/runtime/ui-helpers-dts.d.ts"
+      "@nodebooks/ui-runtime/runtime/ui-helpers-dts": [
+        "../../packages/ui-runtime/runtime/ui-helpers-dts.d.ts"
       ],
-      "@nodebooks/ui/runtime/ui-helpers-dts.js": [
-        "../../packages/ui/src/runtime/ui-helpers-dts.js"
+      "@nodebooks/ui-runtime/runtime/ui-helpers-dts.js": [
+        "../../packages/ui-runtime/runtime/ui-helpers-dts.js"
       ],
-      "@nodebooks/ui/runtime/ui-helpers-module": [
-        "../../packages/ui/src/runtime/ui-helpers-module.d.ts",
-        "../../packages/ui/src/runtime/ui-helpers-module.js"
+      "@nodebooks/ui-runtime/runtime/ui-helpers-module": [
+        "../../packages/ui-runtime/runtime/ui-helpers-module.d.ts",
+        "../../packages/ui-runtime/runtime/ui-helpers-module.js"
       ]
     }
   },

@@ -112,10 +112,6 @@ export function loadServerConfig(
     typeof runtimeOverrides.aiEnabled === "boolean"
       ? runtimeOverrides.aiEnabled
       : undefined;
-  const runtimeTerminalCellsEnabled =
-    typeof runtimeOverrides.terminalCellsEnabled === "boolean"
-      ? runtimeOverrides.terminalCellsEnabled
-      : undefined;
   const envProvider = (
     resolvedEnv.NODEBOOKS_AI_PROVIDER ?? "openai"
   ).toLowerCase();
@@ -128,9 +124,6 @@ export function loadServerConfig(
 
   const aiEnabled =
     runtimeAiEnabled ?? bool(resolvedEnv.NODEBOOKS_AI_ENABLED, false);
-  const terminalCellsEnabled =
-    runtimeTerminalCellsEnabled ??
-    bool(resolvedEnv.NODEBOOKS_TERMINALS_ENABLED, false);
 
   const openaiModelOverride =
     sanitizeString(runtimeAi.openai?.model) ??
@@ -178,7 +171,6 @@ export function loadServerConfig(
     theme,
     kernelTimeoutMs,
     kernelWsHeartbeatMs,
-    terminalCellsEnabled,
     persistence,
     ai,
   } satisfies ServerConfig;

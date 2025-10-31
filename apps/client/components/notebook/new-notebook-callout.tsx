@@ -1,9 +1,8 @@
 "use client";
 
-import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Plus } from "lucide-react";
-import { cn } from "@/components/lib/utils";
+import { Card, CardContent, Button } from "@nodebooks/client-ui/components/ui";
+import { Plus as PlusIcon } from "lucide-react";
+import { cn } from "@nodebooks/client-ui/lib/utils";
 
 interface NewNotebookCalloutProps {
   onCreate: () => void;
@@ -28,7 +27,7 @@ const NewNotebookCallout = ({
             </p>
           </div>
           <Button className="gap-2" onClick={onCreate}>
-            <Plus className="h-4 w-4" />
+            <PlusIcon className="h-4 w-4" />
             New notebook
           </Button>
         </CardContent>

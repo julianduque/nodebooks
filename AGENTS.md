@@ -8,6 +8,10 @@ Use `pnpm@10` (declared in `package.json`) to install dependencies across the mo
 
 `apps/backend` hosts the Fastify backend (`src/` for handlers, `data/` for the bundled SQLite file, `tsconfig.json` for build output). `apps/client` is the Next.js frontend (`app/` routes, `components/`, and `tests/`). `packages/notebook-schema` centralizes shared Zod models consumed by both apps. Cross-workspace imports must reference the `@nodebooks/*` package aliases.
 
+## UI Components
+
+The project uses `shadcn` as design system. All the new `ui` components need to be installed int the `packages/client-ui` package.
+
 ## Build, Test, and Development Commands
 
 `pnpm dev` runs all workspaces in watch mode (Fastify via `tsx`, Next.js via `next dev`). Use `pnpm --filter @nodebooks/server dev` or `pnpm --filter @nodebooks/client dev` when you only need one surface. `pnpm build` compiles every package; `pnpm lint` runs ESLint with the repo config; `pnpm test` executes Vitest in each workspace. Code formatting is handled by Prettier via `pnpm format` (write) and `pnpm format:check` (verify only).

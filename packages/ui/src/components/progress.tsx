@@ -1,7 +1,7 @@
 "use client";
 import React from "react";
 import type { UiProgress } from "@nodebooks/notebook-schema";
-import { useComponentThemeMode } from "./utils";
+import { useComponentThemeMode } from "./utils.js";
 
 type ProgressProps = Omit<UiProgress, "ui"> & {
   className?: string;

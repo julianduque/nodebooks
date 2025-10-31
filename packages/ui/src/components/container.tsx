@@ -1,21 +1,21 @@
 "use client";
 import React from "react";
 import type { UiContainer, UiDisplay } from "@nodebooks/notebook-schema";
-import { UiThemeContext } from "./theme";
-import { useComponentThemeMode } from "./utils";
+import { UiThemeContext } from "./theme.js";
+import { useComponentThemeMode } from "./utils.js";
 
-type PaddingValue =
+type ContainerPadding =
   | number
   | [number, number]
   | [number, number, number, number];
 
-const normalizePadding = (padding?: PaddingValue): React.CSSProperties => {
+const normalizePadding = (padding?: ContainerPadding): React.CSSProperties => {
   if (typeof padding === "number") {
     return { padding: `${padding}px` };
   }
   if (Array.isArray(padding)) {
     if (padding.length === 2) {
-      const [vertical, horizontal] = padding;
+      const [vertical = 0, horizontal = 0] = padding;
       return {
         paddingTop: `${vertical}px`,
         paddingBottom: `${vertical}px`,
@@ -24,7 +24,7 @@ const normalizePadding = (padding?: PaddingValue): React.CSSProperties => {
       };
     }
     if (padding.length === 4) {
-      const [top, right, bottom, left] = padding;
+      const [top = 0, right = 0, bottom = 0, left = 0] = padding;
       return {
         paddingTop: `${top}px`,
         paddingRight: `${right}px`,
@@ -64,8 +64,10 @@ const alignClass = (value?: UiContainer["align"]) => {
   }
 };
 
-interface ContainerProps
-  extends Omit<UiContainer, "ui" | "children" | "componentId"> {
+interface ContainerProps extends Omit<
+  UiContainer,
+  "ui" | "children" | "componentId"
+> {
   componentId?: string;
   items: UiDisplay[];
   className?: string;
@@ -93,7 +95,9 @@ export const Container: React.FC<ContainerProps> = ({
   const flexDirection = direction === "horizontal" ? "row" : "column";
   const flexWrap = wrap ? "flex-wrap" : "flex-nowrap";
   const outerStyles: React.CSSProperties = {
-    ...(normalizePadding(padding) as React.CSSProperties),
+    ...(normalizePadding(
+      padding as ContainerPadding | undefined
+    ) as React.CSSProperties),
   };
   if (background) {
     outerStyles.backgroundColor = background;

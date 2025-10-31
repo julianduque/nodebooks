@@ -10,6 +10,7 @@ import {
   type KernelServerMessage,
 } from "@nodebooks/notebook-schema";
 import type {
+  CodeCell,
   OutputExecution,
   NotebookOutput,
 } from "@nodebooks/notebook-schema";
@@ -409,9 +410,10 @@ const handleExecuteRequest = async ({
     return;
   }
 
-  const runnableCell = {
-    ...cell,
-    language: message.language ?? cell.language,
+  const codeCell = cell as CodeCell;
+  const runnableCell: CodeCell = {
+    ...codeCell,
+    language: message.language ?? codeCell.language,
   };
 
   sendMessage(connection, { type: "status", state: "busy" });

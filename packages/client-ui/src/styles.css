@@ -1,0 +1,54 @@
+@source "./src/**/*.{ts,tsx}";
+
+@import "../../ui/src/styles/shared/design-tokens.css";
+@import "../../ui/src/styles/shared/markdown.css";
+@import "tailwindcss";
+
+/* Custom dark mode variant */
+@custom-variant dark (&:is(.dark *));
+
+/* 
+  Theme configuration for Tailwind v4 utility generation.
+  These are ONLY used at build-time to generate utilities like bg-primary, hover:bg-primary/90, etc.
+  The consuming app (apps/client) defines the actual runtime CSS custom properties.
+  
+  NOTE: These values should match apps/client/app/globals.css for consistency,
+  but the runtime theme is owned by the consuming application.
+*/
+@theme {
+  --color-primary: #00884f;
+  --color-primary-foreground: #ffffff;
+  --color-secondary: oklch(0.967 0.001 286.375);
+  --color-secondary-foreground: oklch(0.21 0.006 285.885);
+  --color-accent: oklch(0.967 0.001 286.375);
+  --color-accent-foreground: oklch(0.21 0.006 285.885);
+  --color-destructive: oklch(0.577 0.245 27.325);
+  --color-background: oklch(1 0 0);
+  --color-foreground: oklch(0.141 0.005 285.823);
+  --color-border: oklch(0.92 0.004 286.32);
+  --color-input: oklch(0.92 0.004 286.32);
+  --color-ring: #00884f;
+}
+
+@keyframes gradient-shift {
+  0%,
+  100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+.animated-gradient {
+  background: linear-gradient(
+    -45deg,
+    var(--brand-green),
+    #06b6d4,
+    #3b82f6,
+    #8b5cf6,
+    var(--brand-green)
+  ) !important;
+  background-size: 300% 300% !important;
+  animation: gradient-shift 3s ease infinite;
+}

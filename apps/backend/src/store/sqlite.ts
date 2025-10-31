@@ -1485,9 +1485,7 @@ export class SqliteInvitationStore implements InvitationStore {
     return rows.map(mapInvitationRow);
   }
 }
-export class SqliteNotebookCollaboratorStore
-  implements NotebookCollaboratorStore
-{
+export class SqliteNotebookCollaboratorStore implements NotebookCollaboratorStore {
   constructor(private readonly notebooks: SqliteNotebookStore) {}
 
   private async getDb(): Promise<SqlDatabase> {
@@ -1945,9 +1943,7 @@ export class SqliteProjectStore implements ProjectStore {
   }
 }
 
-export class SqliteProjectCollaboratorStore
-  implements ProjectCollaboratorStore
-{
+export class SqliteProjectCollaboratorStore implements ProjectCollaboratorStore {
   constructor(private readonly notebooks: SqliteNotebookStore) {}
 
   private async getDb(): Promise<SqlDatabase> {

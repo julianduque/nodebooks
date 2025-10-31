@@ -2,30 +2,25 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import AppShell from "@/components/app-shell";
-import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Plus } from "lucide-react";
-import type { Notebook } from "@nodebooks/notebook-schema";
+import {
+  AlertCallout,
+  Card,
+  CardContent,
+  Badge,
+  Button,
+} from "@nodebooks/client-ui/components/ui";
+import { Plus as PlusIcon } from "lucide-react";
+import type { Notebook } from "@/types/notebook";
 import {
   NotebookTemplateSummarySchema,
   type NotebookTemplateSummary,
-  type TemplateBadgeTone,
 } from "@nodebooks/notebook-schema";
 import type { NotebookTemplateId } from "@/components/notebook/types";
 import { useRouter } from "next/navigation";
-import LoadingOverlay from "@/components/ui/loading-overlay";
+import { LoadingOverlay } from "@nodebooks/client-ui/components/ui";
 
 import { clientConfig } from "@nodebooks/config/client";
 const API_BASE_URL = clientConfig().apiBaseUrl;
-
-const BADGE_TONE_CLASSES: Record<TemplateBadgeTone, string> = {
-  slate: "border border-slate-300 bg-slate-200 text-slate-800",
-  emerald: "border border-emerald-300 bg-emerald-200 text-emerald-900",
-  sky: "border border-sky-300 bg-sky-200 text-sky-900",
-  purple: "border border-purple-300 bg-purple-200 text-purple-900",
-  amber: "border border-amber-300 bg-amber-200 text-amber-900",
-};
 
 export default function TemplatesPage() {
   const router = useRouter();
@@ -108,11 +103,9 @@ export default function TemplatesPage() {
 
     if (error) {
       return (
-        <Card className="max-w-md border-amber-300 bg-amber-50/80">
-          <CardContent className="py-6 text-center text-amber-700">
-            {error}
-          </CardContent>
-        </Card>
+        <div className="max-w-md">
+          <AlertCallout level="error" text={error} />
+        </div>
       );
     }
 
@@ -124,7 +117,7 @@ export default function TemplatesPage() {
               No templates available yet. Check back soon!
             </p>
             <Button size="sm" className="gap-2" onClick={() => createFrom()}>
-              <Plus className="h-4 w-4" />
+              <PlusIcon className="h-4 w-4" />
               New notebook
             </Button>
           </CardContent>
@@ -135,15 +128,17 @@ export default function TemplatesPage() {
     return (
       <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {templates.map((template) => {
-          const badgeClass =
-            BADGE_TONE_CLASSES[template.badge.tone] ?? BADGE_TONE_CLASSES.slate;
+          const badgeTone = template.badge.tone ?? "slate";
           return (
             <Card
               key={template.id}
               className="border-border bg-card text-card-foreground shadow-sm"
             >
               <CardContent className="space-y-4 px-6 py-5">
-                <Badge className={`w-fit ${badgeClass}`}>
+                <Badge
+                  className="template-tone-badge w-fit"
+                  data-template-tone={badgeTone}
+                >
                   {template.badge.text}
                 </Badge>
                 <div className="space-y-2">
@@ -173,7 +168,7 @@ export default function TemplatesPage() {
                   className="gap-2"
                   onClick={() => createFrom(template.id)}
                 >
-                  <Plus className="h-4 w-4" />
+                  <PlusIcon className="h-4 w-4" />
                   Use template
                 </Button>
               </CardContent>

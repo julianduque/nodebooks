@@ -1,21 +1,28 @@
-import type {
-  Notebook,
-  NotebookCell,
-  NotebookOutput,
-  SqlConnection,
-} from "@nodebooks/notebook-schema";
+import { useEffect, useRef } from "react";
+import {
+  isAiCell,
+  isCodeCell,
+  isCommandCell,
+  isHttpCell,
+  isPlotCell,
+  isSqlCell,
+  type Notebook,
+  type NotebookCell,
+  type NotebookOutput,
+  type SqlConnection,
+} from "@/types/notebook";
 import type { UiInteractionEvent } from "@nodebooks/ui";
 
 import AddCellMenu from "@/components/notebook/add-cell-menu";
 import CellCard from "@/components/notebook/cell-card";
-import OutputView from "@/components/notebook/output-view";
+import { OutputView } from "@nodebooks/client-ui/components/output";
 import type { AttachmentMetadata } from "@/components/notebook/attachment-utils";
-import { cellUri } from "@/components/notebook/monaco-models";
+import { cellUri } from "@nodebooks/client-ui/components/monaco";
 import { AlertCallout } from "@nodebooks/ui";
-import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { Card, CardContent, Button } from "@nodebooks/client-ui/components/ui";
 import { Eraser, Loader2, XCircle } from "lucide-react";
 import type { ThemeMode } from "@/components/theme-context";
+import { pluginRegistry } from "@/lib/plugins";
 
 type NotebookCellUpdater = (cell: NotebookCell) => NotebookCell;
 
@@ -34,8 +41,6 @@ export interface NotebookEditorViewProps {
   runQueue: string[];
   activeCellId: string | null;
   themeMode: ThemeMode;
-  aiEnabled: boolean;
-  terminalCellsEnabled: boolean;
   readOnly: boolean;
   readOnlyMessage?: string;
   pendingTerminalIds: Set<string>;
@@ -43,6 +48,9 @@ export interface NotebookEditorViewProps {
   depError: string | null;
   depOutputs: NotebookOutput[];
   runtimeGlobals: Record<string, unknown>;
+  aiAvailable: boolean; // AI assistant enabled state from settings
+  userEmail?: string;
+  userAvatarUrl?: string;
   onCellChange(
     id: string,
     updater: NotebookCellUpdater,
@@ -54,7 +62,7 @@ export interface NotebookEditorViewProps {
   onAddCell(type: NotebookCell["type"], index?: number): void;
   onCloneHttpToCode(id: string, source: string): void;
   onCloneSqlToCode(id: string, source: string): void;
-  onActivateCell(id: string): void;
+  onActivateCell(id: string | null): void;
   onInterruptKernel(): void;
   onInterruptAiCell?: () => void;
   onAttachmentUploaded(attachment: AttachmentMetadata): void;
@@ -78,14 +86,15 @@ const NotebookEditorView = ({
   runQueue,
   activeCellId,
   themeMode,
-  aiEnabled,
-  terminalCellsEnabled,
   readOnly,
   readOnlyMessage,
   pendingTerminalIds,
   depBusy,
   depError,
   depOutputs,
+  aiAvailable,
+  userEmail,
+  userAvatarUrl,
   onCellChange,
   onDeleteCell,
   onRunCell,
@@ -104,6 +113,38 @@ const NotebookEditorView = ({
   onRequestAddConnection,
   onUiInteraction,
 }: NotebookEditorViewProps) => {
+  const editorRootRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const findCellInPath = (event: MouseEvent | TouchEvent) => {
+      const path = event.composedPath
+        ? event.composedPath()
+        : [event.target as EventTarget];
+      for (const node of path) {
+        if (
+          node instanceof HTMLElement &&
+          node.dataset &&
+          node.dataset.cell === "true"
+        ) {
+          return node;
+        }
+      }
+      return null;
+    };
+
+    const handlePointerDown = (event: MouseEvent | TouchEvent) => {
+      if (!findCellInPath(event)) {
+        onActivateCell(null);
+      }
+    };
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("touchstart", handlePointerDown);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("touchstart", handlePointerDown);
+    };
+  }, [onActivateCell]);
+
   if (loading) {
     return (
       <div className="flex flex-1 items-center justify-center p-10">
@@ -175,9 +216,9 @@ const NotebookEditorView = ({
           )}
         </div>
       </div>
-      <div className="mt-2 space-y-2 rounded-md border border-slate-800/60 bg-slate-950 p-3 font-mono text-[13px] text-slate-100">
+      <div className="mt-2 space-y-2 rounded-md border border-border/60 bg-card/90 p-3 font-mono text-[13px] text-card-foreground shadow-inner">
         {depBusy && depOutputs.length === 0 ? (
-          <div className="flex items-center gap-2 text-slate-200">
+          <div className="flex items-center gap-2 text-muted-foreground">
             <Loader2 className="h-3.5 w-3.5 animate-spin" /> Preparing
             environment…
           </div>
@@ -212,7 +253,11 @@ const NotebookEditorView = ({
                   Start building your notebook
                 </p>
                 <p className="text-sm text-muted-foreground">
-                  {terminalCellsEnabled
+                  {pluginRegistry
+                    .getEnabledCellTypesSync()
+                    .some(
+                      (def) => def.type === "terminal" || def.type === "command"
+                    )
                     ? "Add a Markdown note, run JavaScript or TypeScript, send an HTTP request, or open a terminal session to begin."
                     : "Add a Markdown note, run JavaScript or TypeScript, or send an HTTP request to begin."}
                 </p>
@@ -221,8 +266,6 @@ const NotebookEditorView = ({
                 onAdd={(type) => onAddCell(type)}
                 className="mt-0 flex justify-center gap-2 text-[13px]"
                 disabled={readOnly}
-                terminalCellsEnabled={terminalCellsEnabled}
-                aiEnabled={aiEnabled}
               />
             </>
           )}
@@ -232,7 +275,7 @@ const NotebookEditorView = ({
   );
 
   return (
-    <div className="flex min-h-full flex-1 flex-col">
+    <div ref={editorRootRef} className="flex min-h-full flex-1 flex-col">
       {readOnly ? (
         <div className="px-2 pt-2">
           <div className="mx-auto w-full max-w-6xl">
@@ -262,14 +305,22 @@ const NotebookEditorView = ({
               {isEmpty ? renderEmptyState() : null}
               {notebook.cells.map((cell, index) => {
                 const cellCanRun =
-                  cell.type === "command" ||
-                  cell.type === "http" ||
-                  cell.type === "sql" ||
-                  cell.type === "plot"
+                  isCommandCell(cell) ||
+                  isHttpCell(cell) ||
+                  isSqlCell(cell) ||
+                  isPlotCell(cell)
                     ? !readOnly
-                    : cell.type === "ai"
-                      ? aiEnabled && !readOnly
+                    : isAiCell(cell)
+                      ? pluginRegistry
+                          .getEnabledCellTypesSync()
+                          .some((def) => def.type === "ai") && !readOnly
                       : socketReady && !readOnly;
+                const editorPath = isCodeCell(cell)
+                  ? cellUri(notebook.id, index, {
+                      id: cell.id,
+                      language: cell.language === "ts" ? "ts" : "js",
+                    })
+                  : undefined;
                 return (
                   <CellCard
                     key={cell.id}
@@ -282,15 +333,11 @@ const NotebookEditorView = ({
                     canMoveUp={index > 0}
                     canMoveDown={index < notebook.cells.length - 1}
                     editorKey={`${cell.id}:${index}`}
-                    editorPath={
-                      cell.type === "code"
-                        ? cellUri(notebook.id, index, {
-                            id: cell.id,
-                            language: cell.language === "ts" ? "ts" : "js",
-                          })
-                        : undefined
-                    }
+                    editorPath={editorPath}
                     active={activeCellId === cell.id}
+                    aiAvailable={aiAvailable}
+                    userEmail={userEmail}
+                    userAvatarUrl={userAvatarUrl}
                     onActivate={() => onActivateCell(cell.id)}
                     onChange={(updater, options) => {
                       if (readOnly) return;
@@ -306,7 +353,7 @@ const NotebookEditorView = ({
                     }}
                     onInterrupt={() => {
                       if (readOnly) return;
-                      if (cell.type === "ai" && onInterruptAiCell) {
+                      if (isAiCell(cell) && onInterruptAiCell) {
                         onInterruptAiCell();
                       } else {
                         onInterruptKernel();
@@ -322,8 +369,6 @@ const NotebookEditorView = ({
                     }}
                     onCloneHttpToCode={onCloneHttpToCode}
                     onCloneSqlToCode={onCloneSqlToCode}
-                    aiEnabled={aiEnabled}
-                    terminalCellsEnabled={terminalCellsEnabled}
                     dependencies={notebook.env.packages}
                     variables={notebook.env.variables ?? {}}
                     globals={runtimeGlobals}

@@ -1,7 +1,11 @@
-import "./globals.css";
+// Package styles with utilities - loaded first
 import "@nodebooks/ui/styles.css";
+import "@nodebooks/client-ui/styles.css";
+// Third-party component styles
 import "@xterm/xterm/css/xterm.css";
 import "katex/dist/katex.min.css";
+// App theme - loaded LAST to override package defaults
+import "./globals.css";
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { headers } from "next/headers";
@@ -9,6 +13,7 @@ import { clientConfig } from "@nodebooks/config/client";
 import { loadServerConfig } from "@nodebooks/config";
 
 import { ThemeProvider, type ThemeMode } from "@/components/theme-context";
+import { PluginProvider } from "@/components/plugin-provider";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -74,7 +79,9 @@ const RootLayout = ({ children }: RootLayoutProps) => {
       suppressHydrationWarning
     >
       <body className={inter.className}>
-        <ThemeProvider initialTheme={initialTheme}>{children}</ThemeProvider>
+        <ThemeProvider initialTheme={initialTheme}>
+          <PluginProvider>{children}</PluginProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

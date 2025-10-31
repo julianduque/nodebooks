@@ -3,7 +3,8 @@
 import clsx from "clsx";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FocusEvent, SyntheticEvent } from "react";
-import { Button } from "@/components/ui/button";
+import { useCompletion } from "@ai-sdk/react";
+import { Button } from "@nodebooks/client-ui/components/ui";
 import {
   ArrowDown,
   ArrowUp,
@@ -26,18 +27,28 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
-import type { NotebookCell, SqlConnection } from "@nodebooks/notebook-schema";
+} from "@nodebooks/client-ui/components/ui";
+import {
+  isAiCell,
+  isCodeCell,
+  isCommandCell,
+  isHttpCell,
+  isMarkdownCell,
+  isPlotCell,
+  isSqlCell,
+  isTerminalCell,
+  isUnknownCell,
+  type HttpCell,
+  type NotebookCell,
+  type SqlCell,
+  type SqlConnection,
+} from "@/types/notebook";
 import { clientConfig } from "@nodebooks/config/client";
 import CodeCellView from "@/components/notebook/code-cell-view";
 import MarkdownCellView from "@/components/notebook/markdown-cell-view";
-import CommandCellView from "@/components/notebook/command-cell-view";
-import TerminalCellView from "@/components/notebook/terminal-cell-view";
-import HttpCellView from "@/components/notebook/http-cell-view";
-import SqlCellView from "@/components/notebook/sql-cell-view";
-import PlotCellView from "@/components/notebook/plot-cell-view";
-import AiCellView from "@/components/notebook/ai-cell-view";
+import { UnknownCell as UnknownCellComponent } from "@/components/notebook/unknown-cell";
 import AddCellMenu from "@/components/notebook/add-cell-menu";
+import { pluginRegistry } from "@/lib/plugins";
 import type { AttachmentMetadata } from "@/components/notebook/attachment-utils";
 import {
   DEFAULT_CODE_EDITOR_SETTINGS,
@@ -48,6 +59,23 @@ import {
 } from "@/components/notebook/editor-preferences";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import type { UiInteractionEvent } from "@nodebooks/ui";
+import {
+  getDiagnosticPolicy,
+  setDiagnosticPolicy,
+  type DiagnosticPolicy,
+} from "@nodebooks/client-ui/components/monaco";
+import {
+  buildHttpCodeSnippet,
+  buildHttpCurlCommand,
+  buildHttpExecutionDetails,
+  type HttpExecutionDetails,
+} from "@nodebooks/http-cell/frontend";
+import { buildSqlCodeSnippet } from "@nodebooks/sql-cell/frontend";
+import { useTheme } from "@/components/theme-context";
+import { SharedMarkdown } from "@/components/notebook/shared-markdown";
+
+const SELECT_FIELD_CLASS =
+  "appearance-none rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground shadow-sm transition focus-visible:outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/70 focus-visible:ring-offset-0 disabled:cursor-not-allowed disabled:opacity-50";
 
 interface CellCardProps {
   cell: NotebookCell;
@@ -73,14 +101,15 @@ interface CellCardProps {
   editorPath?: string;
   active: boolean;
   onActivate: () => void;
-  aiEnabled: boolean;
-  terminalCellsEnabled: boolean;
   dependencies?: Record<string, string>;
   variables?: Record<string, string>;
   globals?: Record<string, unknown>;
   pendingTerminalPersist?: boolean;
   readOnly: boolean;
+  aiAvailable: boolean;
   sqlConnections: SqlConnection[];
+  userEmail?: string;
+  userAvatarUrl?: string;
   onRequestAddConnection: () => void;
   onUiInteraction?: (
     cellId: string,
@@ -115,19 +144,8 @@ type FontSizeSelection = "default" | "custom" | FontSizePresetString;
 const FONT_SIZE_PRESET_STRINGS = new Set<string>(
   FONT_SIZE_PRESETS.map((size) => String(size))
 );
-
-type HttpCellType = Extract<NotebookCell, { type: "http" }>;
-
-type SqlCellType = Extract<NotebookCell, { type: "sql" }>;
-
-type PlotCellType = Extract<NotebookCell, { type: "plot" }>;
-
-interface HttpExecutionDetails {
-  method: string;
-  url: string | null;
-  headers: { name: string; value: string }[];
-  body?: string;
-}
+type HttpCellType = HttpCell;
+type SqlCellType = SqlCell;
 
 const fontSizeSelectionForValue = (value: string): FontSizeSelection => {
   if (value.length === 0) {
@@ -139,316 +157,6 @@ const fontSizeSelectionForValue = (value: string): FontSizeSelection => {
 };
 
 const API_BASE_URL = clientConfig().apiBaseUrl;
-
-const HTTP_VARIABLE_PATTERN = /\{\{\s*([A-Z0-9_]+)\s*\}\}/gi;
-
-const substituteHttpVariables = (
-  value: string,
-  variables: Record<string, string>
-) => {
-  if (typeof value !== "string" || value.length === 0) {
-    return "";
-  }
-  HTTP_VARIABLE_PATTERN.lastIndex = 0;
-  return value.replace(HTTP_VARIABLE_PATTERN, (_, rawKey: string) => {
-    const key = rawKey.trim();
-    if (!key) {
-      return "";
-    }
-    const exact = variables[key] ?? variables[key.toUpperCase()] ?? "";
-    return exact;
-  });
-};
-
-const buildHttpExecutionDetails = (
-  cell: HttpCellType,
-  variables: Record<string, string>
-): HttpExecutionDetails | null => {
-  const request = cell.request ?? {
-    method: "GET",
-    url: "",
-    headers: [],
-    query: [],
-    body: { mode: "none", text: "", contentType: "application/json" },
-  };
-
-  const method = (request.method ?? "GET").toUpperCase();
-
-  const headers = (request.headers ?? [])
-    .filter((header) => header?.enabled !== false)
-    .map((header) => {
-      const name = substituteHttpVariables(
-        header?.name ?? "",
-        variables
-      ).trim();
-      const value = substituteHttpVariables(header?.value ?? "", variables);
-      return { name, value };
-    })
-    .filter((header) => header.name.length > 0);
-
-  const query = (request.query ?? [])
-    .filter((param) => param?.enabled !== false)
-    .map((param) => ({
-      name: substituteHttpVariables(param?.name ?? "", variables),
-      value: substituteHttpVariables(param?.value ?? "", variables),
-    }))
-    .filter((param) => param.name.trim().length > 0);
-
-  const rawUrl = substituteHttpVariables(request.url ?? "", variables).trim();
-  let urlString: string | null = rawUrl || null;
-  if (rawUrl) {
-    try {
-      const url = new URL(rawUrl);
-      query.forEach((param) => {
-        url.searchParams.append(param.name, param.value);
-      });
-      urlString = url.toString();
-    } catch {
-      if (query.length > 0) {
-        const queryString = query
-          .map(
-            (param) =>
-              `${encodeURIComponent(param.name)}=${encodeURIComponent(param.value)}`
-          )
-          .join("&");
-        urlString = `${rawUrl}${rawUrl.includes("?") ? "&" : "?"}${queryString}`;
-      }
-    }
-  }
-
-  let body: string | undefined;
-  if (request.body?.mode === "json") {
-    const substituted = substituteHttpVariables(
-      request.body?.text ?? "",
-      variables
-    ).trim();
-    if (substituted.length > 0) {
-      try {
-        body = JSON.stringify(JSON.parse(substituted));
-      } catch {
-        body = substituted;
-      }
-    }
-  } else if (request.body?.mode === "text") {
-    body = substituteHttpVariables(request.body?.text ?? "", variables);
-  }
-
-  if (["GET", "HEAD"].includes(method)) {
-    body = undefined;
-  }
-
-  return {
-    method,
-    url: urlString,
-    headers,
-    body,
-  };
-};
-
-const escapeCurlValue = (value: string) => {
-  return value.replace(/'/g, "'\\''");
-};
-
-const buildHttpCurlCommand = (details: HttpExecutionDetails | null) => {
-  if (!details || !details.url) {
-    return null;
-  }
-  const parts = [`curl -X ${details.method}`];
-  details.headers.forEach((header) => {
-    parts.push(`-H '${escapeCurlValue(`${header.name}: ${header.value}`)}'`);
-  });
-  if (details.body && details.body.length > 0) {
-    parts.push(`--data '${escapeCurlValue(details.body)}'`);
-  }
-  parts.push(`'${escapeCurlValue(details.url)}'`);
-  return parts.join(" ");
-};
-
-const sanitizeTemplateLiteral = (value: string) => {
-  const escaped = (value ?? "")
-    .replace(/\\/g, "\\\\")
-    .replace(/`/g, "\\`")
-    .replace(/\$\{/g, "\\${");
-  HTTP_VARIABLE_PATTERN.lastIndex = 0;
-  return escaped.replace(HTTP_VARIABLE_PATTERN, (_, rawKey: string) => {
-    const key = rawKey.trim();
-    if (!key) {
-      return "";
-    }
-    return "${process.env." + key + ' ?? ""}';
-  });
-};
-
-const toTemplateLiteral = (value: string) => {
-  return `\`${sanitizeTemplateLiteral(value ?? "")}\``;
-};
-
-const buildHttpCodeSnippet = (cell: HttpCellType) => {
-  const request = cell.request ?? {
-    method: "GET",
-    url: "",
-    headers: [],
-    query: [],
-    body: { mode: "none", text: "", contentType: "application/json" },
-  };
-
-  const lines: string[] = [];
-  const rawUrl = (request.url ?? "").trim();
-  const urlLiteral = rawUrl
-    ? toTemplateLiteral(rawUrl)
-    : "`https://example.com`";
-  lines.push(`const url = new URL(${urlLiteral});`);
-
-  (request.query ?? [])
-    .filter((param) => param?.enabled !== false)
-    .filter((param) => (param?.name ?? "").trim().length > 0)
-    .forEach((param) => {
-      lines.push(
-        `url.searchParams.append(${toTemplateLiteral(param?.name ?? "")}, ${toTemplateLiteral(
-          param?.value ?? ""
-        )});`
-      );
-    });
-
-  const headerLines = (request.headers ?? [])
-    .filter((header) => header?.enabled !== false)
-    .filter((header) => (header?.name ?? "").trim().length > 0)
-    .map(
-      (header) =>
-        `headers.set(${toTemplateLiteral(header?.name ?? "")}, ${toTemplateLiteral(
-          header?.value ?? ""
-        )});`
-    );
-
-  if (headerLines.length > 0) {
-    lines.push("", "const headers = new Headers();");
-    lines.push(...headerLines);
-  }
-
-  const bodyMode = request.body?.mode ?? "none";
-  const bodyText = request.body?.text ?? "";
-  let bodyDeclaration: string | null = null;
-  let bodyUsage: string | null = null;
-  if (bodyMode === "json" && bodyText.trim().length > 0) {
-    bodyDeclaration = `const payload = JSON.parse(${toTemplateLiteral(bodyText)});`;
-    bodyUsage = "JSON.stringify(payload)";
-  } else if (bodyMode === "text" && bodyText.length > 0) {
-    bodyDeclaration = `const body = ${toTemplateLiteral(bodyText)};`;
-    bodyUsage = "body";
-  }
-
-  if (bodyDeclaration) {
-    lines.push("", bodyDeclaration);
-  }
-
-  const optionEntries: string[] = [
-    `  method: ${JSON.stringify((request.method ?? "GET").toUpperCase())}`,
-  ];
-  if (headerLines.length > 0) {
-    optionEntries.push("  headers");
-  }
-  if (bodyUsage) {
-    optionEntries.push(`  body: ${bodyUsage}`);
-  }
-
-  lines.push(
-    "",
-    "const response = await fetch(url, {",
-    ...optionEntries.map((entry) => `${entry},`),
-    "});",
-    "",
-    "if (!response.ok) {",
-    "  throw new Error(`Request failed: ${response.status} ${response.statusText}`);",
-    "}",
-    "",
-    'const contentType = response.headers.get("content-type");',
-    'if (contentType && contentType.includes("application/json")) {',
-    "  const data = await response.json();",
-    "  console.log(data);",
-    "} else {",
-    "  const text = await response.text();",
-    "  console.log(text);",
-    "}"
-  );
-
-  return lines.join("\n");
-};
-
-const sanitizeSqlTemplateLiteral = (value: string) => {
-  return (value ?? "").replace(/\\/g, "\\\\").replace(/`/g, "\\`");
-};
-
-const toSqlTemplateLiteral = (value: string) => {
-  return `\`${sanitizeSqlTemplateLiteral(value)}\``;
-};
-
-const SQL_IDENTIFIER_PATTERN = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
-
-const buildSqlCodeSnippet = (
-  cell: SqlCellType,
-  connections: SqlConnection[],
-  variables: Record<string, string> | undefined
-) => {
-  const connection = cell.connectionId
-    ? connections.find((item) => item.id === cell.connectionId)
-    : undefined;
-  const query = (cell.query ?? "").trim() || "select 1";
-  const assign = (cell.assignVariable ?? "").trim();
-  const assignTarget = SQL_IDENTIFIER_PATTERN.test(assign) ? assign : null;
-  const connectionString = connection?.config?.connectionString?.trim();
-  const extractEnvPlaceholder = (value: string | undefined | null) => {
-    if (!value) return null;
-    const match = value.match(/\{\{\s*([A-Z0-9_]+)\s*\}\}/i);
-    if (!match) return null;
-    return match[1]?.toUpperCase() ?? null;
-  };
-
-  const lines: string[] = [];
-  lines.push('import { Client } from "pg";');
-  lines.push("", "const client = new Client({");
-  const resolveFallbackEnvKey = () => {
-    if (variables) {
-      const keys = Object.keys(variables).map((key) => key.toUpperCase());
-      const preferred =
-        keys.find((key) => key === "DATABASE_URL") ??
-        keys.find((key) => key.endsWith("_DATABASE_URL")) ??
-        keys.find((key) => key.includes("DATABASE")) ??
-        keys.find((key) => key.includes("POSTGRES")) ??
-        keys.find((key) => key.includes("PG"));
-      if (preferred) {
-        return preferred;
-      }
-    }
-    return "DATABASE_URL";
-  };
-
-  if (connectionString) {
-    const envKey = extractEnvPlaceholder(connectionString);
-    if (envKey) {
-      lines.push(`  connectionString: process.env.${envKey} ?? "",`);
-    } else {
-      lines.push(`  connectionString: ${JSON.stringify(connectionString)},`);
-    }
-  } else {
-    const fallbackEnv = resolveFallbackEnvKey();
-    lines.push(`  connectionString: process.env.${fallbackEnv} ?? "",`);
-  }
-  lines.push("});", "", "await client.connect();", "try {");
-  lines.push(
-    `  const result = await client.query(${toSqlTemplateLiteral(query)});`
-  );
-  if (assignTarget) {
-    lines.push(`  const ${assignTarget} = result.rows;`);
-  }
-  lines.push(
-    "  console.log(result.rows);",
-    "} finally {",
-    "  await client.end();",
-    "}"
-  );
-
-  return lines.join("\n");
-};
 
 const CellCard = ({
   cell,
@@ -469,30 +177,37 @@ const CellCard = ({
   canMoveDown,
   editorKey,
   editorPath,
-  active: _active,
+  active,
   onActivate,
-  aiEnabled,
-  terminalCellsEnabled,
   dependencies,
   variables,
   globals,
   pendingTerminalPersist = false,
   readOnly,
   sqlConnections,
+  aiAvailable = true,
+  userEmail,
+  userAvatarUrl,
   onRequestAddConnection,
   onUiInteraction,
 }: CellCardProps) => {
-  void _active;
-  const isCode = cell.type === "code";
-  const isMarkdown = cell.type === "markdown";
-  const isTerminal = cell.type === "terminal";
-  const isCommand = cell.type === "command";
-  const isHttp = cell.type === "http";
-  const isSql = cell.type === "sql";
-  const isPlot = cell.type === "plot";
-  const isAi = cell.type === "ai";
+  const { theme } = useTheme();
+  const isActive = active;
+  const isCode = isCodeCell(cell);
+  const isMarkdown = isMarkdownCell(cell);
+  const isTerminal = isTerminalCell(cell);
+  const isCommand = isCommandCell(cell);
+  const isHttp = isHttpCell(cell);
+  const isSql = isSqlCell(cell);
+  const isPlot = isPlotCell(cell);
+  const isAi = isAiCell(cell);
+  // Check if AI cell type is enabled via plugin registry
+  const aiCellEnabled = pluginRegistry
+    .getEnabledCellTypesSync()
+    .some((def) => def.type === "ai");
   const showAiActions =
-    aiEnabled &&
+    aiAvailable &&
+    aiCellEnabled &&
     !isTerminal &&
     !isCommand &&
     !isHttp &&
@@ -537,6 +252,9 @@ const CellCard = ({
   const [editorMinimapDraft, setEditorMinimapDraft] = useState<
     "default" | "show" | "hide"
   >("default");
+  const [editorTypeCheckingDraft, setEditorTypeCheckingDraft] = useState<
+    "off" | "ignore" | "full"
+  >("off");
   const [editorError, setEditorError] = useState<string | null>(null);
   const [terminalFontSizeDraft, setTerminalFontSizeDraft] = useState("");
   const [terminalFontSizeSelection, setTerminalFontSizeSelection] =
@@ -551,19 +269,64 @@ const CellCard = ({
   const [aiOpen, setAiOpen] = useState(false);
   const [aiPrompt, setAiPrompt] = useState("");
   const [aiError, setAiError] = useState<string | null>(null);
-  const [aiGenerating, setAiGenerating] = useState(false);
-  const aiControllerRef = useRef<AbortController | null>(null);
   const aiCloseIntentRef = useRef<"auto" | null>(null);
   const [curlCopied, setCurlCopied] = useState(false);
   const curlCopyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const aiOriginalSourceRef = useRef<string>("");
+
+  // Use AI SDK useCompletion hook for AI Assistant
+  const {
+    complete,
+    completion,
+    isLoading: aiGenerating,
+    error: completionError,
+    stop: stopCompletion,
+  } = useCompletion({
+    api: `${API_BASE_URL}/ai/generate`,
+    streamProtocol: "text",
+    onError: (error) => {
+      console.error("[AI Assistant] Error:", error);
+    },
+  });
 
   useEffect(() => {
-    if (!aiEnabled && aiOpen) {
+    if (!aiCellEnabled && aiOpen) {
       setAiOpen(false);
       setAiError(null);
       setAiPrompt("");
     }
-  }, [aiEnabled, aiOpen]);
+  }, [aiCellEnabled, aiOpen]);
+
+  // Sync completion error to aiError
+  useEffect(() => {
+    if (completionError) {
+      setAiError(completionError.message || "Failed to generate content.");
+    }
+  }, [completionError]);
+
+  // Update cell source as completion streams
+  useEffect(() => {
+    if (completion && aiGenerating) {
+      // Use the ref that was captured at the start of generation
+      const originalSource = aiOriginalSourceRef.current;
+      const prefix =
+        originalSource.length > 0
+          ? originalSource + (originalSource.endsWith("\n") ? "" : "\n\n")
+          : "";
+      const generated = prefix + completion;
+      onChange((current) => {
+        if (current.id !== cell.id) {
+          return current;
+        }
+        if (isCodeCell(current)) {
+          return { ...current, source: generated };
+        } else if (isMarkdownCell(current)) {
+          return { ...current, source: generated };
+        }
+        return current;
+      });
+    }
+  }, [completion, aiGenerating, cell.id, onChange]);
 
   useEffect(() => {
     return () => {
@@ -578,7 +341,15 @@ const CellCard = ({
     () => (isHttp ? (variables ?? {}) : {}),
     [isHttp, variables]
   );
-  const httpDetails = useMemo(
+  // Memoize MarkdownComponent for AI cells to prevent infinite re-renders
+  const aiMarkdownComponent = useMemo(() => {
+    if (!isAi) return undefined;
+    return (props: { markdown: string; themeMode?: "light" | "dark" }) => (
+      <SharedMarkdown {...props} cellId={cell.id} />
+    );
+  }, [isAi, cell.id]);
+
+  const httpDetails = useMemo<HttpExecutionDetails | null>(
     () =>
       isHttp
         ? buildHttpExecutionDetails(cell as HttpCellType, httpVariables)
@@ -596,8 +367,13 @@ const CellCard = ({
       const timeoutValue =
         typeof meta?.timeoutMs === "number" ? String(meta.timeoutMs) : "";
       setTimeoutDraft(timeoutValue);
+      const policy = getDiagnosticPolicy();
+      const mode =
+        policy.mode === "ignore-list" ? "ignore" : (policy.mode ?? "off");
+      setEditorTypeCheckingDraft(mode);
     } else {
       setTimeoutDraft("");
+      setEditorTypeCheckingDraft("off");
     }
 
     if (isCode || isMarkdown) {
@@ -693,6 +469,16 @@ const CellCard = ({
         }
         timeoutValue = parsed;
       }
+    }
+
+    let nextDiagnosticPolicy: DiagnosticPolicy | null = null;
+    if (isCode) {
+      nextDiagnosticPolicy =
+        editorTypeCheckingDraft === "off"
+          ? { mode: "off" }
+          : editorTypeCheckingDraft === "full"
+            ? { mode: "full" }
+            : { mode: "ignore-list" };
     }
 
     let editorSettings: MonacoEditorSettings | undefined;
@@ -923,12 +709,17 @@ const CellCard = ({
       { persist: true }
     );
 
+    if (nextDiagnosticPolicy) {
+      setDiagnosticPolicy(nextDiagnosticPolicy);
+    }
+
     handleConfigClose();
   }, [
     cell.id,
     editorFontSizeDraft,
     editorLineNumbersDraft,
     editorMinimapDraft,
+    editorTypeCheckingDraft,
     editorWordWrapDraft,
     handleConfigClose,
     isCode,
@@ -943,7 +734,7 @@ const CellCard = ({
   type MarkdownUIMeta = { ui?: { edit?: boolean } };
   const mdEditing =
     cell.type === "markdown" &&
-    ((cell.metadata as MarkdownUIMeta).ui?.edit ?? true);
+    ((cell.metadata as MarkdownUIMeta).ui?.edit ?? false);
   const editorDefaults = isCode
     ? DEFAULT_CODE_EDITOR_SETTINGS
     : DEFAULT_MARKDOWN_EDITOR_SETTINGS;
@@ -953,24 +744,9 @@ const CellCard = ({
     terminalDefaultStyle.charAt(0).toUpperCase() +
     terminalDefaultStyle.slice(1);
 
-  const updateCellSource = useCallback(
-    (nextSource: string, options?: { persist?: boolean; touch?: boolean }) => {
-      onChange((current) => {
-        if (current.id !== cell.id || current.type !== cell.type) {
-          return current;
-        }
-        if (current.type === "terminal") {
-          return { ...current, buffer: nextSource };
-        }
-        return { ...current, source: nextSource };
-      }, options);
-    },
-    [cell.id, cell.type, onChange]
-  );
-
   const handleAiDialogChange = useCallback(
     (open: boolean) => {
-      if (!aiEnabled) {
+      if (!aiCellEnabled) {
         setAiOpen(false);
         setAiError(null);
         if (!aiGenerating) {
@@ -983,11 +759,7 @@ const CellCard = ({
         const autoClose = aiCloseIntentRef.current === "auto";
         aiCloseIntentRef.current = null;
         if (aiGenerating && !autoClose) {
-          try {
-            aiControllerRef.current?.abort();
-          } catch {
-            /* noop */
-          }
+          stopCompletion();
         }
         setAiOpen(false);
         if (!aiGenerating || !autoClose) {
@@ -1001,25 +773,21 @@ const CellCard = ({
       aiCloseIntentRef.current = null;
       setAiOpen(true);
     },
-    [aiEnabled, aiGenerating]
+    [aiCellEnabled, aiGenerating, stopCompletion]
   );
 
   const handleAiAbort = useCallback(() => {
     if (!aiGenerating) {
       return;
     }
-    try {
-      aiControllerRef.current?.abort();
-    } catch {
-      /* noop */
-    }
-  }, [aiGenerating]);
+    stopCompletion();
+  }, [aiGenerating, stopCompletion]);
 
   const handleAiGenerate = useCallback(async () => {
     if (aiGenerating) {
       return;
     }
-    if (!aiEnabled) {
+    if (!aiCellEnabled) {
       return;
     }
     const trimmed = aiPrompt.trim();
@@ -1029,22 +797,23 @@ const CellCard = ({
     }
 
     onActivate();
-    setAiGenerating(true);
     setAiError(null);
     aiCloseIntentRef.current = "auto";
     setAiOpen(false);
 
-    const originalSource = cellContent;
-    const controller = new AbortController();
-    aiControllerRef.current = controller;
+    const originalSource = String(cellContent ?? "");
 
-    const payload: Record<string, unknown> = {
+    // Capture the original source before generation starts
+    aiOriginalSourceRef.current = originalSource;
+
+    // Build body for completion request
+    const body: Record<string, unknown> = {
       cellType: cell.type,
       prompt: trimmed,
       context: originalSource,
     };
     if (cell.type === "code" && codeLanguage) {
-      payload.language = codeLanguage;
+      body.language = codeLanguage;
     }
     if (cell.type === "code") {
       const envDependencies = Object.entries(dependencies ?? {})
@@ -1056,64 +825,14 @@ const CellCard = ({
           acc[name] = version;
           return acc;
         }, {});
-      payload.dependencies = envDependencies;
+      body.dependencies = envDependencies;
     }
 
-    const prefix =
-      originalSource.length > 0
-        ? originalSource + (originalSource.endsWith("\n") ? "" : "\n\n")
-        : "";
     try {
-      const response = await fetch(`${API_BASE_URL}/ai/generate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-        signal: controller.signal,
-      });
-      if (!response.ok) {
-        let message: string | null = null;
-        if (response.status === 403) {
-          message = "AI assistant is disabled in settings.";
-        } else {
-          try {
-            const data = await response.json();
-            message = typeof data?.error === "string" ? data.error : null;
-          } catch {
-            message = null;
-          }
-        }
-        throw new Error(
-          message ?? `Request failed with status ${response.status}`
-        );
-      }
-      const reader = response.body?.getReader();
-      if (!reader) {
-        throw new Error("This browser does not support streaming responses.");
-      }
-      const decoder = new TextDecoder();
-      let generated = prefix;
-      let appended = false;
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) {
-          break;
-        }
-        if (value) {
-          const chunk = decoder.decode(value, { stream: true });
-          if (chunk.length > 0) {
-            generated += chunk;
-            appended = true;
-            updateCellSource(generated, { touch: true });
-          }
-        }
-      }
-      updateCellSource(appended ? generated : originalSource, {
-        persist: true,
-      });
+      await complete(trimmed, { body });
       setAiPrompt("");
       setAiOpen(false);
     } catch (error) {
-      updateCellSource(originalSource, { touch: true });
       if ((error as DOMException)?.name === "AbortError") {
         setAiError("Generation cancelled.");
       } else {
@@ -1121,17 +840,13 @@ const CellCard = ({
           error instanceof Error ? error.message : "Unable to generate content."
         );
       }
-      if (aiEnabled) {
+      if (aiCellEnabled) {
         aiCloseIntentRef.current = null;
         setAiOpen(true);
       }
-    } finally {
-      aiControllerRef.current = null;
-      setAiGenerating(false);
-      aiCloseIntentRef.current = null;
     }
   }, [
-    aiEnabled,
+    aiCellEnabled,
     aiGenerating,
     aiPrompt,
     codeLanguage,
@@ -1139,7 +854,7 @@ const CellCard = ({
     cell.type,
     dependencies,
     onActivate,
-    updateCellSource,
+    complete,
   ]);
 
   const handleCopyCurl = useCallback(async () => {
@@ -1199,7 +914,7 @@ const CellCard = ({
             onClick={handleAiAbort}
             aria-label="Cancel AI generation"
             title="Cancel AI generation"
-            className="text-emerald-400 hover:text-emerald-300"
+            className="text-primary hover:text-primary/80"
           >
             <Loader2 className="h-4 w-4 animate-spin" />
           </Button>
@@ -1243,7 +958,7 @@ const CellCard = ({
               onClick={onInterrupt}
               aria-label="Abort cell"
               title="Abort cell"
-              className="text-rose-600 hover:text-rose-600"
+              className="text-destructive hover:text-destructive/90"
             >
               <XCircle className="h-4 w-4" />
             </Button>
@@ -1350,7 +1065,7 @@ const CellCard = ({
             disabled={!httpCurl}
           >
             {curlCopied ? (
-              <Check className="h-4 w-4 text-emerald-400" />
+              <Check className="h-4 w-4 text-primary" />
             ) : (
               <Copy className="h-4 w-4" />
             )}
@@ -1376,7 +1091,7 @@ const CellCard = ({
               isReadOnly ||
               isRunning ||
               !canRun ||
-              !aiEnabled ||
+              !aiCellEnabled ||
               (cell.prompt ?? "").trim().length === 0
             }
             aria-label="Run AI cell"
@@ -1395,7 +1110,7 @@ const CellCard = ({
               onClick={onInterrupt}
               aria-label="Abort AI cell"
               title="Abort AI cell"
-              className="text-rose-600 hover:text-rose-600"
+              className="text-destructive hover:text-destructive/90"
             >
               <XCircle className="h-4 w-4" />
             </Button>
@@ -1407,14 +1122,17 @@ const CellCard = ({
               onChange(
                 (current) =>
                   current.type === "ai"
-                    ? { ...current, response: undefined }
+                    ? { ...current, response: undefined, messages: [] }
                     : current,
                 { persist: true }
               )
             }
-            aria-label="Clear response"
-            title="Clear response"
-            disabled={isReadOnly || !cell.response}
+            aria-label="Clear conversation"
+            title="Clear conversation"
+            disabled={
+              isReadOnly ||
+              (!cell.response && (!cell.messages || cell.messages.length === 0))
+            }
           >
             <Eraser className="h-4 w-4" />
           </Button>
@@ -1518,7 +1236,7 @@ const CellCard = ({
       <Button
         variant="ghost"
         size="icon"
-        className="text-rose-600 hover:text-rose-600"
+        className="text-destructive hover:text-destructive/90"
         onClick={onDelete}
         aria-label="Delete cell"
         title="Delete cell"
@@ -1532,15 +1250,20 @@ const CellCard = ({
   return (
     <article
       id={`cell-${cell.id}`}
+      data-cell="true"
+      data-active={isActive ? "true" : "false"}
       className={clsx(
-        "group/cell relative z-0 rounded-xl transition hover:z-40 focus-within:z-50",
-        "border-l-2 border-transparent hover:border-emerald-300/80"
+        "group/cell relative z-0 rounded-xl border-l-2 border-transparent transition focus-within:z-50 focus-within:border-[color:var(--primary)]/70",
+        isActive && "z-40 border-[color:var(--primary)]/70"
       )}
       onMouseDown={onActivate}
       onFocus={onActivate}
       tabIndex={-1}
     >
-      <Dialog open={aiEnabled && aiOpen} onOpenChange={handleAiDialogChange}>
+      <Dialog
+        open={aiCellEnabled && aiOpen}
+        onOpenChange={handleAiDialogChange}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>AI assistant</DialogTitle>
@@ -1561,6 +1284,16 @@ const CellCard = ({
               <textarea
                 value={aiPrompt}
                 onChange={(event) => setAiPrompt(event.target.value)}
+                onKeyDown={(event) => {
+                  if (
+                    event.key === "Enter" &&
+                    event.shiftKey &&
+                    !aiGenerating
+                  ) {
+                    event.preventDefault();
+                    void handleAiGenerate();
+                  }
+                }}
                 rows={4}
                 className="mt-1 w-full resize-none rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 placeholder={
@@ -1576,7 +1309,8 @@ const CellCard = ({
               <p className="text-xs font-medium text-rose-600">{aiError}</p>
             ) : (
               <p className="text-xs text-muted-foreground">
-                The assistant streams output directly into the cell.
+                The assistant streams output directly into the cell. Press
+                Shift+Enter to generate.
               </p>
             )}
             <DialogFooter className="gap-2 sm:gap-2">
@@ -1607,88 +1341,106 @@ const CellCard = ({
         </DialogContent>
       </Dialog>
 
-      {cell.type === "code" ? (
-        <CodeCellView
-          editorKey={editorKey}
-          path={editorPath}
-          cell={cell}
-          onChange={onChange}
-          onRun={onRun}
-          isRunning={isRunning}
-          queued={queued}
-          isGenerating={aiGenerating}
-          readOnly={readOnly}
-          onUiInteraction={handleUiInteraction}
-        />
-      ) : cell.type === "markdown" ? (
-        <MarkdownCellView
-          editorKey={editorKey}
-          path={editorPath}
-          cell={cell}
-          notebookId={notebookId}
-          onChange={onChange}
-          onAttachmentUploaded={onAttachmentUploaded}
-          readOnly={readOnly}
-        />
-      ) : cell.type === "command" ? (
-        <CommandCellView
-          cell={cell}
-          onChange={onChange}
-          onRun={onRun}
-          readOnly={readOnly}
-        />
-      ) : cell.type === "http" ? (
-        <HttpCellView
-          cell={cell}
-          onChange={onChange}
-          variables={httpVariables}
-          isRunning={isRunning}
-          readOnly={readOnly}
-          onRun={onRun}
-        />
-      ) : cell.type === "ai" ? (
-        <AiCellView
-          cell={cell}
-          onChange={onChange}
-          onRun={onRun}
-          isRunning={isRunning}
-          readOnly={readOnly}
-          aiEnabled={aiEnabled}
-        />
-      ) : cell.type === "plot" ? (
-        <PlotCellView
-          cell={cell as PlotCellType}
-          globals={globals ?? {}}
-          onChange={onChange}
-          onRun={onRun}
-          isRunning={isRunning}
-          readOnly={readOnly}
-          canRun={canRun}
-        />
-      ) : cell.type === "sql" ? (
-        <SqlCellView
-          cell={cell}
-          connections={sqlConnections}
-          onChange={onChange}
-          onRun={onRun}
-          isRunning={isRunning}
-          readOnly={readOnly}
-          onRequestAddConnection={onRequestAddConnection}
-        />
-      ) : (
-        <TerminalCellView
-          cell={cell}
-          notebookId={notebookId}
-          onChange={onChange}
-          pendingPersist={pendingTerminalPersist}
-          readOnly={readOnly}
-        />
-      )}
+      {(() => {
+        if (isCodeCell(cell)) {
+          return (
+            <CodeCellView
+              editorKey={editorKey}
+              path={editorPath}
+              cell={cell}
+              onChange={onChange}
+              onRun={onRun}
+              isRunning={isRunning}
+              queued={queued}
+              isGenerating={aiGenerating}
+              readOnly={readOnly}
+              onUiInteraction={handleUiInteraction}
+            />
+          );
+        }
+        if (isMarkdownCell(cell)) {
+          return (
+            <MarkdownCellView
+              editorKey={editorKey}
+              path={editorPath}
+              cell={cell}
+              notebookId={notebookId}
+              onChange={onChange}
+              onAttachmentUploaded={onAttachmentUploaded}
+              readOnly={readOnly}
+            />
+          );
+        }
+        if (isUnknownCell(cell)) {
+          return <UnknownCellComponent cell={cell} />;
+        }
+
+        const cellDef = pluginRegistry.getCellType(cell.type);
+        const isEnabled = pluginRegistry.isCellTypeEnabledSync(cell.type);
+
+        if (!cellDef || !cellDef.frontend?.Component) {
+          return (
+            <div className="rounded-lg border border-red-500 bg-red-50 p-4 text-red-800 dark:bg-red-950 dark:text-red-200">
+              Unknown cell type: {cell.type}. Plugin may not be loaded.
+            </div>
+          );
+        }
+
+        if (!isEnabled) {
+          return (
+            <div className="rounded-lg border border-yellow-500 bg-yellow-50 p-4 text-yellow-800 dark:bg-yellow-950 dark:text-yellow-200">
+              Cell type &quot;{cell.type}&quot; is disabled. Enable the plugin
+              in settings to view this cell.
+            </div>
+          );
+        }
+
+        const Component = cellDef.frontend.Component;
+        const baseProps = {
+          cell,
+          onChange,
+          notebookId,
+          onRun,
+          readOnly,
+          path: editorPath,
+        } satisfies Record<string, unknown>;
+
+        const additionalProps: Record<string, unknown> = {};
+        if (isTerminalCell(cell)) {
+          additionalProps.pendingPersist = pendingTerminalPersist;
+        } else if (isHttpCell(cell)) {
+          additionalProps.variables = httpVariables;
+          additionalProps.isRunning = isRunning;
+        } else if (isSqlCell(cell)) {
+          additionalProps.connections = sqlConnections;
+          additionalProps.isRunning = isRunning;
+          additionalProps.onRequestAddConnection = onRequestAddConnection;
+        } else if (isPlotCell(cell)) {
+          additionalProps.globals = globals ?? {};
+          additionalProps.isRunning = isRunning;
+          additionalProps.canRun = canRun;
+        } else if (isAiCell(cell)) {
+          additionalProps.isRunning = isRunning;
+          additionalProps.aiEnabled = aiCellEnabled;
+          additionalProps.aiAssistantEnabled = aiAvailable;
+          additionalProps.theme = theme;
+          additionalProps.userAvatarUrl = userAvatarUrl;
+          additionalProps.userEmail = userEmail;
+          // Use SharedMarkdown for mermaid diagram support (same as markdown cells)
+          if (aiMarkdownComponent) {
+            additionalProps.MarkdownComponent = aiMarkdownComponent;
+          }
+        } else if (isCommandCell(cell)) {
+          // no extras
+        }
+
+        return <Component {...baseProps} {...additionalProps} />;
+      })()}
 
       {/* Collapse the inline controls when idle so they don't add gap */}
-      <div className="pointer-events-none mb-2 mt-2 flex max-h-0 w-full justify-center overflow-hidden opacity-0 transition-all duration-200 group-hover/cell:max-h-24 group-hover/cell:opacity-100 group-hover/cell:pointer-events-auto group-focus-within/cell:max-h-24 group-focus-within/cell:opacity-100 group-focus-within/cell:pointer-events-auto">
+      <div className="pointer-events-none mb-2 mt-2 flex max-h-0 w-full justify-center overflow-hidden opacity-0 transition-all duration-200 group-data-[active=true]/cell:max-h-24 group-data-[active=true]/cell:opacity-100 group-data-[active=true]/cell:pointer-events-auto">
         <div
-          className="pointer-events-auto z-50 flex w-full flex-wrap items-center gap-2 rounded-2xl border border-border bg-card/95 px-3 py-2 text-muted-foreground backdrop-blur-sm"
+          className="pointer-events-auto z-50 flex w-full flex-wrap items-center gap-2 rounded-2xl border border-border/70 bg-muted/80 px-2 py-1 text-muted-foreground shadow-sm backdrop-blur-sm"
           onMouseDown={stopToolbarPropagation}
           onTouchStart={stopToolbarPropagation}
           onFocusCapture={stopToolbarFocus}
@@ -1700,8 +1452,6 @@ const CellCard = ({
             onAdd={onAddBelow}
             className="ml-auto flex flex-wrap items-center gap-1 text-[11px] [&>button]:h-8 [&>button]:w-auto [&>button]:rounded-lg sm:border-l sm:border-border/60 sm:pl-2 sm:[&>button]:min-w-[6.5rem]"
             disabled={readOnly}
-            terminalCellsEnabled={terminalCellsEnabled}
-            aiEnabled={aiEnabled}
           />
         </div>
       </div>
@@ -1782,7 +1532,10 @@ const CellCard = ({
                       Font size
                       <div className="mt-1 space-y-2">
                         <select
-                          className="w-full rounded-md border border-input bg-background px-2 py-1 text-[13px] text-foreground focus:outline-none"
+                          className={clsx(
+                            SELECT_FIELD_CLASS,
+                            "w-full px-2 py-1 text-[13px]"
+                          )}
                           value={editorFontSizeSelection}
                           onChange={(event) => {
                             const next = event.target
@@ -1839,7 +1592,10 @@ const CellCard = ({
                     <label className="block text-xs font-medium text-muted-foreground">
                       Word wrap
                       <select
-                        className="mt-1 w-full rounded-md border border-input bg-background px-2 py-1 text-[13px] text-foreground focus:outline-none"
+                        className={clsx(
+                          SELECT_FIELD_CLASS,
+                          "mt-1 w-full px-2 py-1 text-[13px]"
+                        )}
                         value={editorWordWrapDraft}
                         onChange={(event) =>
                           setEditorWordWrapDraft(
@@ -1858,7 +1614,10 @@ const CellCard = ({
                     <label className="block text-xs font-medium text-muted-foreground">
                       Line numbers
                       <select
-                        className="mt-1 w-full rounded-md border border-input bg-background px-2 py-1 text-[13px] text-foreground focus:outline-none"
+                        className={clsx(
+                          SELECT_FIELD_CLASS,
+                          "mt-1 w-full px-2 py-1 text-[13px]"
+                        )}
                         value={editorLineNumbersDraft}
                         onChange={(event) =>
                           setEditorLineNumbersDraft(
@@ -1877,7 +1636,10 @@ const CellCard = ({
                     <label className="block text-xs font-medium text-muted-foreground">
                       Minimap
                       <select
-                        className="mt-1 w-full rounded-md border border-input bg-background px-2 py-1 text-[13px] text-foreground focus:outline-none"
+                        className={clsx(
+                          SELECT_FIELD_CLASS,
+                          "mt-1 w-full px-2 py-1 text-[13px]"
+                        )}
                         value={editorMinimapDraft}
                         onChange={(event) =>
                           setEditorMinimapDraft(
@@ -1892,6 +1654,31 @@ const CellCard = ({
                         <option value="hide">Hide</option>
                       </select>
                     </label>
+                    {isCode ? (
+                      <label className="block text-xs font-medium text-muted-foreground sm:col-span-2">
+                        Type checking
+                        <select
+                          className={clsx(
+                            SELECT_FIELD_CLASS,
+                            "mt-1 w-full px-2 py-1 text-[13px]"
+                          )}
+                          value={editorTypeCheckingDraft}
+                          onChange={(event) =>
+                            setEditorTypeCheckingDraft(
+                              event.target
+                                .value as typeof editorTypeCheckingDraft
+                            )
+                          }
+                        >
+                          <option value="off">No diagnostics</option>
+                          <option value="ignore">Ignore noisy errors</option>
+                          <option value="full">Full TypeScript checks</option>
+                        </select>
+                        <p className="mt-1 text-[11px] text-muted-foreground">
+                          Controls Monaco diagnostics for code editors.
+                        </p>
+                      </label>
+                    ) : null}
                   </div>
                   {editorError ? (
                     <p className="text-xs font-medium text-rose-600 dark:text-rose-300">
@@ -1915,7 +1702,10 @@ const CellCard = ({
                       Font size
                       <div className="mt-1 space-y-2">
                         <select
-                          className="w-full rounded-md border border-input bg-background px-2 py-1 text-[13px] text-foreground focus:outline-none"
+                          className={clsx(
+                            SELECT_FIELD_CLASS,
+                            "w-full px-2 py-1 text-[13px]"
+                          )}
                           value={terminalFontSizeSelection}
                           onChange={(event) => {
                             const next = event.target
@@ -1972,7 +1762,10 @@ const CellCard = ({
                     <label className="block text-xs font-medium text-muted-foreground">
                       Cursor blink
                       <select
-                        className="mt-1 w-full rounded-md border border-input bg-background px-2 py-1 text-[13px] text-foreground focus:outline-none"
+                        className={clsx(
+                          SELECT_FIELD_CLASS,
+                          "mt-1 w-full px-2 py-1 text-[13px]"
+                        )}
                         value={terminalCursorBlinkDraft}
                         onChange={(event) =>
                           setTerminalCursorBlinkDraft(
@@ -1995,7 +1788,10 @@ const CellCard = ({
                     <label className="block text-xs font-medium text-muted-foreground sm:col-span-2">
                       Cursor style
                       <select
-                        className="mt-1 w-full rounded-md border border-input bg-background px-2 py-1 text-[13px] text-foreground focus:outline-none"
+                        className={clsx(
+                          SELECT_FIELD_CLASS,
+                          "mt-1 w-full px-2 py-1 text-[13px]"
+                        )}
                         value={terminalCursorStyleDraft}
                         onChange={(event) =>
                           setTerminalCursorStyleDraft(

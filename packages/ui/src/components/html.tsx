@@ -2,7 +2,7 @@
 import React from "react";
 import type { UiHtml } from "@nodebooks/notebook-schema";
 import DOMPurify from "dompurify";
-import { useComponentThemeMode } from "./utils";
+import { useComponentThemeMode } from "./utils.js";
 
 type HtmlProps = Omit<UiHtml, "ui"> & {
   className?: string;
@@ -18,18 +18,10 @@ export const HtmlBlock: React.FC<HtmlProps> = ({
     typeof window === "undefined"
       ? String(html ?? "")
       : DOMPurify.sanitize(html ?? "", { ADD_ATTR: ["style"] });
-  const darkVars =
-    mode === "dark"
-      ? ({
-          "--foreground": "#e5e7eb",
-          "--muted": "#1f2937",
-          "--border": "#334155",
-        } as React.CSSProperties & Record<`--${string}`, string>)
-      : undefined;
   return (
     <div
-      className={`relative rounded-md border p-3 ${className ?? ""} ${mode === "light" ? "bg-slate-100 border-slate-200" : "bg-slate-900 border-slate-800"}`}
-      style={{ color: "var(--foreground)", ...(darkVars ?? {}) }}
+      data-theme-mode={mode}
+      className={`relative rounded-xl border border-border bg-card p-4 text-card-foreground shadow-sm ${className ?? ""}`}
     >
       <div dangerouslySetInnerHTML={{ __html: safe }} />
     </div>

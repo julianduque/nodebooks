@@ -38,7 +38,6 @@ export const GlobalSettingsSchema = z
     kernelTimeoutMs: z.number().int().min(1_000).max(600_000).optional(),
     password: z.union([z.string(), z.null()]).optional(),
     aiEnabled: z.boolean().optional(),
-    terminalCellsEnabled: z.boolean().optional(),
     ai: AiSettingsSchema.optional(),
   })
   .catchall(z.unknown());
@@ -48,47 +47,6 @@ export type AiOpenAISettings = z.infer<typeof AiOpenAISettingsSchema>;
 export type AiHerokuSettings = z.infer<typeof AiHerokuSettingsSchema>;
 export type AiSettings = z.infer<typeof AiSettingsSchema>;
 export type GlobalSettings = z.infer<typeof GlobalSettingsSchema>;
-
-const AiCellResponseUsageSchema = z
-  .object({
-    inputTokens: z.number().int().nonnegative().optional(),
-    outputTokens: z.number().int().nonnegative().optional(),
-    totalTokens: z.number().int().nonnegative().optional(),
-  })
-  .strict()
-  .partial();
-
-export const AiCellResponseSchema = z
-  .object({
-    text: z.string().default(""),
-    model: z.string().optional(),
-    finishReason: z.string().optional(),
-    timestamp: z.string().optional(),
-    usage: AiCellResponseUsageSchema.optional(),
-    costUsd: z.number().nonnegative().optional(),
-    error: z.string().optional(),
-    raw: z.unknown().optional(),
-  })
-  .strict()
-  .partial();
-
-export const AiCellSchema = z.object({
-  id: z.string(),
-  type: z.literal("ai"),
-  metadata: z.record(z.string(), z.unknown()).default({}),
-  prompt: z.string().default(""),
-  system: z.string().default(""),
-  model: z.string().optional(),
-  temperature: z.number().min(0).max(2).optional(),
-  maxTokens: z.number().int().positive().optional(),
-  topP: z.number().min(0).max(1).optional(),
-  frequencyPenalty: z.number().min(-2).max(2).optional(),
-  presencePenalty: z.number().min(-2).max(2).optional(),
-  response: AiCellResponseSchema.optional(),
-});
-
-export type AiCell = z.infer<typeof AiCellSchema>;
-export type AiCellResponse = z.infer<typeof AiCellResponseSchema>;
 
 // Vendor MIME type for structured UI displays
 export const NODEBOOKS_UI_MIME = "application/vnd.nodebooks.ui+json" as const;
@@ -746,106 +704,11 @@ export const NotebookOutputSchema = z.discriminatedUnion("type", [
   ErrorOutputSchema,
 ]);
 
-export const HttpMethodSchema = z.enum([
-  "GET",
-  "POST",
-  "PUT",
-  "PATCH",
-  "DELETE",
-  "HEAD",
-  "OPTIONS",
-]);
-export type HttpMethod = z.infer<typeof HttpMethodSchema>;
-
-export const HttpHeaderSchema = z.object({
-  id: z.string(),
-  name: z.string().default(""),
-  value: z.string().default(""),
-  enabled: z.boolean().default(true),
-});
-export type HttpHeader = z.infer<typeof HttpHeaderSchema>;
-
-export const HttpQueryParamSchema = z.object({
-  id: z.string(),
-  name: z.string().default(""),
-  value: z.string().default(""),
-  enabled: z.boolean().default(true),
-});
-export type HttpQueryParam = z.infer<typeof HttpQueryParamSchema>;
-
-export const HttpRequestBodySchema = z.object({
-  mode: z.enum(["none", "json", "text"]).default("none"),
-  text: z.string().default(""),
-  contentType: z.string().default("application/json"),
-});
-export type HttpRequestBody = z.infer<typeof HttpRequestBodySchema>;
-
-export const HttpRequestSchema = z.object({
-  method: HttpMethodSchema.default("GET"),
-  url: z.string().default(""),
-  headers: z.array(HttpHeaderSchema).default([]),
-  query: z.array(HttpQueryParamSchema).default([]),
-  body: HttpRequestBodySchema.default({
-    mode: "none",
-    text: "",
-    contentType: "application/json",
-  }),
-});
-export type HttpRequest = z.infer<typeof HttpRequestSchema>;
-
-export const HttpResponseHeaderSchema = z.object({
-  name: z.string(),
-  value: z.string(),
-});
-export type HttpResponseHeader = z.infer<typeof HttpResponseHeaderSchema>;
-
-export const HttpResponseBodySchema = z.object({
-  type: z.enum(["json", "text", "binary"]).default("text"),
-  text: z.string().optional(),
-  json: z.unknown().optional(),
-  size: z.number().int().nonnegative().optional(),
-  contentType: z.string().optional(),
-  encoding: z.enum(["utf8", "base64"]).optional(),
-});
-export type HttpResponseBody = z.infer<typeof HttpResponseBodySchema>;
-
-export const HttpResponseSchema = z.object({
-  status: z.number().int().nonnegative().optional(),
-  statusText: z.string().optional(),
-  ok: z.boolean().optional(),
-  url: z.string().optional(),
-  durationMs: z.number().nonnegative().optional(),
-  timestamp: z.string().optional(),
-  headers: z.array(HttpResponseHeaderSchema).default([]),
-  body: HttpResponseBodySchema.optional(),
-  error: z.string().optional(),
-  curl: z.string().optional(),
-  assignedVariable: z.string().optional(),
-  assignedBody: z.string().optional(),
-  assignedHeaders: z.string().optional(),
-});
-export type HttpResponse = z.infer<typeof HttpResponseSchema>;
-
 export const MarkdownCellSchema = z.object({
   id: z.string(),
   type: z.literal("markdown"),
   source: z.string().default(""),
   metadata: z.record(z.string(), z.unknown()).default({}),
-});
-
-export const TerminalCellSchema = z.object({
-  id: z.string(),
-  type: z.literal("terminal"),
-  metadata: z.record(z.string(), z.unknown()).default({}),
-  buffer: z.string().default(""),
-});
-
-export const CommandCellSchema = z.object({
-  id: z.string(),
-  type: z.literal("command"),
-  metadata: z.record(z.string(), z.unknown()).default({}),
-  command: z.string().default(""),
-  notes: z.string().default(""),
 });
 
 export const LegacyShellCellSchema = z.object({
@@ -883,17 +746,13 @@ export const CodeCellSchema = z.object({
   execution: OutputExecutionSchema.optional(),
 });
 
-const DEFAULT_HTTP_REQUEST = HttpRequestSchema.parse({});
-
-export const HttpCellSchema = z.object({
+export const UnknownCellSchema = z.object({
   id: z.string(),
-  type: z.literal("http"),
+  type: z.literal("unknown"),
   metadata: z.record(z.string(), z.unknown()).default({}),
-  request: HttpRequestSchema.default(DEFAULT_HTTP_REQUEST),
-  response: HttpResponseSchema.optional(),
-  assignVariable: z.string().optional(),
-  assignBody: z.string().optional(),
-  assignHeaders: z.string().optional(),
+  originalType: z.string(),
+  originalData: z.record(z.string(), z.unknown()),
+  pluginId: z.string().optional(),
 });
 
 export const SqlDriverSchema = z.enum(["postgres"]);
@@ -920,196 +779,22 @@ export const NotebookSqlSchema = z.object({
 });
 export type NotebookSql = z.infer<typeof NotebookSqlSchema>;
 
-export const SqlColumnSchema = z.object({
-  name: z.string(),
-  dataType: z.string().optional(),
-});
-export type SqlColumn = z.infer<typeof SqlColumnSchema>;
-
-export const SqlResultSchema = z.object({
-  rowCount: z.number().int().nonnegative().optional(),
-  durationMs: z.number().nonnegative().optional(),
-  columns: z.array(SqlColumnSchema).default([]),
-  rows: z.array(z.record(z.string(), z.unknown())).default([]),
-  assignedVariable: z.string().optional(),
-  timestamp: z.string().optional(),
-  error: z.string().optional(),
-});
-export type SqlResult = z.infer<typeof SqlResultSchema>;
-
-export const SqlCellSchema = z.object({
-  id: z.string(),
-  type: z.literal("sql"),
-  metadata: z.record(z.string(), z.unknown()).default({}),
-  connectionId: z.string().optional(),
-  query: z.string().default(""),
-  assignVariable: z.string().optional(),
-  result: SqlResultSchema.optional(),
-});
-export type SqlCell = z.infer<typeof SqlCellSchema>;
-
-const PlotSqlDataSourceSchema = z.object({
-  type: z.literal("sql"),
-  cellId: z.string().optional(),
-  resultKey: z.enum(["rows", "assigned"]).default("rows"),
-});
-
-const PlotHttpDataSourceSchema = z.object({
-  type: z.literal("http"),
-  cellId: z.string().optional(),
-  path: z.array(z.union([z.string(), z.number()])).default([]),
-});
-
-const PlotCodeDataSourceSchema = z.object({
-  type: z.literal("code"),
-  cellId: z.string().optional(),
-  outputIndex: z.number().int().nonnegative().optional(),
-  path: z.array(z.union([z.string(), z.number()])).default([]),
-});
-
-const PlotGlobalDataSourceSchema = z.object({
-  type: z.literal("global"),
-  variable: z.string().optional(),
-  path: z.array(z.union([z.string(), z.number()])).default([]),
-});
-
-export const PlotDataSourceSchema = z.discriminatedUnion("type", [
-  PlotSqlDataSourceSchema,
-  PlotHttpDataSourceSchema,
-  PlotCodeDataSourceSchema,
-  PlotGlobalDataSourceSchema,
-]);
-export type PlotDataSource = z.infer<typeof PlotDataSourceSchema>;
-
-export const PlotTraceBindingSchema = z
-  .object({
-    id: z.string().default(() => createId()),
-    name: z.string().optional(),
-    type: z.string().optional(),
-    mode: z.string().optional(),
-    x: z.string().optional(),
-    y: z.string().optional(),
-    z: z.string().optional(),
-    color: z.string().optional(),
-    size: z.string().optional(),
-    text: z.string().optional(),
-    fill: z.string().optional(),
-    stackgroup: z.string().optional(),
-  })
-  .strict();
-export type PlotTraceBinding = z.infer<typeof PlotTraceBindingSchema>;
-
-export const PlotBindingsSchema = z
-  .object({
-    traces: z.array(PlotTraceBindingSchema).default([]),
-  })
-  .strict();
-export type PlotBindings = z.infer<typeof PlotBindingsSchema>;
-
-export const PlotSnapshotSchema = z
-  .object({
-    dataUrl: z
-      .string()
-      .regex(/^data:image\/png;base64,/)
-      .describe("PNG data URL for the captured chart"),
-    width: z.number().int().positive().optional(),
-    height: z.number().int().positive().optional(),
-    capturedAt: z.string().optional(),
-    fileName: z.string().optional(),
-  })
-  .strict();
-export type PlotSnapshot = z.infer<typeof PlotSnapshotSchema>;
-
-export const PlotlyTraceSchema = z
-  .object({
-    id: z.string().default(() => createId()),
-    name: z.string().optional(),
-    type: z.string().optional(),
-    mode: z.string().optional(),
-    x: z.array(z.unknown()).optional(),
-    y: z.array(z.unknown()).optional(),
-    z: z.array(z.unknown()).optional(),
-    text: z.array(z.unknown()).optional(),
-    marker: z.record(z.string(), z.unknown()).optional(),
-    hovertemplate: z.string().optional(),
-    customdata: z.array(z.unknown()).optional(),
-  })
-  .passthrough();
-export type PlotlyTrace = z.infer<typeof PlotlyTraceSchema>;
-
-export const PlotCellResultSchema = z
-  .object({
-    traces: z.array(PlotlyTraceSchema).default([]),
-    layout: z.record(z.string(), z.unknown()).default({}),
-    fields: z.array(z.string()).default([]),
-    source: PlotDataSourceSchema,
-    chartType: z.string().optional(),
-    timestamp: z.string().optional(),
-    error: z.string().optional(),
-  })
-  .strict();
-export type PlotCellResult = z.infer<typeof PlotCellResultSchema>;
-
-export const PlotCellSchema = z.object({
-  id: z.string(),
-  type: z.literal("plot"),
-  metadata: z.record(z.string(), z.unknown()).default({}),
-  chartType: z.string().default("scatter"),
-  dataSource: PlotDataSourceSchema.default({
-    type: "global",
-    variable: "",
-    path: [],
-  }),
-  bindings: PlotBindingsSchema.default({ traces: [] }),
-  layout: z.record(z.string(), z.unknown()).default({}),
-  layoutEnabled: z.boolean().optional(),
-  result: PlotCellResultSchema.optional(),
-  snapshot: PlotSnapshotSchema.optional(),
-});
-export type PlotCell = z.infer<typeof PlotCellSchema>;
-
-export const NOTEBOOK_CELL_SCHEMAS = {
+export const CORE_CELL_SCHEMAS = {
   markdown: MarkdownCellSchema,
-  terminal: TerminalCellSchema,
-  command: CommandCellSchema,
   code: CodeCellSchema,
-  ai: AiCellSchema,
-  http: HttpCellSchema,
-  sql: SqlCellSchema,
-  plot: PlotCellSchema,
 } as const;
 
-export type NotebookCellType = keyof typeof NOTEBOOK_CELL_SCHEMAS;
+export type NotebookCellType = keyof typeof CORE_CELL_SCHEMAS;
 
-export const NOTEBOOK_CELL_TYPES = Object.keys(NOTEBOOK_CELL_SCHEMAS) as [
-  NotebookCellType,
-  ...NotebookCellType[],
-];
+export const NotebookCellSchema = z
+  .object({
+    id: z.string(),
+    type: z.string(),
+    metadata: z.record(z.string(), z.unknown()).optional(),
+  })
+  .passthrough();
 
-const NOTEBOOK_CELL_SCHEMA_LIST = Object.values(NOTEBOOK_CELL_SCHEMAS) as [
-  typeof MarkdownCellSchema,
-  typeof TerminalCellSchema,
-  typeof CommandCellSchema,
-  typeof CodeCellSchema,
-  typeof AiCellSchema,
-  typeof HttpCellSchema,
-  typeof SqlCellSchema,
-  typeof PlotCellSchema,
-];
-
-const NOTEBOOK_CELL_SCHEMA_LIST_WITH_LEGACY = [
-  ...NOTEBOOK_CELL_SCHEMA_LIST,
-  LegacyShellCellSchema,
-] as const;
-
-const RawNotebookCellSchema = z.discriminatedUnion(
-  "type",
-  NOTEBOOK_CELL_SCHEMA_LIST_WITH_LEGACY
-);
-
-export const NotebookCellSchema = RawNotebookCellSchema.transform((cell) =>
-  cell.type === "shell" ? upgradeLegacyShellCell(cell) : cell
-);
+export type NotebookCell = z.infer<typeof NotebookCellSchema>;
 
 export const NotebookFileEnvSchema = z.object({
   runtime: z.enum(["node"]).optional(),
@@ -1156,87 +841,25 @@ export const NotebookFileCodeCellSchema = z.object({
   outputs: z.array(NotebookOutputSchema).optional(),
 });
 
-export const NotebookFileAiCellSchema = z.object({
-  type: z.literal("ai"),
-  metadata: z.record(z.string(), z.unknown()).optional(),
-  prompt: z.string().optional(),
-  system: z.string().optional(),
-  model: z.string().optional(),
-  temperature: z.number().min(0).max(2).optional(),
-  maxTokens: z.number().int().positive().optional(),
-  topP: z.number().min(0).max(1).optional(),
-  frequencyPenalty: z.number().min(-2).max(2).optional(),
-  presencePenalty: z.number().min(-2).max(2).optional(),
-  response: AiCellResponseSchema.optional(),
-});
+export const NotebookFilePluginCellSchema = z
+  .object({
+    type: z.string(),
+    metadata: z.record(z.string(), z.unknown()).optional(),
+  })
+  .passthrough();
 
-export const NotebookFileHttpCellSchema = z.object({
-  type: z.literal("http"),
-  metadata: z.record(z.string(), z.unknown()).optional(),
-  request: HttpRequestSchema.optional(),
-  response: HttpResponseSchema.optional(),
-  assignVariable: z.string().optional(),
-  assignBody: z.string().optional(),
-  assignHeaders: z.string().optional(),
-});
-
-export const NotebookFileSqlCellSchema = z.object({
-  type: z.literal("sql"),
-  metadata: z.record(z.string(), z.unknown()).optional(),
-  connectionId: z.string().optional(),
-  query: z.string().optional(),
-  assignVariable: z.string().optional(),
-  result: SqlResultSchema.optional(),
-});
-
-export const NotebookFilePlotCellSchema = z.object({
-  type: z.literal("plot"),
-  metadata: z.record(z.string(), z.unknown()).optional(),
-  chartType: z.string().optional(),
-  dataSource: PlotDataSourceSchema.optional(),
-  bindings: PlotBindingsSchema.optional(),
-  layout: z.record(z.string(), z.unknown()).optional(),
-  layoutEnabled: z.boolean().optional(),
-  result: PlotCellResultSchema.optional(),
-  snapshot: PlotSnapshotSchema.optional(),
-});
-
-export const NOTEBOOK_FILE_CELL_SCHEMAS = {
+export const CORE_FILE_CELL_SCHEMAS = {
   markdown: NotebookFileMarkdownCellSchema,
-  terminal: NotebookFileTerminalCellSchema,
-  command: NotebookFileCommandCellSchema,
-  legacyShell: NotebookFileLegacyShellCellSchema,
   code: NotebookFileCodeCellSchema,
-  ai: NotebookFileAiCellSchema,
-  http: NotebookFileHttpCellSchema,
-  sql: NotebookFileSqlCellSchema,
-  plot: NotebookFilePlotCellSchema,
 } as const;
 
-export type NotebookFileCellType = keyof typeof NOTEBOOK_FILE_CELL_SCHEMAS;
+export type NotebookFileCellType = string;
 
-export const NOTEBOOK_FILE_CELL_TYPES = Object.keys(
-  NOTEBOOK_FILE_CELL_SCHEMAS
-) as [NotebookFileCellType, ...NotebookFileCellType[]];
-
-const NOTEBOOK_FILE_CELL_SCHEMA_LIST = Object.values(
-  NOTEBOOK_FILE_CELL_SCHEMAS
-) as [
-  typeof NotebookFileMarkdownCellSchema,
-  typeof NotebookFileTerminalCellSchema,
-  typeof NotebookFileCommandCellSchema,
-  typeof NotebookFileLegacyShellCellSchema,
-  typeof NotebookFileCodeCellSchema,
-  typeof NotebookFileAiCellSchema,
-  typeof NotebookFileHttpCellSchema,
-  typeof NotebookFileSqlCellSchema,
-  typeof NotebookFilePlotCellSchema,
-];
-
-export const NotebookFileCellSchema = z.discriminatedUnion(
-  "type",
-  NOTEBOOK_FILE_CELL_SCHEMA_LIST
-);
+export const NotebookFileCellSchema = z.union([
+  NotebookFileMarkdownCellSchema,
+  NotebookFileCodeCellSchema,
+  NotebookFilePluginCellSchema,
+]);
 
 export const NotebookFileNotebookSchema = z.object({
   name: z.string().optional(),
@@ -1278,17 +901,14 @@ export const NotebookSchema = z.object({
   projectOrder: z.number().int().nonnegative().optional().nullable(),
   published: z.boolean().default(false),
   publicSlug: SlugSchema.nullish(),
+  authorEmail: z.string().email().optional().nullable(),
 });
 
 export type Notebook = z.infer<typeof NotebookSchema>;
-export type NotebookCell = z.infer<typeof NotebookCellSchema>;
 export type NotebookEnv = z.infer<typeof NotebookEnvSchema>;
 export type CodeCell = z.infer<typeof CodeCellSchema>;
-export type HttpCell = z.infer<typeof HttpCellSchema>;
 export type MarkdownCell = z.infer<typeof MarkdownCellSchema>;
-export type TerminalCell = z.infer<typeof TerminalCellSchema>;
-export type CommandCell = z.infer<typeof CommandCellSchema>;
-export type LegacyShellCell = z.infer<typeof LegacyShellCellSchema>;
+export type UnknownCell = z.infer<typeof UnknownCellSchema>;
 export type NotebookOutput = z.infer<typeof NotebookOutputSchema>;
 export type StreamOutput = z.infer<typeof StreamOutputSchema>;
 export type DisplayDataOutput = z.infer<typeof DisplayDataSchema>;
@@ -1298,20 +918,7 @@ export type NotebookFileEnv = z.infer<typeof NotebookFileEnvSchema>;
 export type NotebookFileMarkdownCell = z.infer<
   typeof NotebookFileMarkdownCellSchema
 >;
-export type NotebookFileTerminalCell = z.infer<
-  typeof NotebookFileTerminalCellSchema
->;
-export type NotebookFileCommandCell = z.infer<
-  typeof NotebookFileCommandCellSchema
->;
-export type NotebookFileLegacyShellCell = z.infer<
-  typeof NotebookFileLegacyShellCellSchema
->;
 export type NotebookFileCodeCell = z.infer<typeof NotebookFileCodeCellSchema>;
-export type NotebookFileAiCell = z.infer<typeof NotebookFileAiCellSchema>;
-export type NotebookFileHttpCell = z.infer<typeof NotebookFileHttpCellSchema>;
-export type NotebookFileSqlCell = z.infer<typeof NotebookFileSqlCellSchema>;
-export type NotebookFilePlotCell = z.infer<typeof NotebookFilePlotCellSchema>;
 export type NotebookFileCell = z.infer<typeof NotebookFileCellSchema>;
 export type NotebookFileNotebook = z.infer<typeof NotebookFileNotebookSchema>;
 export type NotebookFileSummary = z.infer<typeof NotebookFileSummarySchema>;
@@ -1367,6 +974,7 @@ export const ensureNotebookRuntimeVersion = (notebook: Notebook): Notebook => {
       return normalized || null;
     })(),
     published: Boolean(notebook.published),
+    authorEmail: notebook.authorEmail ?? null,
   };
 };
 
@@ -1385,6 +993,7 @@ export const createEmptyNotebook = (partial?: Partial<Notebook>): Notebook => {
       partial?.projectOrder === undefined ? null : partial.projectOrder,
     published: partial?.published ?? false,
     publicSlug: partial?.publicSlug ?? null,
+    authorEmail: partial?.authorEmail ?? null,
   };
   const parsed = NotebookSchema.parse({ ...base, ...partial });
   return ensureNotebookRuntimeVersion(parsed);
@@ -1402,83 +1011,6 @@ export const createCodeCell = (partial?: Partial<CodeCell>): CodeCell => {
   });
 };
 
-export const createHttpCell = (partial?: Partial<HttpCell>): HttpCell => {
-  const request = partial?.request
-    ? HttpRequestSchema.parse(partial.request)
-    : HttpRequestSchema.parse({});
-  const response =
-    partial?.response === undefined
-      ? undefined
-      : HttpResponseSchema.parse(partial.response);
-
-  return HttpCellSchema.parse({
-    id: partial?.id ?? createId(),
-    type: "http",
-    metadata: partial?.metadata ?? {},
-    request,
-    response,
-    assignVariable: partial?.assignVariable,
-    assignBody: partial?.assignBody,
-    assignHeaders: partial?.assignHeaders,
-  });
-};
-
-export const createSqlCell = (partial?: Partial<SqlCell>): SqlCell => {
-  return SqlCellSchema.parse({
-    id: partial?.id ?? createId(),
-    type: "sql",
-    metadata: partial?.metadata ?? {},
-    connectionId: partial?.connectionId,
-    query: partial?.query ?? "",
-    assignVariable: partial?.assignVariable,
-    result: partial?.result,
-  });
-};
-
-export const createPlotCell = (partial?: Partial<PlotCell>): PlotCell => {
-  const dataSource = partial?.dataSource
-    ? PlotDataSourceSchema.parse(partial.dataSource)
-    : PlotDataSourceSchema.parse({ type: "sql", resultKey: "rows" });
-  const bindings = partial?.bindings
-    ? PlotBindingsSchema.parse(partial.bindings)
-    : PlotBindingsSchema.parse({});
-  const layout = partial?.layout
-    ? PlotCellSchema.shape.layout.parse(partial.layout)
-    : {};
-  const layoutEnabled =
-    partial?.layoutEnabled ??
-    (partial?.layout ? Object.keys(partial.layout).length > 0 : false);
-  return PlotCellSchema.parse({
-    id: partial?.id ?? createId(),
-    type: "plot",
-    metadata: partial?.metadata ?? {},
-    chartType: partial?.chartType ?? "scatter",
-    dataSource,
-    bindings,
-    layout,
-    layoutEnabled,
-    result: partial?.result,
-    snapshot: partial?.snapshot,
-  });
-};
-
-export const createAiCell = (partial?: Partial<AiCell>): AiCell => {
-  return AiCellSchema.parse({
-    id: partial?.id ?? createId(),
-    type: "ai",
-    metadata: partial?.metadata ?? {},
-    prompt: partial?.prompt ?? "",
-    system: partial?.system ?? "",
-    model: partial?.model,
-    temperature: partial?.temperature,
-    maxTokens: partial?.maxTokens,
-    topP: partial?.topP,
-    frequencyPenalty: partial?.frequencyPenalty,
-    presencePenalty: partial?.presencePenalty,
-    response: partial?.response,
-  });
-};
-
 export const createMarkdownCell = (
   partial?: Partial<MarkdownCell>
 ): MarkdownCell => {
@@ -1490,35 +1022,18 @@ export const createMarkdownCell = (
   });
 };
 
-export const createTerminalCell = (
-  partial?: Partial<TerminalCell>
-): TerminalCell => {
-  return TerminalCellSchema.parse({
-    id: partial?.id ?? createId(),
-    type: "terminal",
-    metadata: partial?.metadata ?? {},
-    buffer: partial?.buffer ?? "",
-  });
-};
-
-export const createCommandCell = (
-  partial?: Partial<CommandCell>
-): CommandCell => {
-  return CommandCellSchema.parse({
-    id: partial?.id ?? createId(),
-    type: "command",
-    metadata: partial?.metadata ?? {},
-    command: partial?.command ?? "",
-    notes: partial?.notes ?? "",
-  });
-};
-
-export const upgradeLegacyShellCell = (
-  legacy: LegacyShellCell
-): TerminalCell => {
-  return TerminalCellSchema.parse({
-    ...legacy,
-    type: "terminal",
+export const createUnknownCell = (
+  originalType: string,
+  data: unknown,
+  pluginId?: string
+): UnknownCell => {
+  return UnknownCellSchema.parse({
+    id: createId(),
+    type: "unknown",
+    metadata: {},
+    originalType,
+    originalData: data as Record<string, unknown>,
+    pluginId,
   });
 };
 

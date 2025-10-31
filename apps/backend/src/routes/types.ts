@@ -4,9 +4,8 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 
-const { uiHelpersModuleDts } = await import(
-  "@nodebooks/ui/runtime/ui-helpers-dts"
-);
+const { uiHelpersModuleDts } =
+  await import("@nodebooks/ui-runtime/runtime/ui-helpers-dts");
 
 const SPEC_RE = /^[A-Za-z0-9@/_\-.~%:]+$/;
 const JS_LIKE_RE = /\.(?:c|m)?(?:j|t)sx?$/i;
@@ -746,7 +745,7 @@ export const registerTypesRoutes = (app: FastifyInstance) => {
     const query = QueryParam.safeParse(request.query);
     const notebookId = query.success ? query.data.notebookId : undefined;
 
-    if (rawSpec === "@nodebooks/ui") {
+    if (rawSpec === "@nodebooks/ui-runtime") {
       reply.header("Content-Type", "application/json; charset=utf-8");
       reply.header("Cache-Control", "public, max-age=3600");
       void reply.send({
@@ -755,7 +754,7 @@ export const registerTypesRoutes = (app: FastifyInstance) => {
             {
               content: uiHelpersModuleDts,
               relativePath: "index.d.ts",
-              packageName: "@nodebooks/ui",
+              packageName: "@nodebooks/ui-runtime",
               source: "local",
             } satisfies ResolvedTypesModule,
           ],

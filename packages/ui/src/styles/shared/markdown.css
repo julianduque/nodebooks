@@ -1,0 +1,253 @@
+.markdown-preview h1 {
+  font-size: 2rem;
+  font-weight: 700;
+  margin-bottom: 0.75rem;
+  color: var(--foreground);
+}
+
+.markdown-preview h2 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  margin-top: 2rem;
+  margin-bottom: 0.5rem;
+  color: var(--foreground);
+}
+
+.markdown-preview h3 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin-top: 1.5rem;
+  margin-bottom: 0.5rem;
+  color: var(--foreground);
+}
+
+.markdown-preview p {
+  margin-bottom: 0.75rem;
+  color: var(--muted-foreground);
+}
+
+.markdown-preview ul,
+.markdown-preview ol {
+  margin: 0.75rem 0 0.75rem 1.5rem;
+  padding-left: 1.5rem;
+  color: var(--muted-foreground);
+}
+
+.markdown-preview ul {
+  list-style-type: disc;
+}
+
+.markdown-preview ol {
+  list-style-type: decimal;
+}
+
+.markdown-preview ul ul,
+.markdown-preview ol ol,
+.markdown-preview ul ol,
+.markdown-preview ol ul {
+  margin-top: 0.25rem;
+  margin-bottom: 0.25rem;
+}
+
+.markdown-preview li {
+  margin: 0.25rem 0;
+  padding-left: 0.25rem;
+}
+
+.markdown-preview blockquote {
+  margin: 0.75rem 0;
+  padding: 0.5rem 1rem;
+  border-left: 4px solid var(--border);
+  background-color: color-mix(in oklch, var(--muted) 30%, transparent);
+  color: var(--muted-foreground);
+  font-style: italic;
+}
+
+.markdown-preview blockquote p {
+  margin-bottom: 0.5rem;
+}
+
+.markdown-preview blockquote p:last-child {
+  margin-bottom: 0;
+}
+
+.markdown-preview code {
+  background-color: color-mix(in oklch, var(--foreground) 8%, transparent);
+  padding: 0.1rem 0.35rem;
+  border-radius: 0.25rem;
+  font-family:
+    "Fira Code", ui-monospace, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
+}
+
+.markdown-preview pre {
+  background: color-mix(in oklch, var(--muted) 40%, var(--background));
+  color: var(--foreground);
+  border: 1px solid color-mix(in oklch, var(--border) 80%, transparent);
+  border-radius: 0.75rem;
+  padding: 0.9rem 1rem;
+  overflow: auto;
+  margin: 1rem 0;
+}
+
+.markdown-preview pre code {
+  background: transparent;
+  padding: 0;
+  display: block;
+  color: var(--hljs-foreground);
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+:root .hljs {
+  color: var(--hljs-foreground);
+}
+
+.markdown-preview .hljs-comment,
+.markdown-preview .hljs-quote,
+.code-block__surface .hljs-comment,
+.code-block__surface .hljs-quote {
+  color: var(--hljs-muted);
+  font-style: italic;
+}
+
+.markdown-preview .hljs-keyword,
+.markdown-preview .hljs-selector-tag,
+.markdown-preview .hljs-literal,
+.markdown-preview .hljs-type,
+.markdown-preview .hljs-type + .hljs-title,
+.code-block__surface .hljs-keyword,
+.code-block__surface .hljs-selector-tag,
+.code-block__surface .hljs-literal,
+.code-block__surface .hljs-type,
+.code-block__surface .hljs-type + .hljs-title {
+  color: var(--hljs-keyword);
+  font-weight: 600;
+}
+
+.markdown-preview .hljs-string,
+.markdown-preview .hljs-doctag,
+.markdown-preview .hljs-template-tag,
+.markdown-preview .hljs-template-variable,
+.markdown-preview .hljs-regexp,
+.markdown-preview .hljs-selector-attr,
+.code-block__surface .hljs-string,
+.code-block__surface .hljs-doctag,
+.code-block__surface .hljs-template-tag,
+.code-block__surface .hljs-template-variable,
+.code-block__surface .hljs-regexp,
+.code-block__surface .hljs-selector-attr {
+  color: var(--hljs-string);
+}
+
+.markdown-preview .hljs-number,
+.markdown-preview .hljs-symbol,
+.markdown-preview .hljs-bullet,
+.markdown-preview .hljs-link,
+.markdown-preview .hljs-meta .hljs-number,
+.code-block__surface .hljs-number,
+.code-block__surface .hljs-symbol,
+.code-block__surface .hljs-bullet,
+.code-block__surface .hljs-link,
+.code-block__surface .hljs-meta .hljs-number {
+  color: var(--hljs-number);
+}
+
+.markdown-preview .hljs-title,
+.markdown-preview .hljs-section,
+.markdown-preview .hljs-name,
+.markdown-preview .hljs-selector-id,
+.markdown-preview .hljs-selector-class,
+.code-block__surface .hljs-title,
+.code-block__surface .hljs-section,
+.code-block__surface .hljs-name,
+.code-block__surface .hljs-selector-id,
+.code-block__surface .hljs-selector-class {
+  color: var(--hljs-title);
+}
+
+.markdown-preview .hljs-attribute,
+.markdown-preview .hljs-attr,
+.markdown-preview .hljs-built_in,
+.markdown-preview .hljs-variable,
+.markdown-preview .hljs-params,
+.markdown-preview .hljs-property,
+.code-block__surface .hljs-attribute,
+.code-block__surface .hljs-attr,
+.code-block__surface .hljs-built_in,
+.code-block__surface .hljs-variable,
+.code-block__surface .hljs-params,
+.code-block__surface .hljs-property {
+  color: var(--hljs-attribute);
+}
+
+.markdown-preview .hljs-meta,
+.markdown-preview .hljs-meta-string,
+.markdown-preview .hljs-meta .hljs-keyword,
+.code-block__surface .hljs-meta,
+.code-block__surface .hljs-meta-string,
+.code-block__surface .hljs-meta .hljs-keyword {
+  color: var(--hljs-meta);
+}
+
+.markdown-preview .hljs-addition,
+.code-block__surface .hljs-addition {
+  color: var(--hljs-addition);
+}
+
+.markdown-preview .hljs-deletion,
+.code-block__surface .hljs-deletion {
+  color: var(--hljs-deletion);
+}
+
+.markdown-preview table {
+  width: 100%;
+  border-collapse: collapse;
+  border-spacing: 0;
+  margin: 0.75rem 0;
+  display: block;
+  overflow-x: auto;
+}
+
+.markdown-preview thead th {
+  background: var(--muted);
+  color: var(--foreground);
+  font-weight: 600;
+}
+
+.markdown-preview th,
+.markdown-preview td {
+  border: 1px solid var(--border);
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+}
+
+.markdown-preview tbody tr:nth-child(odd) {
+  background: color-mix(in oklch, var(--muted) 50%, transparent);
+}
+
+.markdown-preview pre.mermaid {
+  background: var(--background);
+  padding: 0.75rem 0.9rem;
+  border-radius: 0.5rem;
+  font-size: 0.9em;
+  line-height: 1.5;
+  color: var(--foreground);
+  margin: 1rem 0;
+}
+
+.markdown-preview pre.mermaid:not([data-processed="1"]) {
+  color: transparent;
+  position: relative;
+}
+
+.markdown-preview pre.mermaid:not([data-processed="1"])::after {
+  content: "Rendering diagram…";
+  color: var(--muted-foreground);
+  display: block;
+  text-align: center;
+}
+
+.markdown-preview input[type="checkbox"] {
+  margin-right: 0.5rem;
+}

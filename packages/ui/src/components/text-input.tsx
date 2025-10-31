@@ -1,11 +1,14 @@
 "use client";
 import React from "react";
 import type { UiTextInput } from "@nodebooks/notebook-schema";
-import { useUiInteractionContext } from "./interaction-context";
-import { useComponentThemeMode } from "./utils";
+import { useUiInteractionContext } from "./interaction-context.js";
+import { useComponentThemeMode } from "./utils.js";
+import clsx from "clsx";
 
-export interface TextInputProps
-  extends Omit<UiTextInput, "ui" | "componentId"> {
+export interface TextInputProps extends Omit<
+  UiTextInput,
+  "ui" | "componentId"
+> {
   componentId?: string;
   className?: string;
   themeMode?: "light" | "dark";
@@ -116,32 +119,26 @@ export const InteractiveTextInput: React.FC<TextInputProps> = ({
   };
 
   const baseInputClasses =
-    "w-full rounded-md border px-3 py-2 text-sm shadow-sm transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-500";
-  const themeClasses =
-    mode === "dark"
-      ? "border-slate-600 bg-slate-800 text-slate-100 placeholder:text-slate-400"
-      : "border-slate-300 bg-white text-slate-900 placeholder:text-slate-500";
-
+    "flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm transition focus-visible:outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/70 focus-visible:ring-offset-0 placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50";
   const InputComponent = multiline ? "textarea" : "input";
 
   return (
-    <div className={`flex w-full flex-col gap-2 ${className ?? ""}`}>
+    <div
+      data-theme-mode={mode}
+      className={`flex w-full flex-col gap-2 ${className ?? ""}`}
+    >
       {label ? (
-        <label className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-          {label}
-        </label>
+        <label className="text-sm font-semibold text-foreground">{label}</label>
       ) : null}
       {description ? (
-        <p className="text-xs text-slate-600 dark:text-slate-400">
-          {description}
-        </p>
+        <p className="text-xs text-muted-foreground">{description}</p>
       ) : null}
       <InputComponent
         value={current}
         placeholder={placeholder}
         disabled={effectiveDisabled}
         rows={multiline ? rows : undefined}
-        className={`${baseInputClasses} ${themeClasses}`}
+        className={clsx(baseInputClasses, multiline && "min-h-20 resize-y")}
         onChange={(
           event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
         ) => {

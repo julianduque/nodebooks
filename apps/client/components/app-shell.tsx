@@ -2,20 +2,19 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { cn } from "@/components/lib/utils";
+import { cn } from "@nodebooks/client-ui/lib/utils";
 import Link from "next/link";
 import Image from "next/image";
 import type { Route } from "next";
 import { usePathname, useRouter } from "next/navigation";
-import { Button } from "@/components/ui/button";
-import { Separator } from "@/components/ui/separator";
+import { Button, Separator } from "@nodebooks/client-ui/components/ui";
 import ProfileMenu from "@/components/profile/profile-menu";
 import {
   LayoutDashboard,
   NotebookPen,
   LayoutTemplate,
   Settings,
-  Plus,
+  Plus as PlusIcon,
   PanelLeft,
 } from "lucide-react";
 import { gravatarUrlForEmail } from "@/lib/avatar";
@@ -350,7 +349,7 @@ const AppShell = ({
             </>
           )}
         </div>
-        <Separator className="mx-2 mb-2" />
+        <Separator className="mb-2" />
         <div className="flex-1 px-2">
           {!collapsed && (
             <div className="px-2 pb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
@@ -418,7 +417,7 @@ const AppShell = ({
                 aria-label="Create new notebook"
                 title="Create new notebook"
               >
-                <Plus className="h-4 w-4" />
+                <PlusIcon className="h-4 w-4" />
                 {!collapsed && <span className="text-sm">New notebook</span>}
               </Button>
             ) : null}
@@ -464,7 +463,7 @@ const AppShell = ({
               aria-orientation="vertical"
               aria-label="Resize secondary sidebar"
               className={cn(
-                "group relative flex h-screen w-2 cursor-col-resize select-none touch-none items-center justify-center bg-border/30 transition-colors hover:bg-border/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background lg:w-2.5",
+                "group relative flex h-screen w-2 cursor-col-resize select-none touch-none items-center justify-center bg-border/30 transition-colors hover:bg-border/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 focus-visible:ring-offset-background lg:w-2.5",
                 isResizingSecondary
                   ? "bg-border/70"
                   : "bg-border/30 hover:bg-border/60"
@@ -482,17 +481,19 @@ const AppShell = ({
         <header className="sticky top-0 z-40 h-16 bg-background">
           <div className="relative flex h-full items-center gap-3 px-4 sm:gap-4">
             {secondarySidebar ? (
-              <Button
-                variant="secondary"
-                size="icon"
-                className="size-7"
-                onClick={toggleSecondarySidebar}
-                aria-label="Toggle Secondary Sidebar"
-              >
-                <Settings className="h-4 w-4" />
-              </Button>
+              <>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-8 rounded-full border border-transparent text-muted-foreground hover:bg-muted/60 hover:text-foreground focus-visible:ring-ring/70"
+                  onClick={toggleSecondarySidebar}
+                  aria-label="Toggle Secondary Sidebar"
+                >
+                  <Settings className="h-4 w-4" />
+                </Button>
+                <Separator orientation="vertical" className="h-6" />
+              </>
             ) : null}
-            <Separator orientation="vertical" className="h-6" />
             {headerMain ? (
               <div className="flex min-w-0 items-center gap-2 overflow-hidden">
                 {headerMain}

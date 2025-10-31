@@ -2,8 +2,8 @@
 
 import React from "react";
 import type { UiHeatmap } from "@nodebooks/notebook-schema";
-import { sampleColor, sampleColorRgb, getPalette } from "./color-scales";
-import { useComponentThemeMode } from "./utils";
+import { sampleColor, sampleColorRgb, getPalette } from "./color-scales.js";
+import { useComponentThemeMode } from "./utils.js";
 
 export type HeatmapProps = Omit<UiHeatmap, "ui"> & {
   className?: string;

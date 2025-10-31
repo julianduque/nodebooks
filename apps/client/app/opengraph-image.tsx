@@ -21,81 +21,79 @@ const getOrigin = async (): Promise<string> => {
 export default async function Image() {
   const origin = await getOrigin();
   return new ImageResponse(
-    (
+    <div
+      style={{
+        height: "100%",
+        width: "100%",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        background: "linear-gradient(135deg, #0b1220 0%, #0e1b2d 100%)",
+        color: "#e2e8f0",
+        fontSize: 64,
+        fontWeight: 700,
+        letterSpacing: -1,
+        position: "relative",
+      }}
+    >
       <div
         style={{
-          height: "100%",
-          width: "100%",
+          position: "absolute",
+          top: 48,
+          right: 48,
+          fontSize: 24,
+          color: "#94a3b8",
+          fontWeight: 500,
+        }}
+      >
+        {/* nodebooks.dev */}
+      </div>
+      <div
+        style={{
           display: "flex",
-          flexDirection: "column",
           alignItems: "center",
-          justifyContent: "center",
-          background: "linear-gradient(135deg, #0b1220 0%, #0e1b2d 100%)",
-          color: "#e2e8f0",
-          fontSize: 64,
-          fontWeight: 700,
-          letterSpacing: -1,
-          position: "relative",
+          gap: 24,
         }}
       >
         <div
           style={{
-            position: "absolute",
-            top: 48,
-            right: 48,
-            fontSize: 24,
-            color: "#94a3b8",
-            fontWeight: 500,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            height: 180,
+            width: 180,
+            overflow: "hidden",
           }}
         >
-          {/* nodebooks.dev */}
+          <img
+            alt="NodeBooks"
+            height={180}
+            width={180}
+            src={`${origin}/assets/nodebooks-logo.png`}
+          />
         </div>
         <div
           style={{
             display: "flex",
-            alignItems: "center",
-            gap: 24,
+            flexDirection: "column",
+            lineHeight: 1.05,
           }}
         >
-          <div
+          <span style={{ fontSize: 84 }}>NodeBooks</span>
+          <span
             style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              height: 180,
-              width: 180,
-              overflow: "hidden",
+              marginTop: 8,
+              fontSize: 32,
+              fontWeight: 500,
+              color: "#94a3b8",
             }}
           >
-            <img
-              alt="NodeBooks"
-              height={180}
-              width={180}
-              src={`${origin}/assets/nodebooks-logo.png`}
-            />
-          </div>
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              lineHeight: 1.05,
-            }}
-          >
-            <span style={{ fontSize: 84 }}>NodeBooks</span>
-            <span
-              style={{
-                marginTop: 8,
-                fontSize: 32,
-                fontWeight: 500,
-                color: "#94a3b8",
-              }}
-            >
-              Interactive Node.js Notebooks
-            </span>
-          </div>
+            Interactive Node.js Notebooks
+          </span>
         </div>
       </div>
-    ),
+    </div>,
     {
       ...size,
     }

@@ -1,15 +1,11 @@
 "use client";
 
 import { useMemo } from "react";
-import type { NotebookCell } from "@nodebooks/notebook-schema";
-import OutputView from "@/components/notebook/output-view";
+import type { CodeCell } from "@/types/notebook";
+import { OutputView } from "@nodebooks/client-ui/components/output";
 import { renderMarkdownToHtml } from "@/components/notebook/markdown-preview-utils";
 
-const PublicCodeCell = ({
-  cell,
-}: {
-  cell: Extract<NotebookCell, { type: "code" }>;
-}) => {
+const PublicCodeCell = ({ cell }: { cell: CodeCell }) => {
   const markdown = useMemo(() => {
     const language = cell.language ?? "ts";
     const source = cell.source ?? "";

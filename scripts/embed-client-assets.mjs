@@ -47,11 +47,45 @@ const run = (command, args, cwd) =>
     child.on("error", reject);
   });
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 const buildClientIfNeeded = async () => {
   const nextDir = path.join(clientDir, ".next");
-  if (await exists(nextDir)) {
+  const routesManifest = path.join(nextDir, "routes-manifest.json");
+  const buildManifest = path.join(nextDir, "build-manifest.json");
+  const lockFile = path.join(nextDir, "lock");
+
+  const hasNextBuild =
+    (await exists(routesManifest)) && (await exists(buildManifest));
+  if (hasNextBuild) {
     return;
   }
+
+  if (await exists(lockFile)) {
+    console.log(
+      "[embed-client-assets] Detected active Next.js build, waiting for completion…"
+    );
+    const start = Date.now();
+    while (await exists(lockFile)) {
+      await sleep(300);
+      // Give up after 5 minutes to avoid indefinite waits
+      if (Date.now() - start > 5 * 60 * 1000) {
+        throw new Error(
+          "Timed out waiting for existing Next.js build to finish."
+        );
+      }
+    }
+    // After wait, check again—maybe build succeeded
+    const builtAfterWait =
+      (await exists(routesManifest)) && (await exists(buildManifest));
+    if (builtAfterWait) {
+      return;
+    }
+    console.warn(
+      "[embed-client-assets] Next.js build lock cleared but manifests missing; rebuilding…"
+    );
+  }
+
   await run("pnpm", ["--filter", "@nodebooks/client", "build"], workspaceRoot);
 };
 

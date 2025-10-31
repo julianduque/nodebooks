@@ -2,16 +2,17 @@
 
 import { useCallback, useMemo } from "react";
 import Link from "next/link";
-import type { Notebook } from "@nodebooks/notebook-schema";
+import type { Notebook } from "@/types/notebook";
 import type { NotebookWithAccess } from "@/components/notebook/types";
 import { buildOutlineItems } from "@/components/notebook/utils";
 import OutlinePanel from "@/components/notebook/outline-panel";
-import { cn, EMPTY_SQL_CONNECTIONS } from "@/components/lib/utils";
+import { cn, EMPTY_SQL_CONNECTIONS } from "@nodebooks/client-ui/lib/utils";
 import { useTheme, type ThemeMode } from "@/components/theme-context";
-import { Button } from "@/components/ui/button";
+import { Button } from "@nodebooks/client-ui/components/ui";
 import { Menu, PanelLeftClose, PanelLeftOpen, X } from "lucide-react";
 import PublicCell from "@/components/notebook/public/public-cell";
 import { useNotebookPublicSidebar } from "@/components/notebook/hooks/use-notebook-public-sidebar";
+import { gravatarUrlForEmail } from "@/lib/avatar";
 
 interface PublicProject {
   id: string;
@@ -129,6 +130,13 @@ const NotebookPublicView = ({
   }, [project, notebook]);
 
   const sqlConnections = notebook?.sql?.connections ?? EMPTY_SQL_CONNECTIONS;
+
+  const authorAvatarUrl = useMemo(() => {
+    if (!notebook?.authorEmail) {
+      return null;
+    }
+    return gravatarUrlForEmail(notebook.authorEmail, 96);
+  }, [notebook?.authorEmail]);
 
   return (
     <div
@@ -273,7 +281,7 @@ const NotebookPublicView = ({
           </div>
         </div>
         {notebook ? (
-          <article className="mx-auto w-full max-w-4xl px-6 py-12">
+          <article className="mx-auto w-full max-w-6xl px-6 py-12">
             <div className="mt-10 space-y-12">
               {notebook.cells.map((cell) => (
                 <PublicCell
@@ -281,6 +289,7 @@ const NotebookPublicView = ({
                   cell={cell}
                   theme={theme as ThemeMode}
                   connections={sqlConnections}
+                  userAvatarUrl={authorAvatarUrl}
                 />
               ))}
             </div>

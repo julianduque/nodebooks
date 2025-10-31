@@ -1,7 +1,7 @@
 "use client";
 import React from "react";
-import { UiThemeContext, type ThemeMode } from "./theme";
-import { useComponentThemeMode } from "./utils";
+import { UiThemeContext, type ThemeMode } from "./theme.js";
+import { useComponentThemeMode } from "./utils.js";
 
 export interface UiCardProps {
   className?: string;
@@ -21,17 +21,20 @@ export const UiCard: React.FC<UiCardProps> = ({
   return (
     <UiThemeContext.Provider value={mode}>
       <div
-        className={`relative p-2 rounded-lg bg-card text-card-foreground border-border ${className ?? ""}`}
+        data-theme-mode={mode}
+        className={`relative rounded-lg border border-border bg-card p-2 text-card-foreground shadow-sm ${className ?? ""}`}
       >
         {/* Inject theme only into composite components (not DOM elements) */}
-        {React.isValidElement(children) && typeof children.type !== "string"
-          ? React.cloneElement(
-              children as React.ReactElement<Partial<ThemeableProps>>,
-              {
-                themeMode: mode,
-              }
-            )
-          : children}
+        {React.Children.map(children, (child) =>
+          React.isValidElement(child) && typeof child.type !== "string"
+            ? React.cloneElement(
+                child as React.ReactElement<Partial<ThemeableProps>>,
+                {
+                  themeMode: mode,
+                }
+              )
+            : child
+        )}
       </div>
     </UiThemeContext.Provider>
   );

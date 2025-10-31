@@ -193,6 +193,7 @@ vi.mock("../src/routes/sessions.js", () => ({
 }));
 vi.mock("../src/kernel/router.js", () => ({
   createKernelUpgradeHandler: () => () => false,
+  getSessionGlobals: (_sessionId: string) => undefined,
 }));
 vi.mock("../src/routes/settings.js", () => ({
   registerSettingsRoutes: () => {},

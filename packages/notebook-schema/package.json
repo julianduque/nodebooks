@@ -28,12 +28,12 @@
     "dev": "tsc --project tsconfig.build.json --watch"
   },
   "dependencies": {
-    "zod": "^4.1.9"
+    "zod": "^4.1.13"
   },
   "devDependencies": {
-    "@types/node": "^24.5.2",
-    "eslint": "^9.36.0",
-    "typescript": "^5.9.2",
-    "vitest": "^3.2.4"
+    "@types/node": "^24.10.1",
+    "eslint": "^9.39.1",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.15"
   }
 }

@@ -1,0 +1,58 @@
+{
+  "name": "@nodebooks/ai-cell",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./frontend": {
+      "types": "./dist/frontend.d.ts",
+      "import": "./dist/frontend.js",
+      "default": "./dist/frontend.js"
+    },
+    "./schema": {
+      "types": "./dist/schema.d.ts",
+      "import": "./dist/schema.js",
+      "default": "./dist/schema.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc --project tsconfig.build.json",
+    "lint": "eslint .",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@ai-sdk/openai": "^2.0.77",
+    "@ai-sdk/react": "^2.0.107",
+    "@nodebooks/cell-plugin-api": "workspace:*",
+    "@nodebooks/client-ui": "workspace:*",
+    "@nodebooks/config": "workspace:*",
+    "@nodebooks/notebook-schema": "workspace:*",
+    "@nodebooks/ui": "workspace:*",
+    "ai": "^5.0.107",
+    "fastify": "^5.6.2",
+    "heroku-ai-provider": "^0.4.3",
+    "lucide-react": "^0.556.0",
+    "zod": "^4.1.13"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "@types/react": "^19.2.7",
+    "@types/react-dom": "^19.2.3",
+    "eslint": "^9.39.1",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.15"
+  },
+  "peerDependencies": {
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  }
+}

@@ -1,0 +1,60 @@
+{
+  "name": "@nodebooks/terminal-cells",
+  "version": "0.1.0",
+  "description": "Terminal and Command cell plugins for NodeBooks",
+  "author": "Julián Duque <julianduquej@gmail.com>",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc --project tsconfig.build.json",
+    "dev": "echo 'Skipping dev - package consumed as source TypeScript'",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "@lydell/node-pty": "^1.1.0",
+    "@nodebooks/cell-plugin-api": "workspace:*",
+    "@nodebooks/client-ui": "workspace:*",
+    "@nodebooks/config": "workspace:*",
+    "@nodebooks/notebook-schema": "workspace:*",
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/xterm": "^5.5.0",
+    "fastify": "^5.6.2",
+    "lucide-react": "^0.556.0",
+    "ws": "^8.18.3",
+    "zod": "^4.1.13"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.7",
+    "@types/react-dom": "^19.2.3",
+    "@types/ws": "^8.18.1",
+    "eslint": "^9.39.1",
+    "react": "^19.2.1",
+    "typescript": "^5.9.3"
+  },
+  "peerDependencies": {
+    "react": "^18 || ^19",
+    "react-dom": "^18 || ^19"
+  },
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./frontend": {
+      "types": "./dist/frontend.d.ts",
+      "import": "./dist/frontend.js",
+      "default": "./dist/frontend.js"
+    },
+    "./schema": {
+      "types": "./dist/schema.d.ts",
+      "import": "./dist/schema.js",
+      "default": "./dist/schema.js"
+    }
+  }
+}

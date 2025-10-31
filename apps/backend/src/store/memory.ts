@@ -564,9 +564,7 @@ export class InMemoryInvitationStore implements InvitationStore {
   }
 }
 
-export class InMemoryNotebookCollaboratorStore
-  implements NotebookCollaboratorStore
-{
+export class InMemoryNotebookCollaboratorStore implements NotebookCollaboratorStore {
   private readonly collaborators = new Map<string, NotebookCollaborator>();
   private readonly collaboratorIdsByNotebook = new Map<string, Set<string>>();
   private readonly collaboratorIdsByUser = new Map<string, Set<string>>();
@@ -892,9 +890,7 @@ export class InMemoryProjectStore implements ProjectStore {
   }
 }
 
-export class InMemoryProjectCollaboratorStore
-  implements ProjectCollaboratorStore
-{
+export class InMemoryProjectCollaboratorStore implements ProjectCollaboratorStore {
   private readonly collaborators = new Map<string, ProjectCollaborator>();
   private readonly collaboratorIdsByProject = new Map<string, Set<string>>();
   private readonly collaboratorIdsByUser = new Map<string, Set<string>>();

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import type { NotebookCell } from "@nodebooks/notebook-schema";
+import type { MarkdownCell } from "@/types/notebook";
 import type { ThemeMode } from "@/components/theme-context";
 import { renderMarkdownToHtml } from "@/components/notebook/markdown-preview-utils";
 import { useMermaidRenderer } from "@/components/notebook/hooks/use-mermaid-renderer";
@@ -10,7 +10,7 @@ const PublicMarkdownCell = ({
   cell,
   theme,
 }: {
-  cell: Extract<NotebookCell, { type: "markdown" }>;
+  cell: MarkdownCell;
   theme: ThemeMode;
 }) => {
   const html = useMemo(

@@ -1,9 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   typedRoutes: true,
-  eslint: {
-    dirs: ["app", "components"],
-  },
   images: {
     remotePatterns: [
       {
@@ -12,7 +9,20 @@ const nextConfig = {
       },
     ],
   },
-  transpilePackages: ["@nodebooks/ui", "@nodebooks/notebook-schema"],
+  transpilePackages: [
+    "@nodebooks/ui",
+    "@nodebooks/client-ui",
+    "@nodebooks/notebook-schema",
+    "@nodebooks/plugin-engine",
+    "@nodebooks/cell-plugin-api",
+    "@nodebooks/terminal-cells",
+    "@nodebooks/sql-cell",
+    "@nodebooks/http-cell",
+    "@nodebooks/plot-cell",
+    "@nodebooks/ai-cell",
+  ],
+  // Empty turbopack config to acknowledge we have webpack config
+  turbopack: {},
   webpack: (config) => {
     config.resolve = config.resolve ?? {};
     config.resolve.alias = config.resolve.alias ?? {};

@@ -2,39 +2,23 @@ import {
   createCodeCell,
   createEmptyNotebook,
   createMarkdownCell,
-  createTerminalCell,
-  createCommandCell,
-  createHttpCell,
-  createSqlCell,
-  createPlotCell,
-  createAiCell,
+  createUnknownCell,
   ensureNotebookRuntimeVersion,
   NotebookEnvSchema,
   NotebookSqlSchema,
   type CodeCell,
-  type CommandCell,
-  type HttpCell,
   type MarkdownCell,
-  type TerminalCell,
-  type AiCell,
   type Notebook,
   type NotebookCell,
   type NotebookEnv,
   type NotebookFile,
   type NotebookFileCell,
   type NotebookFileCodeCell,
-  type NotebookFileCommandCell,
-  type NotebookFileHttpCell,
-  type NotebookFileLegacyShellCell,
   type NotebookFileNotebook,
-  type NotebookFileTerminalCell,
-  type NotebookFileAiCell,
-  type NotebookFileSqlCell,
-  type NotebookFilePlotCell,
   type NotebookSql,
-  type SqlCell,
-  type PlotCell,
+  type UnknownCell,
 } from "@nodebooks/notebook-schema";
+import { backendPluginRegistry } from "../plugins/index.js";
 
 const cloneEnv = (env?: NotebookFileNotebook["env"]): NotebookEnv => {
   const config = env ?? {};
@@ -52,108 +36,53 @@ const cloneSql = (sql?: NotebookFileNotebook["sql"]): NotebookSql => {
 const cloneCells = (cells: NotebookFileCell[]): NotebookCell[] => {
   const result: NotebookCell[] = [];
   for (const cell of cells) {
+    // Handle core cells (always available)
     if (cell.type === "markdown") {
+      const markdownCell = cell as {
+        type: "markdown";
+        source: string;
+        metadata?: Record<string, unknown>;
+      };
       result.push(
         createMarkdownCell({
-          source: cell.source,
-          metadata: cell.metadata ?? {},
+          source: markdownCell.source,
+          metadata: markdownCell.metadata ?? {},
         })
       );
       continue;
     }
-    if (cell.type === "terminal") {
-      const terminalCell = cell as NotebookFileTerminalCell;
-      const terminal = createTerminalCell({
-        metadata: terminalCell.metadata ?? {},
-        buffer: terminalCell.buffer ?? "",
-      });
-      result.push(terminal);
+
+    if (cell.type === "code") {
+      const codeCell = cell as NotebookFileCodeCell;
+      result.push(
+        createCodeCell({
+          language: codeCell.language ?? "ts",
+          source: codeCell.source,
+          metadata: codeCell.metadata ?? {},
+          outputs: codeCell.outputs ?? [],
+        })
+      );
       continue;
     }
-    if (cell.type === "shell") {
-      const legacy = cell as NotebookFileLegacyShellCell;
-      const terminal = createTerminalCell({
-        metadata: legacy.metadata ?? {},
-        buffer: legacy.buffer ?? "",
-      });
-      result.push(terminal);
-      continue;
+
+    // Handle plugin cells dynamically
+    const cellTypeDef = backendPluginRegistry.getCellType(cell.type);
+
+    if (cellTypeDef?.deserialize) {
+      try {
+        result.push(cellTypeDef.deserialize(cell));
+      } catch (error) {
+        // Failed to deserialize - create unknown cell
+        console.error(
+          `Failed to deserialize cell of type "${cell.type}":`,
+          error
+        );
+        result.push(createUnknownCell(cell.type, cell, cellTypeDef.type));
+      }
+    } else {
+      // Plugin not loaded - create unknown cell
+      result.push(createUnknownCell(cell.type, cell));
     }
-    if (cell.type === "command") {
-      const commandCell = cell as NotebookFileCommandCell;
-      const command = createCommandCell({
-        metadata: commandCell.metadata ?? {},
-        command: commandCell.command ?? "",
-        notes: commandCell.notes ?? "",
-      });
-      result.push(command);
-      continue;
-    }
-    if (cell.type === "ai") {
-      const aiCell = cell as NotebookFileAiCell;
-      const ai = createAiCell({
-        metadata: aiCell.metadata ?? {},
-        prompt: aiCell.prompt ?? "",
-        system: aiCell.system ?? "",
-        model: aiCell.model,
-        temperature: aiCell.temperature,
-        maxTokens: aiCell.maxTokens,
-        topP: aiCell.topP,
-        frequencyPenalty: aiCell.frequencyPenalty,
-        presencePenalty: aiCell.presencePenalty,
-        response: aiCell.response,
-      });
-      result.push(ai);
-      continue;
-    }
-    if (cell.type === "http") {
-      const httpCell = cell as NotebookFileHttpCell;
-      const http = createHttpCell({
-        metadata: httpCell.metadata ?? {},
-        request: httpCell.request,
-        response: httpCell.response,
-        assignVariable: httpCell.assignVariable,
-        assignBody: httpCell.assignBody,
-        assignHeaders: httpCell.assignHeaders,
-      });
-      result.push(http);
-      continue;
-    }
-    if (cell.type === "sql") {
-      const sqlCell = cell as NotebookFileSqlCell;
-      const sql = createSqlCell({
-        metadata: sqlCell.metadata ?? {},
-        connectionId: sqlCell.connectionId,
-        query: sqlCell.query,
-        assignVariable: sqlCell.assignVariable,
-        result: sqlCell.result,
-      });
-      result.push(sql);
-      continue;
-    }
-    if (cell.type === "plot") {
-      const plotCell = cell as NotebookFilePlotCell;
-      const plot = createPlotCell({
-        metadata: plotCell.metadata ?? {},
-        chartType: plotCell.chartType,
-        dataSource: plotCell.dataSource,
-        bindings: plotCell.bindings,
-        layout: plotCell.layout,
-        result: plotCell.result,
-        snapshot: plotCell.snapshot,
-      });
-      result.push(plot);
-      continue;
-    }
-    const codeCell = cell as NotebookFileCodeCell;
-    result.push(
-      createCodeCell({
-        language: codeCell.language ?? "ts",
-        source: codeCell.source,
-        metadata: codeCell.metadata ?? {},
-        outputs: codeCell.outputs ?? [],
-      })
-    );
   }
   return result;
 };
@@ -233,167 +162,38 @@ const serializeCodeCell = (cell: CodeCell): NotebookFileCell => {
   return result;
 };
 
-const serializeTerminalCell = (cell: TerminalCell): NotebookFileCell => {
-  const result: NotebookFileCell = {
-    type: "terminal",
-  };
-  if (!isEmptyRecord(cell.metadata)) {
-    result.metadata = cell.metadata;
-  }
-  if (cell.buffer && cell.buffer.length > 0) {
-    result.buffer = cell.buffer;
-  }
-  return result;
-};
-
-const serializeCommandCell = (cell: CommandCell): NotebookFileCell => {
-  const result: NotebookFileCell = {
-    type: "command",
-  };
-  if (!isEmptyRecord(cell.metadata)) {
-    result.metadata = cell.metadata;
-  }
-  if (cell.command && cell.command.length > 0) {
-    result.command = cell.command;
-  }
-  if (cell.notes && cell.notes.length > 0) {
-    result.notes = cell.notes;
-  }
-  return result;
-};
-
-const serializeAiCell = (cell: AiCell): NotebookFileCell => {
-  const result: NotebookFileAiCell = {
-    type: "ai",
-  };
-  if (!isEmptyRecord(cell.metadata)) {
-    result.metadata = cell.metadata;
-  }
-  if (cell.prompt && cell.prompt.length > 0) {
-    result.prompt = cell.prompt;
-  }
-  if (cell.system && cell.system.length > 0) {
-    result.system = cell.system;
-  }
-  if (cell.model) {
-    result.model = cell.model;
-  }
-  if (cell.temperature !== undefined) {
-    result.temperature = cell.temperature;
-  }
-  if (cell.maxTokens !== undefined) {
-    result.maxTokens = cell.maxTokens;
-  }
-  if (cell.topP !== undefined) {
-    result.topP = cell.topP;
-  }
-  if (cell.frequencyPenalty !== undefined) {
-    result.frequencyPenalty = cell.frequencyPenalty;
-  }
-  if (cell.presencePenalty !== undefined) {
-    result.presencePenalty = cell.presencePenalty;
-  }
-  if (cell.response) {
-    result.response = cell.response;
-  }
-  return result;
-};
-
-const serializeHttpCell = (cell: HttpCell): NotebookFileCell => {
-  const result: NotebookFileCell = {
-    type: "http",
-  };
-  if (!isEmptyRecord(cell.metadata)) {
-    result.metadata = cell.metadata;
-  }
-  if (cell.request) {
-    result.request = cell.request;
-  }
-  if (cell.response) {
-    result.response = cell.response;
-  }
-  if (cell.assignVariable) {
-    result.assignVariable = cell.assignVariable;
-  }
-  if (cell.assignBody) {
-    result.assignBody = cell.assignBody;
-  }
-  if (cell.assignHeaders) {
-    result.assignHeaders = cell.assignHeaders;
-  }
-  return result;
-};
-
-const serializeSqlCell = (cell: SqlCell): NotebookFileCell => {
-  const result: NotebookFileSqlCell = {
-    type: "sql",
-    query: cell.query,
-  };
-  if (!isEmptyRecord(cell.metadata)) {
-    result.metadata = cell.metadata;
-  }
-  if (cell.connectionId) {
-    result.connectionId = cell.connectionId;
-  }
-  if (cell.assignVariable) {
-    result.assignVariable = cell.assignVariable;
-  }
-  if (cell.result) {
-    result.result = cell.result;
-  }
-  return result;
-};
-
-const serializePlotCell = (cell: PlotCell): NotebookFileCell => {
-  const result: NotebookFilePlotCell = {
-    type: "plot",
-    chartType: cell.chartType,
-  };
-  if (!isEmptyRecord(cell.metadata)) {
-    result.metadata = cell.metadata;
-  }
-  if (cell.dataSource) {
-    result.dataSource = cell.dataSource;
-  }
-  if (cell.bindings) {
-    result.bindings = cell.bindings;
-  }
-  if (cell.layout && Object.keys(cell.layout).length > 0) {
-    result.layout = cell.layout;
-  }
-  if (cell.result) {
-    result.result = cell.result;
-  }
-  if (cell.snapshot) {
-    result.snapshot = cell.snapshot;
-  }
-  return result;
-};
-
 const serializeCells = (cells: NotebookCell[]): NotebookFileCell[] => {
   return cells.map((cell) => {
+    // Handle core cells
     if (cell.type === "markdown") {
-      return serializeMarkdownCell(cell);
+      return serializeMarkdownCell(cell as MarkdownCell);
     }
-    if (cell.type === "terminal") {
-      return serializeTerminalCell(cell as TerminalCell);
+
+    if (cell.type === "code") {
+      return serializeCodeCell(cell as CodeCell);
     }
-    if (cell.type === "command") {
-      return serializeCommandCell(cell as CommandCell);
+
+    // Handle unknown cells (preserve original data)
+    if (cell.type === "unknown") {
+      const unknownCell = cell as UnknownCell;
+      return unknownCell.originalData as NotebookFileCell;
     }
-    if (cell.type === "ai") {
-      return serializeAiCell(cell as AiCell);
+
+    // Handle plugin cells dynamically
+    const cellTypeDef = backendPluginRegistry.getCellType(cell.type);
+
+    if (cellTypeDef?.serialize) {
+      return cellTypeDef.serialize(cell);
     }
-    if (cell.type === "http") {
-      return serializeHttpCell(cell as HttpCell);
-    }
-    if (cell.type === "sql") {
-      return serializeSqlCell(cell as SqlCell);
-    }
-    if (cell.type === "plot") {
-      return serializePlotCell(cell as PlotCell);
-    }
-    return serializeCodeCell(cell as CodeCell);
+
+    // Fallback: shouldn't happen but preserve as unknown
+    console.warn(
+      `No serializer found for cell type "${cell.type}", preserving as generic cell`
+    );
+    return {
+      type: cell.type,
+      metadata: cell.metadata,
+    } as NotebookFileCell;
   });
 };
 

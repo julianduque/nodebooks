@@ -1,9 +1,9 @@
 import type {
-  Notebook,
   NotebookTemplateId as SchemaNotebookTemplateId,
   Project,
   ProjectRole as SchemaProjectRole,
 } from "@nodebooks/notebook-schema";
+import type { Notebook } from "@/types/notebook";
 
 export interface NotebookSessionSummary {
   id: string;

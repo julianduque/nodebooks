@@ -1,8 +1,7 @@
 import type { FormEvent } from "react";
 
 import { AlertCallout } from "@nodebooks/ui";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Badge, Button } from "@nodebooks/client-ui/components/ui";
 import {
   Dialog,
   DialogContent,
@@ -10,7 +9,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
+} from "@nodebooks/client-ui/components/ui";
 import type {
   InvitationSummary,
   NotebookCollaboratorSummary,
@@ -138,7 +137,7 @@ const NotebookSharingDialog = ({
                 onChange={(event) =>
                   onInvitationRoleChange(event.target.value as NotebookRole)
                 }
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring"
+                className="w-full appearance-none rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground shadow-sm transition focus-visible:outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/70 focus-visible:ring-offset-0 disabled:cursor-not-allowed disabled:opacity-50"
                 disabled={shareSubmitting}
               >
                 <option value="editor">Editor</option>
@@ -232,10 +231,10 @@ const NotebookSharingDialog = ({
                         ? "Expired"
                         : "Pending";
                   const statusColor = invitation.acceptedAt
-                    ? "text-emerald-600"
+                    ? "text-primary"
                     : invitation.revokedAt || expired
-                      ? "text-rose-500"
-                      : "text-amber-600";
+                      ? "text-[color:var(--destructive)]"
+                      : "text-[color:var(--chart-5)]";
 
                   return (
                     <li
@@ -334,7 +333,7 @@ const NotebookSharingDialog = ({
                               )
                             }
                             disabled={isUpdating || isRemoving}
-                            className="rounded-md border border-input bg-background px-3 py-2 text-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring"
+                            className="appearance-none rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground shadow-sm transition focus-visible:outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/70 focus-visible:ring-offset-0 disabled:cursor-not-allowed disabled:opacity-50"
                           >
                             <option value="editor">Editor</option>
                             <option value="viewer">Viewer</option>

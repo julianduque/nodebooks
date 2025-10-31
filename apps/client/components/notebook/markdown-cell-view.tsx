@@ -3,9 +3,11 @@
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { BeforeMount, OnMount } from "@monaco-editor/react";
 import DOMPurify from "dompurify";
-import MonacoEditor from "@/components/notebook/monaco-editor-client";
-import { initMonaco } from "@/components/notebook/monaco-setup";
-import type { NotebookCell } from "@nodebooks/notebook-schema";
+import {
+  MonacoEditor,
+  initMonaco,
+} from "@nodebooks/client-ui/components/monaco";
+import type { MarkdownCell, NotebookCell } from "@/types/notebook";
 import { useTheme } from "@/components/theme-context";
 import {
   useAttachmentDropzone,
@@ -25,11 +27,11 @@ import {
   MONACO_EDITOR_CONTAINER_CLASS,
   MONACO_EDITOR_WRAPPER_CLASS,
   MONACO_SECTION_PADDING_CLASS,
-} from "@/components/notebook/monaco-styles";
-import { CopyButton } from "@/components/ui/copy-button";
+} from "@nodebooks/client-ui/components/monaco";
+import { CopyButton } from "@nodebooks/client-ui/components/ui";
 
 interface MarkdownCellViewProps {
-  cell: Extract<NotebookCell, { type: "markdown" }>;
+  cell: MarkdownCell;
   path?: string;
   notebookId: string;
   onChange: (
@@ -41,12 +43,12 @@ interface MarkdownCellViewProps {
   readOnly?: boolean;
 }
 const stripMarkdownUnsafeChars = (value: string) =>
-  value.replace(/[\[\]\(\)]/g, "\\$&");
+  value.replace(/[()[\]]/g, "\\$&");
 
 const escapeMarkdownAltText = (value: string) => {
   const trimmed = value.trim();
   if (!trimmed) return "image";
-  return trimmed.replace(/[[\]]/g, "\\$&");
+  return trimmed.replace(/\[|\]/g, "\\$&");
 };
 
 const MarkdownCellView = ({
@@ -116,7 +118,8 @@ const MarkdownCellView = ({
       onChange(
         (current) => {
           if (current.type !== "markdown") return current;
-          const existing = current.source ?? "";
+          const existing =
+            typeof current.source === "string" ? current.source : "";
           const trimmed = existing.trimEnd();
           const segments: string[] = [];
           if (trimmed) segments.push(trimmed);

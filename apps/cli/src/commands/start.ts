@@ -43,9 +43,8 @@ const workspaceServerEntry = async (): Promise<string | null> => {
 
 const resolveServerEntry = async (): Promise<string> => {
   try {
-    const serverPackageJsonPath = require.resolve(
-      "@nodebooks/server/package.json"
-    );
+    const serverPackageJsonPath =
+      require.resolve("@nodebooks/server/package.json");
     const serverPackageJson = require(serverPackageJsonPath) as {
       main?: string;
     };
