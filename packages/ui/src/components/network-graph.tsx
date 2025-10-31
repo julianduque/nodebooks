@@ -11,7 +11,7 @@ import {
 } from "d3-force";
 import type { SimulationLinkDatum, SimulationNodeDatum } from "d3-force";
 import colors from "tailwindcss/colors";
-import { useComponentThemeMode } from "./utils";
+import { useComponentThemeMode } from "./utils.js";
 
 export type NetworkGraphProps = Omit<UiNetworkGraph, "ui"> & {
   className?: string;

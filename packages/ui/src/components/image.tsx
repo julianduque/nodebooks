@@ -1,7 +1,7 @@
 "use client";
 import React from "react";
 import type { UiImage } from "@nodebooks/notebook-schema";
-import { useComponentThemeMode } from "./utils";
+import { useComponentThemeMode } from "./utils.js";
 
 type ImageProps = Omit<UiImage, "ui"> & {
   className?: string;
@@ -52,13 +52,15 @@ export const Image: React.FC<ImageProps> = ({
 
   return (
     <div
-      className={`relative inline-block rounded-md border p-2 ${className ?? ""} ${
-        mode === "light"
-          ? "bg-slate-100 border-slate-200"
-          : "bg-slate-900 border-slate-800"
-      }`}
+      data-theme-mode={mode}
+      className={`relative inline-block rounded-xl border border-border bg-card p-2 shadow-sm ${className ?? ""}`}
     >
-      <img src={resolvedSrc} alt={alt ?? ""} style={style} className="block" />
+      <img
+        src={resolvedSrc}
+        alt={alt ?? ""}
+        style={style}
+        className="block rounded-lg"
+      />
     </div>
   );
 };

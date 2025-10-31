@@ -1,5 +1,5 @@
 import React from "react";
-import { UiThemeContext, useThemeMode, type ThemeMode } from "./theme";
+import { UiThemeContext, useThemeMode, type ThemeMode } from "./theme.js";
 
 export const useComponentThemeMode = (override?: ThemeMode) => {
   const ctx = React.useContext(UiThemeContext);
@@ -47,53 +47,38 @@ export const compareValues = (a: unknown, b: unknown) => {
 
 export const renderCellValue = (
   v: unknown,
-  mode: "light" | "dark" = "light"
+  _mode: "light" | "dark" = "light"
 ) => {
-  if (v === null)
+  if (v === null) {
+    return <span className="text-muted-foreground">null</span>;
+  }
+  if (typeof v === "undefined") {
+    return <span className="text-muted-foreground">—</span>;
+  }
+  if (typeof v === "number") {
+    return <span className="font-medium text-primary">{String(v)}</span>;
+  }
+  if (typeof v === "boolean") {
     return (
-      <span className={mode === "light" ? "text-slate-500" : "text-slate-400"}>
-        null
-      </span>
-    );
-  if (typeof v === "undefined")
-    return (
-      <span className={mode === "light" ? "text-slate-500" : "text-slate-400"}>
-        —
-      </span>
-    );
-  if (typeof v === "number")
-    return (
-      <span className={mode === "light" ? "text-sky-700" : "text-sky-300"}>
+      <span
+        className={
+          v
+            ? "font-semibold text-primary"
+            : "font-semibold text-muted-foreground"
+        }
+      >
         {String(v)}
       </span>
     );
-  if (typeof v === "boolean")
-    return (
-      <span className={mode === "light" ? "text-pink-700" : "text-pink-300"}>
-        {String(v)}
-      </span>
-    );
-  if (typeof v === "string")
-    return (
-      <span className={mode === "light" ? "text-slate-700" : "text-slate-100"}>
-        {v}
-      </span>
-    );
-  if (Array.isArray(v))
-    return (
-      <span className={mode === "light" ? "text-slate-600" : "text-slate-400"}>
-        [{v.length}]
-      </span>
-    );
-  if (typeof v === "object")
-    return (
-      <span className={mode === "light" ? "text-slate-600" : "text-slate-400"}>
-        {"{…}"}
-      </span>
-    );
-  return (
-    <span className={mode === "light" ? "text-slate-700" : "text-slate-100"}>
-      {String(v)}
-    </span>
-  );
+  }
+  if (typeof v === "string") {
+    return <span className="text-foreground">{v}</span>;
+  }
+  if (Array.isArray(v)) {
+    return <span className="text-muted-foreground">[{v.length}]</span>;
+  }
+  if (typeof v === "object") {
+    return <span className="text-muted-foreground">{"{…}"}</span>;
+  }
+  return <span className="text-foreground">{String(v)}</span>;
 };

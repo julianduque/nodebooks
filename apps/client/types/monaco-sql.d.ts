@@ -1,6 +1,6 @@
 declare module "monaco-editor/esm/vs/basic-languages/sql/sql" {
-  import type { languages } from "monaco-editor";
+  import type { IMonarchLanguage, LanguageConfiguration } from "monaco-editor";
 
-  export const conf: languages.LanguageConfiguration;
-  export const language: languages.IMonarchLanguage;
+  export const language: IMonarchLanguage;
+  export const conf: LanguageConfiguration;
 }

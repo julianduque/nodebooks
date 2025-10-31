@@ -2,7 +2,7 @@
 import React from "react";
 import type { UiSpinner } from "@nodebooks/notebook-schema";
 import { Loader2 } from "lucide-react";
-import { useComponentThemeMode } from "./utils";
+import { useComponentThemeMode } from "./utils.js";
 
 type SpinnerProps = Omit<UiSpinner, "ui"> & {
   className?: string;

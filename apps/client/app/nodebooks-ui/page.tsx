@@ -558,7 +558,7 @@ const pieData = [
     labels: ["React", "Vue", "Angular", "Svelte", "Others"],
     values: [42, 28, 18, 8, 4],
     marker: {
-      colors: ["#3b82f6", "#10b981", "#f97316", "#ec4899", "#8b5cf6"],
+      colors: ["#3b82f6", "#00b86b", "#f97316", "#ec4899", "#8b5cf6"],
     },
   },
 ];

@@ -3,8 +3,8 @@
 import React from "react";
 import type { BufferAttribute, Material, Object3D } from "three";
 import type { UiPlot3d } from "@nodebooks/notebook-schema";
-import { sampleColorRgb } from "./color-scales";
-import { useComponentThemeMode } from "./utils";
+import { sampleColorRgb } from "./color-scales.js";
+import { useComponentThemeMode } from "./utils.js";
 
 export type Plot3dProps = Omit<UiPlot3d, "ui"> & {
   className?: string;
@@ -53,9 +53,8 @@ export const Plot3dScene: React.FC<Plot3dProps> = ({
     const mount = async () => {
       try {
         const THREE = await import("three");
-        const controlsModule = await import(
-          "three/examples/jsm/controls/OrbitControls.js"
-        );
+        const controlsModule =
+          await import("three/examples/jsm/controls/OrbitControls.js");
         if (!mounted || !containerRef.current) return;
 
         const scene = new THREE.Scene();

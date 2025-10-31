@@ -1,4 +1,8 @@
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Tabs,
+  TabsList,
+  TabsTrigger,
+} from "@nodebooks/client-ui/components/ui";
 import { ListTree, Paperclip, Settings as SettingsIcon } from "lucide-react";
 
 export interface NotebookSecondaryHeaderProps {
@@ -21,17 +25,20 @@ const NotebookSecondaryHeader = ({
         onChange(next as "outline" | "attachments" | "setup")
       }
     >
-      <TabsList className="h-8">
-        <TabsTrigger value="outline" className="gap-1 px-2 py-1 text-xs">
+      <TabsList className="w-full overflow-x-auto">
+        <TabsTrigger value="outline" className="flex-1 gap-1 px-3 py-1 text-xs">
           <ListTree className="h-4 w-4" /> Outline
         </TabsTrigger>
         {showAttachments ? (
-          <TabsTrigger value="attachments" className="gap-1 px-2 py-1 text-xs">
+          <TabsTrigger
+            value="attachments"
+            className="flex-1 gap-1 px-3 py-1 text-xs"
+          >
             <Paperclip className="h-4 w-4" /> Attachments
           </TabsTrigger>
         ) : null}
         {showSetup ? (
-          <TabsTrigger value="setup" className="gap-1 px-2 py-1 text-xs">
+          <TabsTrigger value="setup" className="flex-1 gap-1 px-3 py-1 text-xs">
             <SettingsIcon className="h-4 w-4" /> Setup
           </TabsTrigger>
         ) : null}

@@ -1,19 +1,32 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Database, Pencil, Trash2 } from "lucide-react";
+import {
+  Badge,
+  Button,
+  Input,
+  Textarea,
+  InputGroup,
+  InputGroupInput,
+  InputGroupButton,
+} from "@nodebooks/client-ui/components/ui";
+import {
+  Database,
+  Pencil,
+  Trash2,
+  Plus as PlusIcon,
+  Loader2,
+} from "lucide-react";
 import type { Notebook, SqlConnection } from "@nodebooks/notebook-schema";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
-import { setDiagnosticPolicy } from "@/components/notebook/monaco-setup";
-import { Separator } from "@/components/ui/separator";
+} from "@nodebooks/client-ui/components/ui";
+import { Separator } from "@nodebooks/client-ui/components/ui";
 
 interface SetupPanelProps {
   env: Notebook["env"];
@@ -52,21 +65,6 @@ const SetupPanel = ({
   openConnectionTrigger = 0,
 }: SetupPanelProps) => {
   const [draft, setDraft] = useState("");
-  const [typingMode, setTypingMode] = useState<"ignore" | "off" | "full">(
-    "off"
-  );
-  useEffect(() => {
-    try {
-      const sp = new URLSearchParams(window.location.search);
-      const mode = sp.get("types");
-      if (mode === "off" || mode === "full" || mode === "ignore") {
-        setTypingMode(mode);
-        if (mode === "off") setDiagnosticPolicy({ mode: "off" });
-        else if (mode === "full") setDiagnosticPolicy({ mode: "full" });
-        else setDiagnosticPolicy({ mode: "ignore-list" });
-      }
-    } catch {}
-  }, []);
   // Variable modal state
   const [varModalOpen, setVarModalOpen] = useState(false);
   const [editOriginalName, setEditOriginalName] = useState<string | null>(null);
@@ -156,25 +154,31 @@ const SetupPanel = ({
               setDraft("");
             }
           }}
-          className="relative"
         >
-          <input
-            type="text"
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            placeholder="package or package@version"
-            className="w-full rounded-md border border-input bg-background px-2 py-2 pr-16 text-[13px] text-foreground focus:outline-none"
-            aria-label="Add dependency"
-            disabled={!canEdit}
-          />
-          <Button
-            type="submit"
-            size="sm"
-            className="absolute right-1 top-1/2 h-7 -translate-y-1/2 px-2 text-[11px]"
-            disabled={depBusy || !canEdit}
-          >
-            {depBusy ? "Adding…" : "Add"}
-          </Button>
+          <InputGroup data-disabled={!canEdit}>
+            <InputGroupInput
+              type="text"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              placeholder="package or package@version"
+              className="text-sm"
+              aria-label="Add dependency"
+              disabled={!canEdit}
+            />
+            <InputGroupButton
+              type="submit"
+              size="icon-sm"
+              variant="ghost"
+              aria-label="Add dependency"
+              disabled={depBusy || !canEdit}
+            >
+              {depBusy ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <PlusIcon className="h-4 w-4" />
+              )}
+            </InputGroupButton>
+          </InputGroup>
         </form>
         <p className="mt-1 text-[11px] text-muted-foreground">
           Use name@version; multiple allowed with commas.
@@ -214,7 +218,7 @@ const SetupPanel = ({
               type="button"
               variant="default"
               size="sm"
-              className="px-3 text-[11px]"
+              className="flex items-center gap-1 px-3 text-[11px]"
               onClick={() => {
                 setEditOriginalName(null);
                 setFormName("");
@@ -222,7 +226,7 @@ const SetupPanel = ({
                 setVarModalOpen(true);
               }}
             >
-              Add Variable
+              <PlusIcon className="h-3.5 w-3.5" /> Add Variable
             </Button>
           ) : null}
         </div>
@@ -263,10 +267,10 @@ const SetupPanel = ({
               type="button"
               variant="default"
               size="sm"
-              className="px-3 text-[11px]"
+              className="flex items-center gap-1 px-3 text-[11px]"
               onClick={() => openConnectionModal()}
             >
-              Add Connection
+              <PlusIcon className="h-3.5 w-3.5" /> Add Connection
             </Button>
           ) : null}
         </div>
@@ -323,7 +327,7 @@ const SetupPanel = ({
                         type="button"
                         variant="ghost"
                         size="icon"
-                        className="text-rose-500 hover:text-rose-600"
+                        className="text-destructive hover:text-destructive/90"
                         onClick={() =>
                           void onRemoveSqlConnection(connection.id)
                         }
@@ -339,33 +343,6 @@ const SetupPanel = ({
           )}
         </div>
       </div>
-      <Separator className="my-2" />
-      <div className="mt-3">
-        <label className="block text-xs font-semibold uppercase tracking-[0.3em] text-muted-foreground">
-          Editor Type Checking
-        </label>
-        <div className="mt-1">
-          <select
-            className="w-full rounded-md border border-input bg-background px-2 py-1 text-[13px] text-foreground focus:outline-none"
-            value={typingMode}
-            onChange={(e) => {
-              const val = e.target.value as "ignore" | "off" | "full";
-              setTypingMode(val);
-              if (val === "off") setDiagnosticPolicy({ mode: "off" });
-              else if (val === "full") setDiagnosticPolicy({ mode: "full" });
-              else setDiagnosticPolicy({ mode: "ignore-list" });
-            }}
-          >
-            <option value="off">No diagnostics</option>
-            <option value="ignore">Ignore noisy errors</option>
-            <option value="full">Full TypeScript checks</option>
-          </select>
-          <p className="mt-1 text-[11px] text-muted-foreground">
-            Controls Monaco diagnostics in the editor.
-          </p>
-        </div>
-      </div>
-
       <VariableDialog
         open={varModalOpen}
         title={editOriginalName ? "Edit Variable" : "Add Variable"}
@@ -464,7 +441,7 @@ const DependencyRow = ({
           type="button"
           variant="ghost"
           size="icon"
-          className="text-rose-600 hover:text-rose-700"
+          className="text-destructive hover:text-destructive/80"
           onClick={onRemove}
           aria-label={`Remove ${name}`}
         >
@@ -508,7 +485,7 @@ const VariableRow = ({ name, onEdit, onRemove, canEdit }: VariableRowProps) => {
             type="button"
             variant="ghost"
             size="icon"
-            className="text-rose-600 hover:text-rose-700"
+            className="text-destructive hover:text-destructive/90"
             onClick={onRemove}
             aria-label={`Remove variable ${name}`}
           >
@@ -548,6 +525,11 @@ const VariableDialog = ({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>
+            {title.includes("Edit")
+              ? "Update the environment variable details."
+              : "Create a new environment variable for this notebook."}
+          </DialogDescription>
         </DialogHeader>
         <form
           className="mt-1 space-y-3"
@@ -559,23 +541,23 @@ const VariableDialog = ({
         >
           <label className="block text-xs font-medium text-muted-foreground">
             Name
-            <input
+            <Input
               type="text"
               value={name}
               onChange={(e) => onNameChange(e.target.value)}
               placeholder="NAME"
-              className="mt-1 w-full rounded-md border border-input bg-background px-2 py-1 text-[13px] text-foreground focus:outline-none"
+              className="mt-1 text-sm"
               disabled={readOnly}
             />
           </label>
           <label className="block text-xs font-medium text-muted-foreground">
             Value
-            <input
+            <Input
               type="text"
               value={value}
               onChange={(e) => onValueChange(e.target.value)}
               placeholder="value"
-              className="mt-1 w-full rounded-md border border-input bg-background px-2 py-1 text-[13px] text-foreground focus:outline-none"
+              className="mt-1 text-sm"
               disabled={readOnly}
             />
           </label>
@@ -628,16 +610,21 @@ const ConnectionDialog = ({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>
+            {mode === "edit"
+              ? "Update the database connection details."
+              : "Create a new database connection for SQL cells."}
+          </DialogDescription>
         </DialogHeader>
         <div className="mt-1 space-y-3">
           <label className="block text-xs font-medium text-muted-foreground">
             Name
-            <input
+            <Input
               type="text"
               value={name}
               onChange={(e) => onNameChange(e.target.value)}
               placeholder="Production database"
-              className="mt-1 w-full rounded-md border border-input bg-background px-2 py-1 text-[13px] text-foreground focus:outline-none"
+              className="mt-1 text-sm"
               disabled={readOnly}
             />
           </label>
@@ -648,7 +635,7 @@ const ConnectionDialog = ({
               onChange={(e) =>
                 onDriverChange(e.target.value as SqlConnection["driver"])
               }
-              className="mt-1 w-full rounded-md border border-input bg-background px-2 py-1 text-[13px] text-foreground focus:outline-none"
+              className="mt-1 flex h-9 w-full appearance-none rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground shadow-sm transition focus-visible:outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/70 focus-visible:ring-offset-0 disabled:cursor-not-allowed disabled:opacity-50"
               disabled
             >
               <option value="postgres">PostgreSQL</option>
@@ -659,11 +646,11 @@ const ConnectionDialog = ({
           </label>
           <label className="block text-xs font-medium text-muted-foreground">
             Connection string
-            <textarea
+            <Textarea
               value={connectionString}
               onChange={(e) => onConnectionStringChange(e.target.value)}
               placeholder="postgres://user:password@host:5432/database"
-              className="mt-1 w-full rounded-md border border-input bg-background px-2 py-2 text-[13px] text-foreground focus:outline-none"
+              className="mt-1 text-sm"
               rows={3}
               disabled={readOnly}
             />

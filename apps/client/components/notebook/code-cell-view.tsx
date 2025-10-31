@@ -2,26 +2,25 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { BeforeMount, OnMount } from "@monaco-editor/react";
-import MonacoEditor from "@/components/notebook/monaco-editor-client";
-import type { NotebookCell } from "@nodebooks/notebook-schema";
+import {
+  MonacoEditor,
+  initMonaco,
+  MONACO_EDITOR_CONTAINER_CLASS,
+  MONACO_EDITOR_WRAPPER_CLASS,
+} from "@nodebooks/client-ui/components/monaco";
+import type { CodeCell, NotebookCell } from "@/types/notebook";
 import type { UiInteractionEvent } from "@nodebooks/ui";
-import { Badge } from "@/components/ui/badge";
+import { Badge, CopyButton } from "@nodebooks/client-ui/components/ui";
 import { Loader2, Zap } from "lucide-react";
-import OutputView from "@/components/notebook/output-view";
-import { initMonaco } from "@/components/notebook/monaco-setup";
+import { OutputView } from "@nodebooks/client-ui/components/output";
 import { useTheme } from "@/components/theme-context";
-import { CopyButton } from "@/components/ui/copy-button";
 import {
   DEFAULT_CODE_EDITOR_SETTINGS,
   type MonacoEditorSettings,
 } from "@/components/notebook/editor-preferences";
-import {
-  MONACO_EDITOR_CONTAINER_CLASS,
-  MONACO_EDITOR_WRAPPER_CLASS,
-} from "@/components/notebook/monaco-styles";
 
 interface CodeCellViewProps {
-  cell: Extract<NotebookCell, { type: "code" }>;
+  cell: CodeCell;
   path?: string;
   onChange: (
     updater: (cell: NotebookCell) => NotebookCell,
@@ -166,28 +165,28 @@ const CodeCellView = ({
     undefined;
 
   return (
-    <div className="relative overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 text-slate-100 shadow-lg">
+    <div className="relative overflow-hidden rounded-2xl border border-border bg-card text-card-foreground shadow-sm">
       <div className="pointer-events-none absolute left-1 top-1 z-10 flex items-center gap-2">
         {isGenerating ? (
-          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-semibold text-emerald-200">
+          <span className="inline-flex items-center gap-1 rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-semibold text-primary">
             <Loader2 className="h-3 w-3 animate-spin" /> Generating
           </span>
         ) : isRunning ? (
-          <span className="inline-flex items-center gap-1 rounded-full bg-amber-400/20 px-2 py-0.5 text-[10px] font-semibold text-amber-200">
-            <span className="h-2 w-2 animate-pulse rounded-full bg-amber-400" />
+          <span className="inline-flex items-center gap-1 rounded-full bg-[color-mix(in_oklch,var(--chart-5)_25%,transparent)] px-2 py-0.5 text-[10px] font-semibold text-[color:var(--chart-5)]">
+            <span className="h-2 w-2 animate-pulse rounded-full bg-[color:var(--chart-5)]" />
             Running
           </span>
         ) : execCount !== null ? (
           <span
-            className="inline-flex items-center gap-1 rounded-full bg-slate-800/70 px-2 py-0.5 text-[10px] font-semibold text-slate-200"
+            className="inline-flex items-center gap-1 rounded-full bg-muted/40 px-2 py-0.5 text-[10px] font-semibold text-muted-foreground"
             title={`Last run #${execCount}`}
           >
-            <Zap className="h-3 w-3 text-emerald-400" /> {execCount}
+            <Zap className="h-3 w-3 text-primary" /> {execCount}
           </span>
         ) : null}
         {!isRunning && !isGenerating && queued ? (
-          <span className="inline-flex items-center gap-1 rounded-full bg-indigo-500/20 px-2 py-0.5 text-[10px] font-semibold text-indigo-200">
-            <span className="h-2 w-2 rounded-full bg-indigo-400" />
+          <span className="inline-flex items-center gap-1 rounded-full bg-[color-mix(in_oklch,var(--accent)_35%,transparent)] px-2 py-0.5 text-[10px] font-semibold text-accent-foreground">
+            <span className="h-2 w-2 rounded-full bg-accent-foreground/70" />
             Queued
           </span>
         ) : null}
@@ -252,7 +251,7 @@ const CodeCellView = ({
       ) : null}
 
       {(hideEditor || cell.outputs.length > 0) && (
-        <div className="space-y-3 border-t border-slate-800/70 bg-slate-950 px-4 py-4 text-sm text-slate-100">
+        <div className="space-y-3 border-t border-border/60 bg-card px-4 py-4 text-sm text-card-foreground">
           {cell.outputs.length > 0 ? (
             cell.outputs.map((output, index) => (
               <OutputView
@@ -262,7 +261,7 @@ const CodeCellView = ({
               />
             ))
           ) : (
-            <div className="flex items-center gap-2 text-slate-300/80">
+            <div className="flex items-center gap-2 text-muted-foreground">
               <Loader2 className="h-3.5 w-3.5 animate-spin" /> Preparing
               environment…
             </div>
@@ -271,14 +270,14 @@ const CodeCellView = ({
       )}
 
       {isRunning && (
-        <div className="flex items-center justify-end px-4 py-2 text-xs tracking-[0.2em] text-slate-400">
-          <span className="flex items-center gap-2 text-amber-400">
+        <div className="flex items-center justify-end px-4 py-2 text-xs tracking-[0.2em] text-muted-foreground">
+          <span className="flex items-center gap-2 text-[color:var(--chart-5)]">
             <Loader2 className="h-3.5 w-3.5 animate-spin" /> Running…
           </span>
         </div>
       )}
       {!isRunning && isGenerating && (
-        <div className="flex items-center justify-end px-4 py-2 text-xs tracking-[0.2em] text-emerald-300">
+        <div className="flex items-center justify-end px-4 py-2 text-xs tracking-[0.2em] text-primary">
           <span className="flex items-center gap-2">
             <Loader2 className="h-3.5 w-3.5 animate-spin" /> Generating…
           </span>

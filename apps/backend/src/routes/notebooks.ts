@@ -192,6 +192,8 @@ export const registerNotebookRoutes = (
           name: body.name ?? templateNotebook.name,
           env,
           cells,
+          authorEmail:
+            request.user?.email ?? templateNotebook.authorEmail ?? null,
         })
       )
     );
@@ -235,6 +237,7 @@ export const registerNotebookRoutes = (
         ...body,
         env: body.env ?? notebook.env,
         cells: body.cells ?? notebook.cells,
+        authorEmail: request.user?.email ?? notebook.authorEmail ?? null,
       })
     );
 

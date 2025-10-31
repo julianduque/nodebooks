@@ -1,0 +1,36 @@
+{
+  "name": "@nodebooks/plugin-engine",
+  "version": "0.1.0",
+  "description": "Core plugin loading and management engine for NodeBooks",
+  "author": "Julián Duque <julianduquej@gmail.com>",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc --project tsconfig.json",
+    "dev": "tsc --project tsconfig.json --watch",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "@nodebooks/cell-plugin-api": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "eslint": "^9.39.1",
+    "typescript": "^5.9.3"
+  },
+  "files": [
+    "src"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./frontend": {
+      "types": "./dist/frontend.d.ts",
+      "default": "./dist/frontend.js"
+    }
+  }
+}

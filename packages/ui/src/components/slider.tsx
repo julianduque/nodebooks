@@ -1,8 +1,8 @@
 "use client";
 import React from "react";
 import type { UiSlider } from "@nodebooks/notebook-schema";
-import { useUiInteractionContext } from "./interaction-context";
-import { useComponentThemeMode } from "./utils";
+import { useUiInteractionContext } from "./interaction-context.js";
+import { useComponentThemeMode } from "./utils.js";
 
 export interface SliderProps extends Omit<UiSlider, "ui" | "componentId"> {
   componentId?: string;

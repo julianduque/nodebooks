@@ -12,9 +12,10 @@ import { createRoot } from "react-dom/client";
 
 import { ThemeProvider } from "@/components/theme-context";
 
-const renderSpy = vi.fn<[string, string], Promise<{ svg: string }>>(
-  (id, definition) =>
-    Promise.resolve({ svg: `<svg data-id="${id}">${definition}</svg>` })
+const renderSpy = vi.fn<
+  (id: string, definition: string) => Promise<{ svg: string }>
+>((id, definition) =>
+  Promise.resolve({ svg: `<svg data-id="${id}">${definition}</svg>` })
 );
 
 vi.mock("mermaid", () => ({
@@ -55,7 +56,7 @@ vi.mock("@/components/notebook/monaco-setup", () => ({
   initMonaco: vi.fn(),
 }));
 
-import type { NotebookCell } from "@nodebooks/notebook-schema";
+import type { MarkdownCell, NotebookCell } from "@/types/notebook";
 import MarkdownCellView from "@/components/notebook/markdown-cell-view";
 
 const noop = () => undefined;
@@ -87,7 +88,7 @@ describe("MarkdownCellView", () => {
   });
 
   it("renders all mermaid diagrams in the preview", async () => {
-    const cell: Extract<NotebookCell, { type: "markdown" }> = {
+    const cell: MarkdownCell = {
       id: "cell-1",
       type: "markdown",
       source: [
@@ -134,7 +135,7 @@ describe("MarkdownCellView", () => {
   });
 
   it("enters edit mode when the preview is double clicked", async () => {
-    const cell: Extract<NotebookCell, { type: "markdown" }> = {
+    const cell: MarkdownCell = {
       id: "cell-2",
       type: "markdown",
       source: "Hello world",
@@ -178,7 +179,7 @@ describe("MarkdownCellView", () => {
   });
 
   it("renders LaTeX expressions in the preview", async () => {
-    const cell: Extract<NotebookCell, { type: "markdown" }> = {
+    const cell: MarkdownCell = {
       id: "cell-3",
       type: "markdown",
       source: ["Euler inline $e^{i\\pi} + 1 = 0$.", "", "$$E = mc^2$$"].join(

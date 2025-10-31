@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 
-import { cn } from "@/components/lib/utils";
-import { Button } from "@/components/ui/button";
+import { cn } from "@nodebooks/client-ui/lib/utils";
+import { Button } from "@nodebooks/client-ui/components/ui";
 
 export interface ProfileUser {
   name?: string | null;

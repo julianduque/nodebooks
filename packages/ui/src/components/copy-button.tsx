@@ -72,16 +72,16 @@ export const CopyButton = ({
       type="button"
       onClick={() => void handleCopy()}
       className={clsx(
-        "inline-flex h-7 w-7 items-center justify-center rounded-md border shadow-xs transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-0",
+        "inline-flex h-7 w-7 items-center justify-center rounded-md border shadow-xs transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-0",
         variant === "dark"
           ? "backdrop-blur supports-[backdrop-filter]:bg-black/55 border-white/20 bg-black/60 text-slate-100 hover:bg-black hover:text-white focus-visible:ring-slate-700/40"
-          : "backdrop-blur supports-[backdrop-filter]:bg-white/70 border-slate-200 bg-white/85 text-slate-500 hover:bg-white hover:text-slate-900 focus-visible:ring-emerald-400/40 dark:border-slate-700/60 dark:bg-slate-900/70 dark:text-slate-200 dark:hover:bg-slate-900/60 dark:supports-[backdrop-filter]:bg-slate-900/60",
+          : "backdrop-blur supports-[backdrop-filter]:bg-white/70 border-slate-200 bg-white/85 text-slate-500 hover:bg-white hover:text-slate-900 focus-visible:ring-ring/40 dark:border-slate-700/60 dark:bg-slate-900/70 dark:text-slate-200 dark:hover:bg-slate-900/60 dark:supports-[backdrop-filter]:bg-slate-900/60",
         className
       )}
       aria-label={ariaLabel ?? (copied ? "Copied" : "Copy to clipboard")}
     >
       {copied ? (
-        <Check className="h-3.5 w-3.5 text-emerald-400" />
+        <Check className="h-3.5 w-3.5 text-primary" />
       ) : (
         <Copy className="h-3.5 w-3.5" />
       )}

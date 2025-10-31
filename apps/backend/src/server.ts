@@ -22,17 +22,15 @@ import { registerSessionRoutes } from "./routes/sessions.js";
 import { registerTemplateRoutes } from "./routes/templates.js";
 import { registerTypesRoutes } from "./routes/types.js";
 import { registerAiRoutes } from "./routes/ai.js";
-import { registerAiCellRoutes } from "./routes/ai-cells.js";
 import { registerAttachmentRoutes } from "./routes/attachments.js";
 import { registerNotebookSharingRoutes } from "./routes/notebook-sharing.js";
 import { registerProjectRoutes } from "./routes/projects.js";
 import { registerPublicViewRoutes } from "./routes/public.js";
 import { registerProjectSharingRoutes } from "./routes/project-sharing.js";
-import { registerHttpRoutes } from "./routes/http.js";
-import { registerSqlRoutes } from "./routes/sql.js";
-import { registerPlotCellRoutes } from "./routes/plot-cells.js";
-import { createKernelUpgradeHandler } from "./kernel/router.js";
-import { createTerminalUpgradeHandler } from "./terminal/router.js";
+import {
+  createKernelUpgradeHandler,
+  getSessionGlobals,
+} from "./kernel/router.js";
 import { NotebookCollaborationService } from "./notebooks/collaboration.js";
 import {
   AuthService,
@@ -50,6 +48,8 @@ import { loadServerConfig } from "@nodebooks/config";
 import { SettingsService } from "./settings/service.js";
 import { setSettingsService } from "./settings/index.js";
 import { createNotebookStore } from "./store/factory.js";
+import { loadPlugins, type LoadedPlugin } from "./plugins/index.js";
+import { PluginSettingsManager } from "./settings/plugins.js";
 
 export { createNotebookStore } from "./store/factory.js";
 
@@ -57,6 +57,20 @@ declare module "fastify" {
   interface FastifyRequest {
     user?: SafeUser;
     authSession?: AuthSession;
+    cookies: Record<string, string | undefined>;
+  }
+
+  interface FastifyReply {
+    cookies: Record<string, string | undefined>;
+    setCookie(
+      name: string,
+      value: string,
+      options?: import("@fastify/cookie").CookieSerializeOptions
+    ): this;
+    clearCookie(
+      name: string,
+      options?: import("@fastify/cookie").CookieSerializeOptions
+    ): this;
   }
 }
 
@@ -100,6 +114,7 @@ export const createServer = async ({ logger }: CreateServerOptions = {}) => {
   const settingsService = new SettingsService(settings);
   await settingsService.whenReady();
   setSettingsService(settingsService);
+  const pluginSettings = new PluginSettingsManager(settings);
 
   const cfg = loadServerConfig(undefined, settingsService.getSettings());
   const isDev = cfg.isDev;
@@ -107,12 +122,6 @@ export const createServer = async ({ logger }: CreateServerOptions = {}) => {
     logger: resolveLoggerOption(logger),
     pluginTimeout: isDev ? 120_000 : undefined,
   });
-
-  if (cfg.terminalCellsEnabled) {
-    app.log.warn(
-      "Terminal cells are enabled. Terminal sessions run unsandboxed as the NodeBooks host user."
-    );
-  }
 
   await app.register(fastifyCookie);
   await app.register(cors, {
@@ -640,14 +649,22 @@ export const createServer = async ({ logger }: CreateServerOptions = {}) => {
 
   app.get("/health", async () => ({ status: "ok" }));
 
+  // Create authenticate function for WebSocket upgrades
+  // This is used by plugins, kernel, and collaboration WebSocket connections
+  const authenticateUpgrade = async (req: IncomingMessage) => {
+    const cookies = parseCookieHeader(req.headers.cookie);
+    const token = cookies[SESSION_COOKIE_NAME];
+    return authService.validateSession(token);
+  };
+
   // Mount all API routes under /api to avoid path conflicts with Next pages
   await app.register(
     async (api) => {
       await registerSettingsRoutes(api, {
         settings: settingsService,
+        pluginSettings,
       });
       await registerAiRoutes(api, { settings: settingsService });
-      await registerAiCellRoutes(api, { settings: settingsService });
       registerAttachmentRoutes(api, store, collaborators);
       registerNotebookRoutes(api, store, collaborators);
       registerProjectRoutes(api, {
@@ -660,13 +677,29 @@ export const createServer = async ({ logger }: CreateServerOptions = {}) => {
       registerPublicViewRoutes(api, { store, projects });
       registerNotebookSharingRoutes(api, { auth: authService });
       registerProjectSharingRoutes(api, { auth: authService });
-      registerHttpRoutes(api, store, collaborators);
-      registerSqlRoutes(api, store, collaborators);
-      registerPlotCellRoutes(api, store, collaborators, kernelSessions);
       registerDependencyRoutes(api, store, collaborators);
       registerSessionRoutes(api, kernelSessions, store, collaborators);
       registerTemplateRoutes(api);
       registerTypesRoutes(api);
+
+      // Load plugins and register their routes within the API router
+      // This allows plugins to register routes under /api prefix
+      const loadedPlugins = await loadPlugins({
+        app: api,
+        store,
+        collaborators,
+        kernelSessions,
+        settingsService,
+        pluginSettings,
+        authenticate: authenticateUpgrade,
+        getSessionGlobals,
+      });
+      app.log.info({ count: loadedPlugins.length }, "Loaded plugins");
+
+      // Store loaded plugins for WebSocket upgrade handler
+      // We'll access them via a closure in the upgrade handler
+      (app as { _loadedPlugins?: LoadedPlugin[] })._loadedPlugins =
+        loadedPlugins;
     },
     { prefix: "/api" }
   );
@@ -685,12 +718,6 @@ export const createServer = async ({ logger }: CreateServerOptions = {}) => {
   }
 
   // Central upgrade handler: Next HMR and Kernel WS
-  const authenticateUpgrade = async (req: IncomingMessage) => {
-    const cookies = parseCookieHeader(req.headers.cookie);
-    const token = cookies[SESSION_COOKIE_NAME];
-    return authService.validateSession(token);
-  };
-
   const kernelUpgrade = createKernelUpgradeHandler(
     "/api",
     kernelSessions,
@@ -699,13 +726,15 @@ export const createServer = async ({ logger }: CreateServerOptions = {}) => {
       authenticate: authenticateUpgrade,
     }
   );
-  const terminalUpgrade = createTerminalUpgradeHandler("/api", store, {
-    authenticate: authenticateUpgrade,
-  });
   const collabUpgrade = collaboration.getUpgradeHandler(
     "/api",
     authenticateUpgrade
   );
+
+  // Get loaded plugins from the API router registration
+  const loadedPlugins: LoadedPlugin[] =
+    (app as { _loadedPlugins?: LoadedPlugin[] })._loadedPlugins || [];
+
   app.server.on(
     "upgrade",
     (req: IncomingMessage, socket: Socket, head: Buffer) => {
@@ -718,8 +747,14 @@ export const createServer = async ({ logger }: CreateServerOptions = {}) => {
         if (kernelUpgrade(req, socket, head)) {
           return;
         }
-        if (terminalUpgrade(req, socket, head)) {
-          return;
+        // Try plugin WebSocket handlers
+        for (const plugin of loadedPlugins) {
+          if (
+            plugin.wsUpgradeHandler &&
+            plugin.wsUpgradeHandler(req, socket, head)
+          ) {
+            return;
+          }
         }
         if (collabUpgrade(req, socket, head)) {
           return;

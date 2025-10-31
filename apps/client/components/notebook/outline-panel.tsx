@@ -1,7 +1,7 @@
 "use client";
 
 import clsx from "clsx";
-import { Button } from "@/components/ui/button";
+import { Button } from "@nodebooks/client-ui/components/ui";
 import type { OutlineItem } from "@/components/notebook/types";
 
 interface OutlinePanelProps {

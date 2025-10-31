@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import {
   createNotebookFromFileDefinition,
   serializeNotebookToFileDefinition,
@@ -8,8 +8,84 @@ import type {
   NotebookFileSqlCell,
   SqlCell,
 } from "@nodebooks/notebook-schema";
+import { backendPluginRegistry } from "../src/plugins/index.js";
+import {
+  SqlCellSchema,
+  createSqlCell,
+  type NotebookFileSqlCell as SqlFileCellType,
+} from "@nodebooks/sql-cell/schema";
+import type {
+  NotebookCell,
+  NotebookFileCell,
+} from "@nodebooks/notebook-schema";
+
+const isEmptyRecord = (
+  value: Record<string, unknown> | undefined | null
+): boolean => {
+  if (!value) return true;
+  return Object.keys(value).length === 0;
+};
 
 describe("notebook file helpers", () => {
+  beforeAll(async () => {
+    // Register SQL plugin metadata so SQL cells can be deserialized
+    // Construct plugin without frontend dependencies
+    await backendPluginRegistry.register({
+      id: "@nodebooks/sql-cell",
+      version: "0.1.0",
+      metadata: {
+        name: "SQL Cell",
+        description: "Execute SQL queries against PostgreSQL databases",
+        version: "0.1.0",
+      },
+      cells: [
+        {
+          type: "sql",
+          schema: SqlCellSchema,
+          metadata: {
+            name: "SQL",
+            description: "Run SQL queries against a database connection",
+          },
+          createCell: createSqlCell,
+          serialize: (cell: NotebookCell): NotebookFileCell => {
+            const sqlCell = cell as SqlCell;
+            const result: SqlFileCellType = {
+              type: "sql",
+              query: sqlCell.query,
+            };
+            if (!isEmptyRecord(sqlCell.metadata)) {
+              result.metadata = sqlCell.metadata;
+            }
+            if (sqlCell.connectionId) {
+              result.connectionId = sqlCell.connectionId;
+            }
+            if (sqlCell.assignVariable) {
+              result.assignVariable = sqlCell.assignVariable;
+            }
+            if (sqlCell.result) {
+              result.result = sqlCell.result;
+            }
+            return result;
+          },
+          deserialize: (fileCell: NotebookFileCell): NotebookCell => {
+            const sqlFileCell = fileCell as SqlFileCellType;
+            return createSqlCell({
+              metadata: sqlFileCell.metadata ?? {},
+              connectionId: sqlFileCell.connectionId,
+              query: sqlFileCell.query ?? "",
+              assignVariable: sqlFileCell.assignVariable,
+              result: sqlFileCell.result,
+            });
+          },
+          enabled: () => true,
+        },
+      ],
+      init: async () => {
+        // No initialization needed
+      },
+    });
+  });
+
   it("preserves SQL cells and connections when importing", () => {
     const template: NotebookFile = {
       id: "sql-template",

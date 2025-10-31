@@ -2,8 +2,9 @@
 import React from "react";
 import type { UiJson } from "@nodebooks/notebook-schema";
 import { ChevronRight } from "lucide-react";
-import { CodeBlock } from "./code-block";
-import { useComponentThemeMode } from "./utils";
+import { CodeBlock } from "./code-block.js";
+import { useComponentThemeMode } from "./utils.js";
+import clsx from "clsx";
 
 type JsonViewerProps = Omit<UiJson, "ui"> & {
   className?: string;
@@ -36,13 +37,8 @@ const Toggle: React.FC<{
   </button>
 );
 
-const Key: React.FC<{ name: string; mode: "light" | "dark" }> = ({
-  name,
-  mode,
-}) => (
-  <span className={mode === "light" ? "text-emerald-700" : "text-emerald-300"}>
-    {name}
-  </span>
+const Key: React.FC<{ name: string }> = ({ name }) => (
+  <span className="text-primary">{name}</span>
 );
 
 const Value: React.FC<{ value: unknown; mode: "light" | "dark" }> = ({
@@ -119,7 +115,7 @@ const Entry: React.FC<{
       <div className="leading-6" style={indentStyle}>
         {k !== null ? (
           <>
-            <Key name={k} mode={mode} />: <Value value={v} mode={mode} />
+            <Key name={k} />: <Value value={v} mode={mode} />
           </>
         ) : (
           <Value value={v} mode={mode} />
@@ -135,7 +131,7 @@ const Entry: React.FC<{
         <div className="leading-6" style={indentStyle}>
           {k !== null && (
             <>
-              <Key name={k} mode={mode} />:{" "}
+              <Key name={k} />:{" "}
             </>
           )}
           <Toggle open={open} onClick={() => setOpen((s) => !s)} mode={mode} />{" "}
@@ -184,7 +180,7 @@ const Entry: React.FC<{
       <div className="leading-6" style={indentStyle}>
         {k !== null && (
           <>
-            <Key name={k} mode={mode} />:{" "}
+            <Key name={k} />:{" "}
           </>
         )}
         <Toggle open={open} onClick={() => setOpen((s) => !s)} mode={mode} />{" "}
@@ -240,6 +236,8 @@ export const JsonViewer: React.FC<JsonViewerProps> = ({
   const [allOpen, setAllOpen] = React.useState(true);
   const [showRaw, setShowRaw] = React.useState(false);
   const rawJson = React.useMemo(() => JSON.stringify(json, null, 2), [json]);
+  const controlButton =
+    "inline-flex items-center gap-1 rounded-full border border-border/80 bg-background/80 px-3 py-1 text-xs font-medium text-foreground shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70 focus-visible:ring-offset-0 disabled:cursor-not-allowed disabled:opacity-50 hover:bg-muted/60";
 
   // Helper to broadcast expand/collapse to all entries
   const broadcast = (open: boolean) => {
@@ -248,22 +246,13 @@ export const JsonViewer: React.FC<JsonViewerProps> = ({
   };
   return (
     <div
-      className={`relative rounded-md border p-3 font-mono text-[13px] leading-6 ${
-        mode === "light"
-          ? "border-slate-200 bg-slate-50 text-slate-800"
-          : "border-slate-800 bg-slate-900 text-slate-200"
-      } ${className ?? ""}`}
-      style={
-        mode === "dark"
-          ? ({
-              "--foreground": "#e5e7eb",
-              "--muted": "#1f2937",
-              "--border": "#334155",
-            } as React.CSSProperties & Record<`--${string}`, string>)
-          : undefined
-      }
+      data-theme-mode={mode}
+      className={clsx(
+        "relative rounded-xl border border-border bg-card p-4 font-mono text-[13px] leading-6 text-card-foreground shadow-sm",
+        className
+      )}
     >
-      <div className="mb-3 flex items-center justify-end gap-1">
+      <div className="mb-3 flex items-center justify-end gap-2">
         {!showRaw && (
           <button
             type="button"
@@ -273,11 +262,11 @@ export const JsonViewer: React.FC<JsonViewerProps> = ({
               broadcast(next);
             }}
             disabled={showRaw}
-            className={`inline-flex items-center rounded border px-2 py-1 text-xs ${
-              mode === "light"
-                ? "border-slate-300 bg-slate-100 text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-                : "border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700 disabled:opacity-50"
-            }`}
+            className={clsx(
+              controlButton,
+              "gap-1",
+              allOpen ? "bg-muted/60" : "bg-background"
+            )}
             aria-pressed={allOpen}
           >
             {allOpen ? "Collapse all" : "Expand all"}
@@ -286,15 +275,10 @@ export const JsonViewer: React.FC<JsonViewerProps> = ({
         <button
           type="button"
           onClick={() => setShowRaw((s) => !s)}
-          className={`inline-flex items-center rounded-sm border px-2 py-1 text-xs ${
-            mode === "light"
-              ? showRaw
-                ? "border-slate-400 bg-slate-100 text-slate-800"
-                : "border-slate-300 bg-slate-100 text-slate-700 hover:bg-slate-50"
-              : showRaw
-                ? "border-slate-600 bg-slate-800 text-slate-200"
-                : "border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700"
-          }`}
+          className={clsx(
+            controlButton,
+            showRaw ? "bg-muted/60" : "bg-background"
+          )}
           aria-pressed={showRaw}
         >
           {!showRaw ? "Raw" : "Viewer"}

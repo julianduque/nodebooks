@@ -1,4 +1,4 @@
-import type { Notebook } from "@nodebooks/notebook-schema";
+import { isMarkdownCell, type Notebook } from "@/types/notebook";
 import type { OutlineItem } from "@/components/notebook/types";
 
 export const formatTimestamp = (value: string) => {
@@ -50,8 +50,9 @@ export const buildOutlineItems = (notebook: Notebook | null | undefined) => {
   if (!notebook) return [] as OutlineItem[];
   const items: OutlineItem[] = [];
   notebook.cells.forEach((cell) => {
-    if (cell.type !== "markdown" || !cell.source) return;
-    const lines = cell.source.split("\n");
+    if (!isMarkdownCell(cell)) return;
+    const source = typeof cell.source === "string" ? cell.source : "";
+    const lines = source.split("\n");
     lines.forEach((line, index) => {
       const match = /^(#{1,4})\s+(.*)/.exec(line.trim());
       if (match) {

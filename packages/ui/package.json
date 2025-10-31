@@ -5,12 +5,12 @@
   "author": "Julián Duque <julianduquej@gmail.com>",
   "license": "MIT",
   "type": "module",
-  "main": "src/index.tsx",
-  "types": "src/index.tsx",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "scripts": {
     "build": "run-p build:css build:types",
     "prepack": "pnpm run build",
-    "build:types": "tsc --project tsconfig.json",
+    "build:types": "tsc --project tsconfig.build.json",
     "build:css": "tailwindcss -i ./src/styles.css -o ./dist/styles.css",
     "dev": "run-p dev:css dev:types",
     "dev:types": "tsc --project tsconfig.json --watch",
@@ -25,31 +25,31 @@
     "@nodebooks/notebook-schema": "workspace:*",
     "clsx": "^2.1.1",
     "d3-force": "^3.0.0",
-    "dompurify": "^3.2.7",
+    "dompurify": "^3.3.0",
     "highlight.js": "^11.11.1",
     "katex": "^0.16.25",
-    "lucide-react": "^0.544.0",
-    "maplibre-gl": "^5.7.3",
-    "marked": "^16.3.0",
-    "marked-katex-extension": "^5.1.5",
-    "mermaid": "^11.4.1",
-    "plotly.js-dist-min": "^3.1.0",
-    "three": "^0.180.0",
+    "lucide-react": "^0.556.0",
+    "maplibre-gl": "^5.14.0",
+    "marked": "^17.0.1",
+    "marked-katex-extension": "^5.1.6",
+    "mermaid": "^11.12.2",
+    "plotly.js-dist-min": "^3.3.0",
+    "three": "^0.181.2",
     "vega": "^6.2.0",
-    "vega-embed": "^7.0.2",
+    "vega-embed": "^7.1.0",
     "vega-lite": "^6.4.1"
   },
   "devDependencies": {
-    "@tailwindcss/cli": "^4.1.13",
-    "@tailwindcss/postcss": "^4.1.13",
-    "@types/d3-force": "^3.0.4",
-    "@types/geojson": "^7946.0.14",
-    "@types/react": "^19.1.15",
-    "@types/three": "^0.180.0",
-    "eslint": "^9.36.0",
+    "@tailwindcss/cli": "^4.1.17",
+    "@tailwindcss/postcss": "^4.1.17",
+    "@types/d3-force": "^3.0.10",
+    "@types/geojson": "^7946.0.16",
+    "@types/react": "^19.2.7",
+    "@types/three": "^0.181.0",
+    "eslint": "^9.39.1",
     "npm-run-all": "^4.1.5",
-    "tailwindcss": "^4.1.13",
-    "typescript": "^5.9.2"
+    "tailwindcss": "^4.1.17",
+    "typescript": "^5.9.3"
   },
   "files": [
     "dist",
@@ -60,19 +60,10 @@
   },
   "exports": {
     ".": {
-      "types": "./src/index.tsx",
-      "default": "./src/index.tsx"
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
     },
-    "./styles.css": "./dist/styles.css",
-    "./runtime/ui-helpers-dts": {
-      "types": "./src/runtime/ui-helpers-dts.d.ts",
-      "import": "./src/runtime/ui-helpers-dts.js",
-      "default": "./src/runtime/ui-helpers-dts.js"
-    },
-    "./runtime/ui-helpers-module": {
-      "types": "./src/runtime/ui-helpers-module.d.ts",
-      "import": "./src/runtime/ui-helpers-module.js",
-      "default": "./src/runtime/ui-helpers-module.js"
-    }
+    "./styles.css": "./dist/styles.css"
   }
 }

@@ -2,10 +2,10 @@
 
 import React from "react";
 import type { UiCode } from "@nodebooks/notebook-schema";
-import { CopyButton, type CopyButtonProps } from "./copy-button";
+import { CopyButton, type CopyButtonProps } from "./copy-button.js";
 import clsx from "clsx";
-import { highlightCode, normalizeLanguage } from "../lib/highlight";
-import { useComponentThemeMode } from "./utils";
+import { highlightCode, normalizeLanguage } from "../lib/highlight.js";
+import { useComponentThemeMode } from "./utils.js";
 
 type CopyValue = string | (() => string);
 
@@ -41,13 +41,24 @@ export const CodeBlock: React.FC<CodeBlockProps> = ({
   );
   const wrapperClass = clsx("code-block relative", className);
   const surfaceClass = clsx(
-    "code-block__surface m-0 overflow-auto rounded-md border px-3 pb-3 pt-3 pr-12 text-sm leading-6",
-    mode === "light"
-      ? "border-slate-200 bg-slate-50 text-slate-800"
-      : "border-slate-700 bg-slate-900 text-slate-200",
+    "code-block__surface m-0 overflow-auto rounded-xl border px-4 pb-3 pt-3 pr-12 text-sm leading-6 text-foreground shadow-sm",
     contentClassName ?? className,
     !contentClassName && "max-h-full"
   );
+  const surfaceStyle = React.useMemo<React.CSSProperties>(() => {
+    const fallbackBg =
+      mode === "dark"
+        ? "color-mix(in oklch, var(--background) 55%, transparent)"
+        : "color-mix(in oklch, var(--foreground) 6%, var(--background))";
+    const fallbackBorder =
+      mode === "dark"
+        ? "color-mix(in oklch, var(--border) 70%, transparent)"
+        : "color-mix(in oklch, var(--border) 85%, transparent)";
+    return {
+      background: `var(--code-surface, ${fallbackBg})`,
+      borderColor: `var(--code-border, ${fallbackBorder})`,
+    };
+  }, [mode]);
   const codeClass = clsx(
     "code-block__code block min-w-full whitespace-pre font-mono",
     "hljs",
@@ -72,7 +83,7 @@ export const CodeBlock: React.FC<CodeBlockProps> = ({
           onCopy={onCopy}
         />
       ) : null}
-      <pre className={surfaceClass}>
+      <pre className={surfaceClass} style={surfaceStyle} data-theme-mode={mode}>
         <code
           className={codeClass}
           dangerouslySetInnerHTML={{ __html: highlighted }}

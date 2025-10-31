@@ -4,9 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Notebook } from "@nodebooks/notebook-schema";
 
-import { cn } from "@/components/lib/utils";
-import { Badge, badgeVariants } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { cn } from "@nodebooks/client-ui/lib/utils";
+import { Badge, badgeVariants } from "@nodebooks/client-ui/components/ui";
+import { Button } from "@nodebooks/client-ui/components/ui";
 import StatusDot from "@/components/notebook/status-dot";
 import {
   Check,
@@ -94,13 +94,15 @@ const NotebookHeaderRight = ({
       ? "Kernel disconnected"
       : "Kernel offline";
   const kernelStatusText = kernelStatusLabel;
-  const kernelStatusColor = socketReady ? "bg-emerald-500" : "bg-amber-500";
+  const kernelStatusColor = socketReady
+    ? "bg-primary"
+    : "bg-[color:var(--chart-5)]";
 
   const saveStatusLabel = dirty
     ? "You have unsaved changes"
     : "All changes saved";
   const saveStatusText = dirty ? "Unsaved" : "Saved";
-  const saveStatusColor = dirty ? "bg-amber-500" : "bg-emerald-500";
+  const saveStatusColor = dirty ? "bg-[color:var(--chart-5)]" : "bg-primary";
 
   const [publishMenuOpen, setPublishMenuOpen] = useState(false);
   const publishMenuAnchorRef = useRef<HTMLDivElement | null>(null);
@@ -209,7 +211,9 @@ const NotebookHeaderRight = ({
             className={cn(
               badgeVariants({ variant: published ? "default" : "outline" }),
               "flex items-center gap-1 text-[11px] focus:ring-offset-background",
-              published ? "bg-emerald-600 text-white" : "text-muted-foreground",
+              published
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground",
               publishMenuEnabled
                 ? "cursor-pointer"
                 : "cursor-default opacity-70"
@@ -339,7 +343,7 @@ const NotebookHeaderRight = ({
             {dirty ? (
               <Save className="h-4 w-4" />
             ) : (
-              <Check className="h-4 w-4 text-emerald-500" />
+              <Check className="h-4 w-4 text-primary" />
             )}
           </Button>
           <Button
@@ -422,7 +426,7 @@ const NotebookHeaderRight = ({
             <Button
               variant="ghost"
               size="icon"
-              className="text-rose-600 hover:text-rose-700"
+              className="text-destructive hover:text-destructive/90"
               onClick={onDelete}
               aria-label="Delete notebook"
               title="Delete notebook"

@@ -1,0 +1,33 @@
+{
+  "name": "@nodebooks/ui-runtime",
+  "version": "0.3.0",
+  "description": "Lightweight UI helper bundle for NodeBooks sandboxed notebooks.",
+  "author": "Julián Duque <julianduquej@gmail.com>",
+  "license": "MIT",
+  "type": "module",
+  "main": "./runtime/ui-helpers-module.js",
+  "types": "./runtime/ui-helpers-module.d.ts",
+  "exports": {
+    ".": {
+      "types": "./runtime/ui-helpers-module.d.ts",
+      "import": "./runtime/ui-helpers-module.js",
+      "default": "./runtime/ui-helpers-module.js"
+    },
+    "./runtime/ui-helpers-dts": {
+      "types": "./runtime/ui-helpers-dts.d.ts",
+      "import": "./runtime/ui-helpers-dts.js",
+      "default": "./runtime/ui-helpers-dts.js"
+    },
+    "./runtime/ui-helpers-module": {
+      "types": "./runtime/ui-helpers-module.d.ts",
+      "import": "./runtime/ui-helpers-module.js",
+      "default": "./runtime/ui-helpers-module.js"
+    }
+  },
+  "files": [
+    "runtime"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}

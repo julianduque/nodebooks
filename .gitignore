@@ -23,3 +23,5 @@ data/
 *.sqlite
 *.tsbuildinfo
 .cursor/
+.claude/
+CLAUDE.md

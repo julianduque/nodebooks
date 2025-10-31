@@ -13,7 +13,6 @@ vi.mock("../src/notebooks/permissions.js", () => ({
 const originalTheme = process.env.NODEBOOKS_THEME;
 const originalTimeout = process.env.NODEBOOKS_KERNEL_TIMEOUT_MS;
 const originalAiEnabled = process.env.NODEBOOKS_AI_ENABLED;
-const originalTerminalCellsEnabled = process.env.NODEBOOKS_TERMINALS_ENABLED;
 
 describe("settings routes", () => {
   const createApp = async () => {
@@ -53,11 +52,6 @@ describe("settings routes", () => {
     } else {
       process.env.NODEBOOKS_AI_ENABLED = originalAiEnabled;
     }
-    if (originalTerminalCellsEnabled === undefined) {
-      delete process.env.NODEBOOKS_TERMINALS_ENABLED;
-    } else {
-      process.env.NODEBOOKS_TERMINALS_ENABLED = originalTerminalCellsEnabled;
-    }
     const runtime = globalThis as typeof globalThis & {
       __NODEBOOKS_SETTINGS__?: Record<string, unknown>;
     };
@@ -73,7 +67,6 @@ describe("settings routes", () => {
         theme: "light",
         kernelTimeoutMs: 10_000,
         aiEnabled: false,
-        terminalCellsEnabled: false,
         ai: {
           provider: "openai",
           openai: { model: "gpt-4o-mini", apiKeyConfigured: false },
@@ -101,7 +94,6 @@ describe("settings routes", () => {
         theme: "dark",
         kernelTimeoutMs: 15_000,
         aiEnabled: false,
-        terminalCellsEnabled: false,
         ai: {
           provider: "openai",
           openai: { model: "gpt-4o-mini", apiKeyConfigured: false },
@@ -119,7 +111,6 @@ describe("settings routes", () => {
       theme: "dark",
       kernelTimeoutMs: 15_000,
       aiEnabled: false,
-      terminalCellsEnabled: false,
       ai: {
         provider: "openai",
         openai: { model: "gpt-4o-mini", apiKeyConfigured: false },
@@ -146,7 +137,6 @@ describe("settings routes", () => {
       theme: "light",
       kernelTimeoutMs: 10_000,
       aiEnabled: false,
-      terminalCellsEnabled: false,
       ai: {
         provider: "openai",
         openai: { model: "gpt-4o-mini", apiKeyConfigured: false },

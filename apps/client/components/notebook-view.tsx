@@ -9,35 +9,21 @@ import {
   useState,
 } from "react";
 import AppShell from "@/components/app-shell";
-import ConfirmDialog from "@/components/ui/confirm";
+import { ConfirmDialog } from "@nodebooks/client-ui/components/ui";
 import type { UiInteractionEvent } from "@nodebooks/ui";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   createCodeCell,
   createMarkdownCell,
-  createCommandCell,
-  createTerminalCell,
-  createHttpCell,
-  createSqlCell,
-  createPlotCell,
-  createAiCell,
-  type HttpResponse,
   type KernelExecuteRequest,
   type KernelServerMessage,
   type KernelInterruptRequest,
-  type Notebook,
-  type NotebookCell,
-  type NotebookOutput,
-  type SqlConnection,
-  type SqlResult,
-  type PlotCellResult,
-  type AiCell,
 } from "@nodebooks/notebook-schema";
 import {
   IDENTIFIER_PATTERN,
   computeHttpGlobals,
 } from "./notebook/runtime-globals";
-import { commitPlotLayoutDraft } from "./notebook/plot-layout-committers";
+import { commitPlotLayoutDraft } from "@nodebooks/plot-cell/frontend/plot-layout-committers";
 import type {
   NotebookSessionSummary,
   NotebookTemplateId,
@@ -53,9 +39,12 @@ import {
 import OutlinePanel from "@/components/notebook/outline-panel";
 import SetupPanel from "@/components/notebook/setup-panel";
 import AttachmentsPanel from "@/components/notebook/attachments-panel";
-import { syncNotebookContext } from "@/components/notebook/monaco-context-sync";
-import { setDiagnosticPolicy } from "@/components/notebook/monaco-setup";
+import {
+  syncNotebookContext,
+  setDiagnosticPolicy,
+} from "@nodebooks/client-ui/components/monaco";
 import { useTheme } from "@/components/theme-context";
+import { pluginRegistry } from "@/lib/plugins";
 import NotebookEditorView from "@/components/notebook/notebook-editor-view";
 import NotebookHeaderMain from "@/components/notebook/notebook-header-main";
 import NotebookHeaderRight from "@/components/notebook/notebook-header-right";
@@ -67,12 +56,29 @@ import {
   publishNotebook,
   unpublishNotebook,
 } from "@/components/notebook/api";
-import { Badge } from "@/components/ui/badge";
+import { Badge } from "@nodebooks/client-ui/components/ui";
 import { useCurrentUser } from "@/components/notebook/hooks/use-current-user";
 import { useNotebookAttachments } from "@/components/notebook/hooks/use-notebook-attachments";
 import { useNotebookSharing } from "@/components/notebook/hooks/use-notebook-sharing";
 import { gravatarUrlForEmail } from "@/lib/avatar";
 import { suggestSlug } from "@nodebooks/notebook-schema";
+import {
+  isAiCell,
+  isCodeCell,
+  isMarkdownCell,
+  isHttpCell,
+  isPlotCell,
+  isSqlCell,
+  isCommandCell,
+  isTerminalCell,
+  type HttpResponse,
+  type Notebook,
+  type NotebookCell,
+  type NotebookOutput,
+  type PlotCellResult,
+  type SqlConnection,
+  type SqlResult,
+} from "@/types/notebook";
 
 const normalizeNotebookState = (
   raw: Notebook | NotebookWithAccess | null | undefined
@@ -121,9 +127,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
   const [depError, setDepError] = useState<string | null>(null);
   const [depOutputs, setDepOutputs] = useState<NotebookOutput[]>([]);
   const [aiEnabled, setAiEnabled] = useState(false);
-  const [terminalCellsEnabled, setTerminalCellsEnabled] = useState(false);
   const [aiFeatureKnown, setAiFeatureKnown] = useState(false);
-  const [terminalFeatureKnown, setTerminalFeatureKnown] = useState(false);
   const [kernelGlobals, setKernelGlobals] = useState<Record<string, unknown>>(
     {}
   );
@@ -162,9 +166,6 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
   const activeCellIdRef = useRef<string | null>(null);
   const aiAbortControllerRef = useRef<AbortController | null>(null);
   const aiAvailable = aiFeatureKnown ? aiEnabled : true;
-  const terminalCellsAvailable = terminalFeatureKnown
-    ? terminalCellsEnabled
-    : true;
   const {
     currentUser,
     setCurrentUser,
@@ -453,9 +454,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
   }, []);
 
   const handleAbortInstall = useCallback(() => {
-    try {
-      depAbortRef.current?.abort();
-    } catch {}
+    depAbortRef.current?.abort();
     setDepBusy(false);
   }, []);
   // dependency install panel is in Setup sidebar now
@@ -523,7 +522,6 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
       });
       if (response.status === 403) {
         setAiFeatureKnown(false);
-        setTerminalFeatureKnown(false);
         return;
       }
       if (!response.ok) {
@@ -532,16 +530,10 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
       const payload = await response.json();
       const featureData = payload?.data ?? {};
       const hasAiFlag = typeof featureData.aiEnabled === "boolean";
-      const hasTerminalFlag =
-        typeof featureData.terminalCellsEnabled === "boolean";
       if (hasAiFlag) {
         setAiEnabled(featureData.aiEnabled as boolean);
       }
-      if (hasTerminalFlag) {
-        setTerminalCellsEnabled(featureData.terminalCellsEnabled as boolean);
-      }
       setAiFeatureKnown(hasAiFlag);
-      setTerminalFeatureKnown(hasTerminalFlag);
     } catch (error) {
       console.error("Failed to load notebook feature availability", error);
     }
@@ -875,7 +867,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         updateNotebookCell(
           message.cellId,
           (cell) => {
-            if (cell.type !== "code") {
+            if (!isCodeCell(cell)) {
               return cell;
             }
             const ended = Date.now();
@@ -916,7 +908,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         updateNotebookCell(
           message.cellId,
           (cell) => {
-            if (cell.type !== "code") {
+            if (!isCodeCell(cell)) {
               return cell;
             }
             return {
@@ -942,7 +934,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         updateNotebookCell(
           message.cellId,
           (cell) => {
-            if (cell.type !== "code") {
+            if (!isCodeCell(cell)) {
               return cell;
             }
             return {
@@ -970,7 +962,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         updateNotebookCell(
           message.cellId,
           (cell) => {
-            if (cell.type !== "code") {
+            if (!isCodeCell(cell)) {
               return cell;
             }
             const metadata: Record<string, unknown> = {
@@ -1487,7 +1479,6 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
       closeActiveSession("component unmounted");
     };
     // closeActiveSession is stable; run only on unmount
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -1549,33 +1540,39 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
       if (!ensureEditable()) {
         return;
       }
-      if (
-        (type === "terminal" || type === "command") &&
-        !terminalCellsAvailable
-      ) {
-        setActionError("Terminal cells are disabled for this workspace.");
-        return;
+      // Core cell types (markdown and code) are ALWAYS allowed - never validate them
+      const coreCellTypes = new Set(["markdown", "code"]);
+
+      // Only check plugin registry for non-core cell types
+      if (!coreCellTypes.has(type)) {
+        const enabledTypes = pluginRegistry.getEnabledCellTypesSync();
+        const isTypeEnabled = enabledTypes.some((def) => def.type === type);
+        if (!isTypeEnabled) {
+          const cellDef = enabledTypes.find((def) => def.type === type);
+          const name = cellDef?.metadata.name || type;
+          setActionError(`${name} cells are disabled for this workspace.`);
+          return;
+        }
       }
-      if (type === "ai" && !aiAvailable) {
-        setActionError("AI cells are disabled for this workspace.");
-        return;
+      // Use plugin registry for cell creation, fallback to core cells
+      let nextCell: NotebookCell;
+      if (type === "code") {
+        nextCell = createCodeCell({ language: "ts" });
+      } else if (type === "markdown") {
+        nextCell = createMarkdownCell({ source: "" });
+      } else {
+        // Try to get cell from plugin registry
+        const cellDef = pluginRegistry.getCellType(type);
+        if (cellDef && cellDef.createCell) {
+          nextCell = cellDef.createCell();
+        } else {
+          // Fallback to markdown if plugin not found
+          console.warn(
+            `Cell type "${type}" not found in plugin registry, falling back to markdown`
+          );
+          nextCell = createMarkdownCell({ source: "" });
+        }
       }
-      const nextCell =
-        type === "code"
-          ? createCodeCell({ language: "ts" })
-          : type === "terminal"
-            ? createTerminalCell()
-            : type === "command"
-              ? createCommandCell()
-              : type === "http"
-                ? createHttpCell()
-                : type === "sql"
-                  ? createSqlCell()
-                  : type === "plot"
-                    ? createPlotCell()
-                    : type === "ai"
-                      ? createAiCell()
-                      : createMarkdownCell({ source: "" });
       const updatedNotebook = updateNotebook((current) => {
         const cells = [...current.cells];
         if (typeof index === "number") {
@@ -1604,8 +1601,6 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
       saveNotebookNow,
       clearPendingSave,
       markTerminalPendingPersistence,
-      terminalCellsAvailable,
-      aiAvailable,
     ]
   );
 
@@ -1710,7 +1705,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     }
     const map: Record<string, unknown> = {};
     for (const cell of notebook.cells) {
-      if (cell.type !== "sql") {
+      if (!isSqlCell(cell)) {
         continue;
       }
       const name = (cell.assignVariable ?? "").trim();
@@ -1789,11 +1784,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         return;
       }
 
-      if (cell.type === "command") {
-        if (!terminalCellsAvailable) {
-          setActionError("Terminal cells are disabled for this workspace.");
-          return;
-        }
+      if (isCommandCell(cell)) {
         const metadata = (cell.metadata ?? {}) as CommandCellMetadata;
         const commandText = (cell.command ?? "").trim();
         if (!commandText) {
@@ -1809,7 +1800,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         const existingTerminal =
           targetId &&
           notebook.cells.find(
-            (item) => item.id === targetId && item.type === "terminal"
+            (item) => item.id === targetId && isTerminalCell(item)
           );
 
         if (!existingTerminal) {
@@ -1817,7 +1808,10 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         }
 
         if (!targetId) {
-          const newTerminal = createTerminalCell();
+          const terminalDef = pluginRegistry.getCellType("terminal");
+          const newTerminal = terminalDef?.createCell
+            ? terminalDef.createCell()
+            : createMarkdownCell({ source: "" }); // Fallback if terminal plugin not available
           const updatedNotebook = updateNotebook((current) => {
             const cells = [...current.cells];
             const idx = cells.findIndex((item) => item.id === cell.id);
@@ -1908,7 +1902,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         }
       }
 
-      if (cell.type === "plot") {
+      if (isPlotCell(cell)) {
         const layoutCommit = commitPlotLayoutDraft(cell.id);
         if (!layoutCommit.ok) {
           setActionError(
@@ -2041,8 +2035,11 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         return;
       }
 
-      if (cell.type === "ai") {
-        if (!aiAvailable) {
+      if (isAiCell(cell)) {
+        const aiEnabled = pluginRegistry
+          .getEnabledCellTypesSync()
+          .some((def) => def.type === "ai");
+        if (!aiEnabled) {
           setActionError("AI assistant is disabled for this workspace.");
           return;
         }
@@ -2057,10 +2054,28 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         const controller = new AbortController();
         aiAbortControllerRef.current = controller;
         let accumulatedText = "";
+
+        // Build messages array: existing history + new user message
+        // Ensure all existing messages have IDs (for backwards compatibility)
+        const existingMessages = (
+          Array.isArray(cell.messages) ? cell.messages : []
+        ).map((msg, idx) => ({
+          ...msg,
+          id: msg.id || `msg_existing_${idx}_${Date.now()}`,
+        }));
+        const newUserMessage = {
+          id: `msg_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+          role: "user" as const,
+          content: promptText,
+          timestamp: new Date().toISOString(),
+        };
+        const allMessages = [...existingMessages, newUserMessage];
+
         void (async () => {
           try {
-            const body: Record<string, string | number | undefined> = {
-              prompt: promptText,
+            // Build request body with full message history for multi-turn chat
+            const body: Record<string, unknown> = {
+              messages: allMessages,
             };
             const systemText = (cell.system ?? "").trim();
             if (systemText) {
@@ -2089,7 +2104,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
             updateNotebookCell(
               id,
               (current) => {
-                if (current.type !== "ai") {
+                if (!isAiCell(current)) {
                   return current;
                 }
                 return {
@@ -2098,7 +2113,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
                     text: "",
                     timestamp: new Date().toISOString(),
                   },
-                } as AiCell;
+                };
               },
               { persist: false, touch: true }
             );
@@ -2130,7 +2145,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
               updateNotebookCell(
                 id,
                 (current) => {
-                  if (current.type !== "ai") {
+                  if (!isAiCell(current)) {
                     return current;
                   }
                   return {
@@ -2139,147 +2154,123 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
                       error: errorMessage,
                       timestamp: new Date().toISOString(),
                     },
-                  } as AiCell;
+                  };
                 },
                 { persist: true }
               );
               return;
             }
 
-            const reader = response.body?.getReader();
-            if (!reader) {
+            // Read the text stream from the response
+            if (!response.body) {
               throw new Error(
                 "This browser does not support streaming responses."
               );
             }
 
+            const reader = response.body.getReader();
             const decoder = new TextDecoder();
-            let buffer = "";
+            let usageData:
+              | {
+                  promptTokens?: number;
+                  completionTokens?: number;
+                  totalTokens?: number;
+                }
+              | undefined;
+            let finishReason: string | undefined;
+            let modelUsed: string | undefined;
 
             while (true) {
-              const { value, done } = await reader.read();
-              if (done) {
-                break;
-              }
+              const { done, value } = await reader.read();
+              if (done) break;
 
-              buffer += decoder.decode(value, { stream: true });
-              const lines = buffer.split("\n");
-              buffer = lines.pop() ?? "";
+              const chunk = decoder.decode(value, { stream: true });
 
-              for (const line of lines) {
-                if (!line.trim()) {
-                  continue;
+              // Check for metadata marker at the end of stream
+              if (chunk.includes("__METADATA__:")) {
+                const parts = chunk.split("__METADATA__:");
+                if (parts[0]) {
+                  accumulatedText += parts[0];
                 }
-                try {
-                  const parsed = JSON.parse(line) as
-                    | { type: "chunk"; text: string }
-                    | {
-                        type: "done";
-                        metadata: {
-                          text?: string;
-                          model?: string;
-                          finishReason?: string;
-                          usage?: {
-                            inputTokens?: number;
-                            outputTokens?: number;
-                            totalTokens?: number;
-                          };
-                          costUsd?: number;
-                          timestamp?: string;
-                          raw?: unknown;
-                        };
-                      }
-                    | { type: "error"; error: string };
-
-                  if (parsed.type === "chunk") {
-                    accumulatedText += parsed.text;
-                    updateNotebookCell(
-                      id,
-                      (current) => {
-                        if (current.type !== "ai") {
-                          return current;
-                        }
-                        return {
-                          ...current,
-                          response: {
-                            text: accumulatedText,
-                            timestamp: new Date().toISOString(),
-                          },
-                        } as AiCell;
-                      },
-                      { persist: false, touch: true }
-                    );
-                  } else if (parsed.type === "done") {
-                    const metadata = parsed.metadata;
-                    const finalText = metadata.text?.trim() || accumulatedText;
-                    updateNotebookCell(
-                      id,
-                      (current) => {
-                        if (current.type !== "ai") {
-                          return current;
-                        }
-                        return {
-                          ...current,
-                          response: {
-                            text: finalText,
-                            model: metadata.model ?? current.model,
-                            finishReason: metadata.finishReason,
-                            usage: metadata.usage,
-                            costUsd: metadata.costUsd,
-                            timestamp:
-                              metadata.timestamp ?? new Date().toISOString(),
-                            raw: metadata.raw,
-                          },
-                        } as AiCell;
-                      },
-                      { persist: true }
-                    );
-                  } else if (parsed.type === "error") {
-                    throw new Error(parsed.error);
+                if (parts[1]) {
+                  try {
+                    const metadata = JSON.parse(parts[1].trim());
+                    if (metadata.__metadata) {
+                      usageData = metadata.usage;
+                      modelUsed = metadata.model;
+                      finishReason = metadata.finishReason;
+                    }
+                  } catch {
+                    // Ignore metadata parsing errors
                   }
-                } catch (parseError) {
-                  console.warn(
-                    "Failed to parse streaming line:",
-                    line,
-                    parseError
-                  );
                 }
+              } else {
+                accumulatedText += chunk;
               }
+
+              updateNotebookCell(
+                id,
+                (current) => {
+                  if (!isAiCell(current)) {
+                    return current;
+                  }
+                  return {
+                    ...current,
+                    response: {
+                      text: accumulatedText,
+                      timestamp: new Date().toISOString(),
+                      ...(usageData && {
+                        usage: {
+                          inputTokens: usageData.promptTokens,
+                          outputTokens: usageData.completionTokens,
+                          totalTokens: usageData.totalTokens,
+                        },
+                      }),
+                      ...(modelUsed && { model: modelUsed }),
+                      ...(finishReason && { finishReason }),
+                    },
+                  };
+                },
+                { persist: false, touch: true }
+              );
             }
 
-            if (buffer.trim()) {
-              try {
-                const parsed = JSON.parse(buffer);
-                if (parsed.type === "done") {
-                  const metadata = parsed.metadata;
-                  const finalText = metadata.text?.trim() || accumulatedText;
-                  updateNotebookCell(
-                    id,
-                    (current) => {
-                      if (current.type !== "ai") {
-                        return current;
-                      }
-                      return {
-                        ...current,
-                        response: {
-                          text: finalText,
-                          model: metadata.model ?? current.model,
-                          finishReason: metadata.finishReason,
-                          usage: metadata.usage,
-                          costUsd: metadata.costUsd,
-                          timestamp:
-                            metadata.timestamp ?? new Date().toISOString(),
-                          raw: metadata.raw,
-                        },
-                      } as AiCell;
-                    },
-                    { persist: true }
-                  );
+            // Stream completed - add assistant response to message history
+            const assistantMessage = {
+              id: `msg_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+              role: "assistant" as const,
+              content: accumulatedText,
+              timestamp: new Date().toISOString(),
+            };
+            const updatedMessages = [...allMessages, assistantMessage];
+
+            updateNotebookCell(
+              id,
+              (current) => {
+                if (!isAiCell(current)) {
+                  return current;
                 }
-              } catch {
-                // ignore parse errors for trailing buffer
-              }
-            }
+                return {
+                  ...current,
+                  messages: updatedMessages,
+                  prompt: "", // Clear prompt after sending
+                  response: {
+                    text: accumulatedText,
+                    timestamp: new Date().toISOString(),
+                    ...(usageData && {
+                      usage: {
+                        inputTokens: usageData.promptTokens,
+                        outputTokens: usageData.completionTokens,
+                        totalTokens: usageData.totalTokens,
+                      },
+                    }),
+                    ...(modelUsed && { model: modelUsed }),
+                    ...(finishReason && { finishReason }),
+                  },
+                };
+              },
+              { persist: true }
+            );
           } catch (error) {
             const message =
               error instanceof Error ? error.message : "Failed to run AI cell";
@@ -2287,7 +2278,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
               updateNotebookCell(
                 id,
                 (current) => {
-                  if (current.type !== "ai") {
+                  if (!isAiCell(current)) {
                     return current;
                   }
                   return {
@@ -2297,7 +2288,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
                       error: "Generation cancelled.",
                       timestamp: new Date().toISOString(),
                     },
-                  } as AiCell;
+                  };
                 },
                 { persist: true }
               );
@@ -2307,7 +2298,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
             updateNotebookCell(
               id,
               (current) => {
-                if (current.type !== "ai") {
+                if (!isAiCell(current)) {
                   return current;
                 }
                 return {
@@ -2316,7 +2307,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
                     error: message,
                     timestamp: new Date().toISOString(),
                   },
-                } as AiCell;
+                };
               },
               { persist: true }
             );
@@ -2333,7 +2324,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         return;
       }
 
-      if (cell.type === "sql") {
+      if (isSqlCell(cell)) {
         const connectionId = cell.connectionId?.trim();
         if (!connectionId) {
           setActionError(
@@ -2451,7 +2442,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         return;
       }
 
-      if (cell.type === "http") {
+      if (isHttpCell(cell)) {
         const normalizeAssignment = (value: string | undefined | null) => {
           const trimmed = value?.trim() ?? "";
           return trimmed.length > 0 ? trimmed : undefined;
@@ -2583,7 +2574,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         return;
       }
 
-      if (cell.type !== "code") {
+      if (!isCodeCell(cell)) {
         return;
       }
 
@@ -2598,7 +2589,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
       updateNotebookCell(
         id,
         (current) => {
-          if (current.type !== "code") return current;
+          if (!isCodeCell(current)) return current;
           return {
             ...current,
             outputs: [],
@@ -2632,10 +2623,8 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
       notebook,
       runtimeGlobals,
       runningCellId,
-      aiAvailable,
       sessionId,
       saveNotebookNow,
-      terminalCellsAvailable,
       updateNotebook,
       updateNotebookCell,
     ]
@@ -2783,14 +2772,14 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
       (current) => ({
         ...current,
         cells: current.cells.map((cell) => {
-          if (cell.type !== "markdown") return cell;
-          const ui = ((cell.metadata as { ui?: { edit?: boolean } }).ui ??
-            {}) as {
+          if (!isMarkdownCell(cell)) return cell;
+          const metadata = cell.metadata ?? {};
+          const ui = ((metadata as { ui?: { edit?: boolean } }).ui ?? {}) as {
             edit?: boolean;
           };
           return {
             ...cell,
-            metadata: { ...cell.metadata, ui: { ...ui, edit: false } },
+            metadata: { ...metadata, ui: { ...ui, edit: false } },
           };
         }),
       }),
@@ -2799,10 +2788,10 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
 
     notebook.cells.forEach((cell) => {
       if (
-        cell.type === "code" ||
-        cell.type === "http" ||
-        cell.type === "sql" ||
-        cell.type === "plot"
+        isCodeCell(cell) ||
+        isHttpCell(cell) ||
+        isSqlCell(cell) ||
+        isPlotCell(cell)
       ) {
         handleRunCell(cell.id);
       }
@@ -2866,10 +2855,10 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     updateNotebook((current) => ({
       ...current,
       cells: current.cells.map((cell) => {
-        if (cell.type !== "code") return cell;
-        const display = ((
-          cell.metadata as { display?: Record<string, unknown> }
-        ).display ?? {}) as Record<string, unknown>;
+        if (!isCodeCell(cell)) return cell;
+        const metadata = cell.metadata ?? {};
+        const display = ((metadata as { display?: Record<string, unknown> })
+          .display ?? {}) as Record<string, unknown>;
         // Remove execCount from the visual metadata on restart
         const restDisplay = { ...(display as Record<string, unknown>) };
         delete (restDisplay as Record<string, unknown>).execCount;
@@ -2877,7 +2866,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
           ...cell,
           outputs: [],
           execution: undefined,
-          metadata: { ...cell.metadata, display: { ...restDisplay } },
+          metadata: { ...metadata, display: { ...restDisplay } },
         };
       }),
     }));
@@ -2921,16 +2910,19 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
     updateNotebook((current) => ({
       ...current,
       cells: current.cells.map((cell) => {
-        if (cell.type === "code") {
+        if (isCodeCell(cell)) {
           return { ...cell, outputs: [], execution: undefined };
         }
-        if (cell.type === "http") {
+        if (isHttpCell(cell)) {
           const { response: _response, ...rest } = cell;
           return rest;
         }
-        if (cell.type === "sql") {
+        if (isSqlCell(cell)) {
           const { result: _result, ...rest } = cell;
           return rest;
+        }
+        if (isAiCell(cell)) {
+          return { ...cell, response: undefined, messages: [] };
         }
         return cell;
       }),
@@ -3142,7 +3134,7 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         }
         const nextConnections = existing.filter((conn) => conn.id !== id);
         const nextCells = current.cells.map((cell) => {
-          if (cell.type === "sql" && cell.connectionId === id) {
+          if (isSqlCell(cell) && cell.connectionId === id) {
             return { ...cell, connectionId: undefined };
           }
           return cell;
@@ -3452,14 +3444,19 @@ const NotebookView = ({ initialNotebookId }: NotebookViewProps) => {
         runQueue={runQueue}
         activeCellId={activeCellId}
         themeMode={theme}
-        aiEnabled={aiAvailable}
-        terminalCellsEnabled={terminalCellsAvailable}
         readOnly={!canEditNotebook}
         readOnlyMessage={readOnlyMessage}
         pendingTerminalIds={pendingTerminalIds}
         depBusy={depBusy}
         depError={depError}
         depOutputs={depOutputs}
+        aiAvailable={aiAvailable}
+        userEmail={currentUser?.email ?? undefined}
+        userAvatarUrl={
+          currentUser?.email
+            ? gravatarUrlForEmail(currentUser.email, 96) || undefined
+            : undefined
+        }
         onCellChange={handleCellChange}
         onDeleteCell={handleDeleteCell}
         onRunCell={handleRunCell}

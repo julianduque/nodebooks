@@ -1,0 +1,203 @@
+:root {
+  --brand-green: #00b86b;
+  --radius: 0.65rem;
+
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.141 0.005 285.823);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.141 0.005 285.823);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.141 0.005 285.823);
+  --primary: color-mix(in oklch, var(--brand-green) 88%, black);
+  --primary-foreground: #ffffff;
+  --secondary: oklch(0.967 0.001 286.375);
+  --secondary-foreground: oklch(0.21 0.006 285.885);
+  --muted: oklch(0.967 0.001 286.375);
+  --muted-foreground: oklch(0.552 0.016 285.938);
+  --accent: oklch(0.967 0.001 286.375);
+  --accent-foreground: oklch(0.21 0.006 285.885);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.92 0.004 286.32);
+  --input: oklch(0.92 0.004 286.32);
+  --ring: color-mix(in oklch, var(--brand-green) 70%, black);
+
+  --chart-1: oklch(0.646 0.222 41.116);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.398 0.07 227.392);
+  --chart-4: oklch(0.828 0.189 84.429);
+  --chart-5: oklch(0.769 0.188 70.08);
+
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.141 0.005 285.823);
+  --sidebar-primary: color-mix(in oklch, var(--brand-green) 88%, black);
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: oklch(0.967 0.001 286.375);
+  --sidebar-accent-foreground: oklch(0.21 0.006 285.885);
+  --sidebar-border: oklch(0.92 0.004 286.32);
+  --sidebar-ring: color-mix(in oklch, var(--brand-green) 70%, black);
+
+  --hljs-background: #f8fafc;
+  --hljs-foreground: #0f172a;
+  --hljs-muted: #64748b;
+  --hljs-keyword: #1d4ed8;
+  --hljs-string: #15803d;
+  --hljs-number: #b45309;
+  --hljs-title: #0ea5e9;
+  --hljs-attribute: #9333ea;
+  --hljs-meta: #0c4a6e;
+  --hljs-addition: #166534;
+  --hljs-deletion: #b91c1c;
+  --code-surface: color-mix(in oklch, var(--foreground) 6%, var(--background));
+  --code-border: color-mix(in oklch, var(--border) 85%, transparent);
+  --chat-user-surface: color-mix(in oklch, var(--muted) 55%, var(--background));
+  --chat-user-border: color-mix(in oklch, var(--border) 85%, transparent);
+  --chat-user-foreground: color-mix(
+    in oklch,
+    var(--foreground) 92%,
+    var(--muted-foreground)
+  );
+  --chat-assistant-surface: color-mix(
+    in oklch,
+    var(--card) 90%,
+    var(--background)
+  );
+  --chat-assistant-border: color-mix(in oklch, var(--border) 80%, transparent);
+  --chat-assistant-foreground: color-mix(
+    in oklch,
+    var(--foreground) 96%,
+    var(--muted-foreground)
+  );
+
+  /* Neutral scale override so legacy slate utilities follow the theme */
+  --color-slate-50: color-mix(
+    in oklch,
+    var(--background) 95%,
+    var(--foreground)
+  );
+  --color-slate-100: color-mix(
+    in oklch,
+    var(--background) 90%,
+    var(--foreground)
+  );
+  --color-slate-200: color-mix(
+    in oklch,
+    var(--background) 80%,
+    var(--foreground)
+  );
+  --color-slate-300: color-mix(in oklch, var(--border) 75%, var(--foreground));
+  --color-slate-400: color-mix(
+    in oklch,
+    var(--muted-foreground) 85%,
+    var(--foreground)
+  );
+  --color-slate-500: color-mix(
+    in oklch,
+    var(--muted-foreground) 100%,
+    var(--foreground)
+  );
+  --color-slate-600: color-mix(
+    in oklch,
+    var(--foreground) 70%,
+    var(--muted-foreground)
+  );
+  --color-slate-700: color-mix(in oklch, var(--foreground) 82%, black);
+  --color-slate-800: color-mix(in oklch, var(--foreground) 88%, black);
+  --color-slate-900: color-mix(in oklch, var(--foreground) 94%, black);
+  --color-slate-950: color-mix(in oklch, var(--foreground) 98%, black);
+}
+
+.dark {
+  --background: oklch(0.141 0.005 285.823);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.21 0.006 285.885);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.21 0.006 285.885);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: color-mix(in oklch, var(--brand-green) 88%, black);
+  --primary-foreground: #ffffff;
+  --secondary: oklch(0.274 0.006 286.033);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.274 0.006 286.033);
+  --muted-foreground: oklch(0.705 0.015 286.067);
+  --accent: oklch(0.274 0.006 286.033);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: #334155;
+  --input: #475569;
+  --ring: color-mix(in oklch, var(--brand-green) 65%, black);
+
+  --chart-1: oklch(0.488 0.243 264.376);
+  --chart-2: color-mix(in oklch, var(--brand-green) 72%, white);
+  --chart-3: oklch(0.769 0.188 70.08);
+  --chart-4: oklch(0.627 0.265 303.9);
+  --chart-5: oklch(0.645 0.246 16.439);
+
+  --sidebar: oklch(0.21 0.006 285.885);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: color-mix(in oklch, var(--brand-green) 88%, black);
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: oklch(0.274 0.006 286.033);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: color-mix(in oklch, var(--brand-green) 65%, black);
+
+  --hljs-background: #0f172a;
+  --hljs-foreground: #e2e8f0;
+  --hljs-muted: #94a3b8;
+  --hljs-keyword: #93c5fd;
+  --hljs-string: #86efac;
+  --hljs-number: #f59e0b;
+  --hljs-title: #38bdf8;
+  --hljs-attribute: #c084fc;
+  --hljs-meta: #38bdf8;
+  --hljs-addition: #4ade80;
+  --hljs-deletion: #f87171;
+  --code-surface: color-mix(in oklch, var(--background) 55%, transparent);
+  --code-border: color-mix(in oklch, var(--border) 70%, transparent);
+  --chat-user-surface: color-mix(in oklch, var(--muted) 28%, transparent);
+  --chat-user-border: color-mix(in oklch, var(--border) 65%, transparent);
+  --chat-user-foreground: color-mix(in oklch, var(--foreground) 96%, white);
+  --chat-assistant-surface: color-mix(in oklch, var(--card) 45%, transparent);
+  --chat-assistant-border: color-mix(in oklch, var(--border) 65%, transparent);
+  --chat-assistant-foreground: color-mix(
+    in oklch,
+    var(--foreground) 92%,
+    white
+  );
+
+  --color-slate-50: color-mix(
+    in oklch,
+    var(--background) 65%,
+    var(--foreground)
+  );
+  --color-slate-100: color-mix(
+    in oklch,
+    var(--background) 60%,
+    var(--foreground)
+  );
+  --color-slate-200: color-mix(
+    in oklch,
+    var(--background) 55%,
+    var(--foreground)
+  );
+  --color-slate-300: color-mix(
+    in oklch,
+    var(--background) 50%,
+    var(--foreground)
+  );
+  --color-slate-400: color-mix(
+    in oklch,
+    var(--background) 40%,
+    var(--foreground)
+  );
+  --color-slate-500: color-mix(
+    in oklch,
+    var(--foreground) 75%,
+    var(--background)
+  );
+  --color-slate-600: color-mix(in oklch, var(--foreground) 80%, black);
+  --color-slate-700: color-mix(in oklch, var(--foreground) 85%, black);
+  --color-slate-800: color-mix(in oklch, var(--foreground) 90%, black);
+  --color-slate-900: color-mix(in oklch, var(--foreground) 95%, black);
+  --color-slate-950: color-mix(in oklch, var(--foreground) 99%, black);
+}

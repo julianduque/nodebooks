@@ -2,7 +2,7 @@
 
 import React from "react";
 import type { UiPlotly } from "@nodebooks/notebook-schema";
-import { useComponentThemeMode } from "./utils";
+import { useComponentThemeMode } from "./utils.js";
 
 type PlotlyModule = {
   react: (
@@ -106,14 +106,11 @@ export const PlotlyChart: React.FC<PlotlyChartProps> = ({
 
   return (
     <div
-      className={`rounded-md border p-3 text-sm ${className ?? ""} ${
-        mode === "light"
-          ? "border-slate-200 bg-slate-100"
-          : "border-slate-800 bg-slate-900"
-      }`}
+      data-theme-mode={mode}
+      className={`rounded-xl border border-border bg-card p-3 text-sm text-card-foreground shadow-sm ${className ?? ""}`}
     >
       {error ? (
-        <div className="text-red-500">
+        <div className="text-[color:var(--destructive)]">
           Failed to render Plotly chart: {error}
         </div>
       ) : (

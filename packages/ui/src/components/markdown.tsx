@@ -1,14 +1,18 @@
 "use client";
 import React from "react";
-import type { ThemeMode } from "./theme";
+import type { ThemeMode } from "./theme.js";
 import type { UiMarkdown } from "@nodebooks/notebook-schema";
 import DOMPurify from "dompurify";
 import { Marked, Renderer, type Tokens } from "marked";
 import markedKatex from "marked-katex-extension";
 import type mermaid from "mermaid";
 import type { MermaidConfig } from "mermaid";
-import { escapeHtml, highlightCode, normalizeLanguage } from "../lib/highlight";
-import { useComponentThemeMode } from "./utils";
+import {
+  escapeHtml,
+  highlightCode,
+  normalizeLanguage,
+} from "../lib/highlight.js";
+import { useComponentThemeMode } from "./utils.js";
 
 const markdownRenderer = new Marked({
   gfm: true,
@@ -373,23 +377,9 @@ export const Markdown: React.FC<MarkdownProps> = ({
   }, [cacheRef, hydrated, mode, renderedHtml]);
 
   return (
-    <div className={`relative ${className ?? ""}`}>
+    <div className={`relative ${className ?? ""}`} data-theme-mode={mode}>
       <div
-        className={`markdown-preview rounded-md border p-2 ${
-          mode === "light"
-            ? "bg-slate-100 text-slate-800 border-slate-200"
-            : "bg-slate-900 text-slate-200 border-slate-800"
-        }`}
-        style={
-          mode === "dark"
-            ? ({
-                "--foreground": "#e5e7eb",
-                "--muted": "#1f2937",
-                "--muted-foreground": "#cbd5e1",
-                "--border": "#334155",
-              } as React.CSSProperties & Record<`--${string}`, string>)
-            : undefined
-        }
+        className="markdown-preview p-2 text-foreground"
         ref={previewRef}
         dangerouslySetInnerHTML={{ __html: renderedHtml }}
       />

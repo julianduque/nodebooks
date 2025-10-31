@@ -2,8 +2,8 @@
 
 import { useCallback, useMemo, useState } from "react";
 import Image from "next/image";
-import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import { Button } from "@nodebooks/client-ui/components/ui";
+import { cn } from "@nodebooks/client-ui/lib/utils";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import {
   useAttachmentUploader,
@@ -11,7 +11,7 @@ import {
   buildAttachmentContentUrl,
   type AttachmentMetadata,
 } from "@/components/notebook/attachment-utils";
-import MediaDialog from "@/components/ui/media-dialog";
+import { MediaDialog } from "@nodebooks/client-ui/components/ui";
 import {
   FileIcon,
   ImageIcon,
@@ -339,7 +339,7 @@ const AttachmentRow = ({
                 type="button"
                 variant="ghost"
                 size="icon"
-                className="h-7 w-7 text-rose-600 hover:text-rose-600"
+                className="h-7 w-7 text-destructive hover:text-destructive/90"
                 onClick={handleDelete}
                 aria-label="Delete attachment"
               >

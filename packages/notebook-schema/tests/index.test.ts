@@ -5,12 +5,6 @@ import {
   createCodeCell,
   createEmptyNotebook,
   createMarkdownCell,
-  createTerminalCell,
-  createCommandCell,
-  createHttpCell,
-  createSqlCell,
-  createPlotCell,
-  createAiCell,
 } from "../src/index.js";
 
 describe("notebook schema", () => {
@@ -23,28 +17,10 @@ describe("notebook schema", () => {
   it("constructs cells with unique identifiers", () => {
     const code = createCodeCell({ source: "console.log('hello');" });
     const markdown = createMarkdownCell({ source: "# Title" });
-    const terminal = createTerminalCell();
-    const command = createCommandCell({ command: "echo 'hi'" });
-    const http = createHttpCell();
-    const sql = createSqlCell({ query: "select 1" });
-    const plot = createPlotCell({ chartType: "bar" });
-    const ai = createAiCell({ prompt: "Hello" });
+
     expect(code.id).not.toEqual(markdown.id);
     expect(code.type).toBe("code");
     expect(markdown.type).toBe("markdown");
-    expect(terminal.type).toBe("terminal");
-    expect(terminal.buffer).toBe("");
-    expect(command.type).toBe("command");
-    expect(command.command).toBe("echo 'hi'");
-    expect(http.type).toBe("http");
-    expect(http.request.method).toBe("GET");
-    expect(sql.type).toBe("sql");
-    expect(sql.query).toBe("select 1");
-    expect(plot.type).toBe("plot");
-    expect(plot.chartType).toBe("bar");
-    expect(Array.isArray(plot.bindings.traces)).toBe(true);
-    expect(ai.type).toBe("ai");
-    expect(ai.prompt).toBe("Hello");
   });
 
   it("validates kernel protocol messages", () => {

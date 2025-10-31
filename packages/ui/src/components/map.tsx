@@ -13,10 +13,11 @@ import type {
   Marker,
   NavigationControl,
   Popup,
+  LngLatLike,
   StyleSpecification,
 } from "maplibre-gl";
 import type { UiMap, UiGeoJson } from "@nodebooks/notebook-schema";
-import { useComponentThemeMode } from "./utils";
+import { useComponentThemeMode } from "./utils.js";
 
 type MaplibreModule = {
   Map: new (...args: unknown[]) => MapInstance;
@@ -245,7 +246,7 @@ const paddingToOptions = (
 ) => {
   if (typeof padding === "number") return padding;
   if (Array.isArray(padding)) {
-    const [top, right, bottom, left] = padding;
+    const [top = 0, right = 0, bottom = 0, left = 0] = padding;
     return { top, right, bottom, left } as const;
   }
   return 24;
@@ -297,9 +298,12 @@ const useBaseMap = (
         );
         createdMap.on("load", () => {
           onLoad(createdMap, maplibre);
-          if (options.bounds) {
-            createdMap.fitBounds([options.bounds.sw, options.bounds.ne], {
-              padding: paddingToOptions(options.bounds.padding),
+          const bounds = options.bounds;
+          if (bounds) {
+            const sw: LngLatLike = [bounds.sw[0], bounds.sw[1]];
+            const ne: LngLatLike = [bounds.ne[0], bounds.ne[1]];
+            createdMap.fitBounds([sw, ne] as [LngLatLike, LngLatLike], {
+              padding: paddingToOptions(bounds.padding),
             });
           }
           createdMap.resize();
@@ -362,8 +366,28 @@ export const MapView: React.FC<MapProps> = ({
     };
   }, []);
 
+  const normalizedBounds = bounds
+    ? {
+        ...bounds,
+        sw: [bounds.sw[0], bounds.sw[1]] as [number, number],
+        ne: [bounds.ne[0], bounds.ne[1]] as [number, number],
+      }
+    : undefined;
+
+  const normalizedCenterForMap = center
+    ? ([center[0], center[1]] as [number, number])
+    : undefined;
+
   const { containerRef, error } = useBaseMap(
-    { center, zoom, pitch, bearing, bounds, style, attribution },
+    {
+      center: normalizedCenterForMap,
+      zoom,
+      pitch,
+      bearing,
+      bounds: normalizedBounds,
+      style,
+      attribution,
+    },
     (map, lib) => {
       markerInstances.current.forEach((marker) => marker.remove());
       markerInstances.current = [];
@@ -375,8 +399,10 @@ export const MapView: React.FC<MapProps> = ({
           const popup = marker.popup
             ? new lib.Popup({ offset: 12 }).setHTML(marker.popup)
             : undefined;
+          const [lng = 0, lat = 0] = marker.coordinates;
+          const coordinate: LngLatLike = [lng, lat];
           const instance = new lib.Marker({ color })
-            .setLngLat(marker.coordinates)
+            .setLngLat(coordinate)
             .setPopup(popup ?? undefined)
             .addTo(map);
           markerInstances.current.push(instance);
@@ -456,14 +482,13 @@ export const MapView: React.FC<MapProps> = ({
 
   return (
     <div
-      className={`rounded-md border p-3 text-sm ${className ?? ""} ${
-        mode === "light"
-          ? "border-slate-200 bg-slate-100"
-          : "border-slate-800 bg-slate-900"
-      }`}
+      data-theme-mode={mode}
+      className={`rounded-xl border border-border bg-card p-3 text-sm text-card-foreground shadow-sm ${className ?? ""}`}
     >
       {error ? (
-        <div className="text-red-500">Failed to render map: {error}</div>
+        <div className="text-[color:var(--destructive)]">
+          Failed to render map: {error}
+        </div>
       ) : (
         <div
           ref={containerRef}
@@ -471,7 +496,7 @@ export const MapView: React.FC<MapProps> = ({
           style={{ height: mapHeight }}
         />
       )}
-      <div className="mt-2 text-[11px] text-slate-500">
+      <div className="mt-2 text-[11px] text-muted-foreground">
         {attribution ?? "Map data © OpenStreetMap contributors"}
       </div>
     </div>
@@ -502,9 +527,13 @@ export const GeoJsonMap: React.FC<GeoJsonProps> = ({
     };
   }, []);
 
+  const normalizedMapCenter = map?.center
+    ? ([map.center[0], map.center[1]] as [number, number])
+    : undefined;
+
   const { containerRef, error } = useBaseMap(
     {
-      center: map?.center,
+      center: normalizedMapCenter,
       zoom: map?.zoom,
       style: map?.style,
       attribution: map?.attribution,
@@ -559,8 +588,13 @@ export const GeoJsonMap: React.FC<GeoJsonProps> = ({
 
       if (showMarkers) {
         fc.features.filter(isPointFeature).forEach((feature) => {
-          const coords = feature.geometry.coordinates;
-          const [lng, lat] = coords;
+          const coords = feature.geometry.coordinates as [
+            number | undefined,
+            number | undefined,
+          ];
+          const lng = Number(coords[0] ?? 0);
+          const lat = Number(coords[1] ?? 0);
+          const coordinate: LngLatLike = [lng, lat];
           const popupContent = feature.properties?.popup
             ? String(feature.properties.popup)
             : undefined;
@@ -570,7 +604,7 @@ export const GeoJsonMap: React.FC<GeoJsonProps> = ({
           const marker = new lib.Marker({
             color: mode === "light" ? "#0f172a" : "#f8fafc",
           })
-            .setLngLat([lng, lat])
+            .setLngLat(coordinate)
             .setPopup(popup ?? undefined)
             .addTo(mapInstance);
           markerInstances.current.push(marker);
@@ -597,14 +631,11 @@ export const GeoJsonMap: React.FC<GeoJsonProps> = ({
 
   return (
     <div
-      className={`rounded-md border p-3 text-sm ${className ?? ""} ${
-        mode === "light"
-          ? "border-slate-200 bg-slate-100"
-          : "border-slate-800 bg-slate-900"
-      }`}
+      data-theme-mode={mode}
+      className={`rounded-xl border border-border bg-card p-3 text-sm text-card-foreground shadow-sm ${className ?? ""}`}
     >
       {error ? (
-        <div className="text-red-500">
+        <div className="text-[color:var(--destructive)]">
           Failed to render GeoJSON layer: {error}
         </div>
       ) : (
@@ -614,7 +645,7 @@ export const GeoJsonMap: React.FC<GeoJsonProps> = ({
           style={{ height: mapHeight }}
         />
       )}
-      <div className="mt-2 text-[11px] text-slate-500">
+      <div className="mt-2 text-[11px] text-muted-foreground">
         {map?.attribution ?? "Map data © OpenStreetMap contributors"}
       </div>
     </div>

@@ -5,6 +5,7 @@ import type { Config as DomPurifyConfig } from "dompurify";
 import hljs from "highlight.js";
 import { Marked, Renderer, type Tokens } from "marked";
 import markedKatex from "marked-katex-extension";
+import type mermaid from "mermaid";
 import type { MermaidConfig } from "mermaid";
 
 import type { ThemeMode } from "@/components/theme-context";
@@ -322,6 +323,8 @@ const buildThemeVariables = (theme: ThemeMode): Record<string, string> => {
   };
 };
 
+type MermaidModule = { default: typeof mermaid };
+
 const createMermaidConfig = (theme: ThemeMode): MermaidConfig => {
   const themeVariables = buildThemeVariables(theme);
   return {
@@ -333,7 +336,7 @@ const createMermaidConfig = (theme: ThemeMode): MermaidConfig => {
 };
 
 export const loadMermaid = (() => {
-  let mermaidPromise: Promise<typeof import("mermaid")> | null = null;
+  let mermaidPromise: Promise<MermaidModule> | null = null;
   let currentTheme: ThemeMode | null = null;
   let currentConfigSignature: string | null = null;
 

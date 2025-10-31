@@ -1085,9 +1085,7 @@ export class PostgresInvitationStore implements InvitationStore {
   }
 }
 
-export class PostgresNotebookCollaboratorStore
-  implements NotebookCollaboratorStore
-{
+export class PostgresNotebookCollaboratorStore implements NotebookCollaboratorStore {
   constructor(private readonly notebooks: PostgresNotebookStore) {}
 
   private async getPool(): Promise<Pool> {
@@ -1479,9 +1477,7 @@ export class PostgresProjectStore implements ProjectStore {
   }
 }
 
-export class PostgresProjectCollaboratorStore
-  implements ProjectCollaboratorStore
-{
+export class PostgresProjectCollaboratorStore implements ProjectCollaboratorStore {
   constructor(private readonly notebooks: PostgresNotebookStore) {}
 
   private async getPool(): Promise<Pool> {

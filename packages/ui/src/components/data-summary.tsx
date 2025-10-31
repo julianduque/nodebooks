@@ -1,14 +1,16 @@
 "use client";
 import React from "react";
 import type { UiDataSummary } from "@nodebooks/notebook-schema";
-import { deriveColumns, renderCellValue, useComponentThemeMode } from "./utils";
+import {
+  deriveColumns,
+  renderCellValue,
+  useComponentThemeMode,
+} from "./utils.js";
 
 type DataSummaryProps = Omit<UiDataSummary, "ui"> & {
   className?: string;
   themeMode?: "light" | "dark";
 };
-
-// stat renderer moved inside component to honor theme
 
 export const DataSummary: React.FC<DataSummaryProps> = ({
   title,
@@ -20,108 +22,63 @@ export const DataSummary: React.FC<DataSummaryProps> = ({
   themeMode,
 }) => {
   const mode = useComponentThemeMode(themeMode);
-  const renderStat = (label: string, value: unknown) => {
-    if (typeof value === "number" || typeof value === "string") {
-      return (
-        <div
-          className={`rounded border px-2 py-1 ${
-            mode === "light" ? "border-slate-200 bg-slate-100" : "bg-slate-800"
-          }`}
-          style={
-            mode === "light" ? undefined : { borderColor: "var(--border)" }
-          }
-        >
-          <div
-            className={mode === "light" ? "text-slate-500" : "text-slate-400"}
-          >
-            {label}
-          </div>
-          <div className={mode === "light" ? "text-sky-700" : "text-slate-100"}>
-            {value}
-          </div>
-        </div>
-      );
-    }
-    return null;
-  };
   const sampleCols = React.useMemo(() => deriveColumns(sample ?? []), [sample]);
+  const statEntries = React.useMemo(
+    () => (stats ? Object.entries(stats) : []),
+    [stats]
+  );
+
+  const renderStat = (label: string, value: unknown) => {
+    if (typeof value !== "number" && typeof value !== "string") return null;
+    return (
+      <div className="rounded-lg border border-border bg-card/70 px-3 py-2 text-sm shadow-sm">
+        <div className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+          {label}
+        </div>
+        <div className="text-lg font-semibold text-card-foreground">
+          {value}
+        </div>
+      </div>
+    );
+  };
+
   return (
-    <div className={`relative ${className ?? ""}`}>
-      {title && (
-        <h3
-          className={`mb-2 text-lg font-semibold ${mode === "light" ? "text-slate-800" : "text-slate-100"}`}
-        >
+    <div className={`relative ${className ?? ""}`} data-theme-mode={mode}>
+      {title ? (
+        <h3 className="mb-2 text-lg font-semibold text-card-foreground">
           {title}
         </h3>
-      )}
+      ) : null}
       <div className="grid gap-4 md:grid-cols-2">
-        <div
-          className={`rounded border ${mode === "light" ? "border-slate-200 bg-slate-100" : "border-slate-800 bg-slate-900"}`}
-        >
-          <div
-            className={`border-b px-3 py-2 text-sm font-semibold ${mode === "light" ? "border-slate-200 text-slate-700" : "border-slate-700 text-slate-200"}`}
-          >
+        <div className="rounded-xl border border-border bg-card shadow-sm">
+          <div className="border-b border-border/60 px-3 py-2 text-sm font-semibold text-muted-foreground">
             Schema
           </div>
           <div className="max-h-64 overflow-auto p-2">
             {schema && schema.length > 0 ? (
               <table className="min-w-full border-collapse">
                 <thead>
-                  <tr style={{ background: "var(--muted)" }}>
-                    <th
-                      className={`px-3 py-2 text-left text-xs font-semibold border ${mode === "light" ? "text-slate-700" : "text-slate-100"}`}
-                      style={{ borderColor: "var(--border)" }}
-                    >
-                      Name
-                    </th>
-                    <th
-                      className={`px-3 py-2 text-left text-xs font-semibold border ${mode === "light" ? "text-slate-700" : "text-slate-100"}`}
-                      style={{ borderColor: "var(--border)" }}
-                    >
-                      Type
-                    </th>
-                    <th
-                      className={`px-3 py-2 text-left text-xs font-semibold border ${mode === "light" ? "text-slate-700" : "text-slate-100"}`}
-                      style={{ borderColor: "var(--border)" }}
-                    >
-                      Nullable
-                    </th>
+                  <tr className="bg-muted/60 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    <th className="px-3 py-2 text-left">Name</th>
+                    <th className="px-3 py-2 text-left">Type</th>
+                    <th className="px-3 py-2 text-left">Nullable</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {schema.map((f) => (
+                  {schema.map((f, index) => (
                     <tr
                       key={f.name}
                       className={
-                        mode === "light"
-                          ? "odd:bg-slate-50"
-                          : "odd:bg-slate-800/60"
+                        index % 2 === 0 ? "bg-background" : "bg-muted/40"
                       }
                     >
-                      <td
-                        className={`px-3 py-2 text-sm border ${
-                          mode === "light"
-                            ? "text-emerald-700"
-                            : "text-slate-100 font-medium"
-                        }`}
-                        style={{ borderColor: "var(--border)" }}
-                      >
+                      <td className="border border-border/60 px-3 py-2 text-sm text-primary">
                         {f.name}
                       </td>
-                      <td
-                        className={`px-3 py-2 text-sm border ${
-                          mode === "light"
-                            ? "text-sky-700"
-                            : "text-slate-100 font-medium"
-                        }`}
-                        style={{ borderColor: "var(--border)" }}
-                      >
+                      <td className="border border-border/60 px-3 py-2 text-sm text-foreground">
                         {f.type}
                       </td>
-                      <td
-                        className={`px-3 py-2 text-sm border ${mode === "light" ? "text-slate-700" : "text-slate-200"}`}
-                        style={{ borderColor: "var(--border)" }}
-                      >
+                      <td className="border border-border/60 px-3 py-2 text-sm text-muted-foreground">
                         {String(f.nullable ?? true)}
                       </td>
                     </tr>
@@ -129,152 +86,94 @@ export const DataSummary: React.FC<DataSummaryProps> = ({
                 </tbody>
               </table>
             ) : (
-              <div
-                className={`px-3 py-2 text-sm ${mode === "light" ? "text-slate-500" : "text-slate-400"}`}
-              >
+              <div className="px-3 py-2 text-sm text-muted-foreground">
                 No schema provided
               </div>
             )}
           </div>
         </div>
-
-        <div
-          className={`rounded border ${mode === "light" ? "border-slate-200 bg-slate-100" : "border-slate-800 bg-slate-900"}`}
-        >
-          <div
-            className={`border-b px-3 py-2 text-sm font-semibold ${mode === "light" ? "border-slate-200 text-slate-700" : "border-slate-700 text-slate-200"}`}
-          >
-            Field Stats
+        <div className="rounded-xl border border-border bg-card shadow-sm">
+          <div className="border-b border-border/60 px-3 py-2 text-sm font-semibold text-muted-foreground">
+            Field stats
           </div>
-          <div className="max-h-64 overflow-auto p-2">
-            {stats && Object.keys(stats).length > 0 ? (
+          <div className="max-h-64 overflow-auto p-3">
+            {statEntries.length > 0 ? (
               <div className="space-y-3">
-                {Object.entries(stats).map(([name, s]) => (
+                {statEntries.map(([key, field]) => (
                   <div
-                    key={name}
-                    className={`rounded border ${mode === "light" ? "border-slate-200 bg-slate-100" : "border-slate-700 bg-slate-800"}`}
+                    key={key}
+                    className="rounded-lg border border-border bg-card/60"
                   >
-                    <div
-                      className={`border-b px-3 py-1 text-sm font-semibold ${mode === "light" ? "border-slate-200 text-slate-700" : "border-slate-700 text-slate-200"}`}
-                    >
-                      {name}
+                    <div className="border-b border-border/60 px-3 py-2 text-sm font-semibold text-card-foreground">
+                      {key}
                     </div>
-                    <div
-                      className={`grid grid-cols-2 gap-2 p-2 text-xs md:grid-cols-3 ${mode === "light" ? "text-slate-700" : "text-slate-300"}`}
-                    >
-                      {renderStat("count", s.count)}
-                      {renderStat("distinct", s.distinct)}
-                      {renderStat("nulls", s.nulls)}
-                      {renderStat("min", s.min)}
-                      {renderStat("max", s.max)}
-                      {renderStat("mean", s.mean)}
-                      {renderStat("median", s.median)}
-                      {renderStat("p25", s.p25)}
-                      {renderStat("p75", s.p75)}
-                      {renderStat("stddev", s.stddev)}
+                    <div className="grid grid-cols-2 gap-2 p-3 text-xs md:grid-cols-3">
+                      {renderStat("count", field.count)}
+                      {renderStat("distinct", field.distinct)}
+                      {renderStat("nulls", field.nulls)}
+                      {renderStat("min", field.min)}
+                      {renderStat("max", field.max)}
+                      {renderStat("mean", field.mean)}
+                      {renderStat("median", field.median)}
+                      {renderStat("p25", field.p25)}
+                      {renderStat("p75", field.p75)}
+                      {renderStat("stddev", field.stddev)}
                     </div>
                   </div>
                 ))}
               </div>
             ) : (
-              <div
-                className={`px-3 py-2 text-sm ${mode === "light" ? "text-slate-500" : "text-slate-400"}`}
-              >
+              <div className="text-sm text-muted-foreground">
                 No stats provided
               </div>
             )}
           </div>
         </div>
       </div>
-
-      <div
-        className={`mt-4 rounded border ${mode === "light" ? "border-slate-200 bg-slate-100" : "border-slate-800 bg-slate-900"}`}
-      >
-        <div
-          className={`border-b px-3 py-2 text-sm font-semibold ${mode === "light" ? "border-slate-200 text-slate-700" : "border-slate-700 text-slate-200"}`}
-        >
-          Sample Rows
+      {note ? (
+        <div className="mt-4 rounded-lg border border-dashed border-border/70 bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+          {note}
         </div>
-        <div className="max-h-64 overflow-auto">
-          {sample && sample.length > 0 ? (
+      ) : null}
+      {sample && sample.length > 0 ? (
+        <div className="mt-4 rounded-xl border border-border bg-card shadow-sm">
+          <div className="border-b border-border/60 px-3 py-2 text-sm font-semibold text-muted-foreground">
+            Sample rows
+          </div>
+          <div className="max-h-72 overflow-auto p-2">
             <table className="min-w-full border-collapse">
-              <thead style={{ background: "var(--muted)" }}>
-                <tr>
-                  {sampleCols.map(
-                    (c: {
-                      key: string;
-                      label?: string;
-                      align?: "left" | "center" | "right";
-                    }) => (
-                      <th
-                        key={c.key}
-                        className={`px-3 py-2 text-left text-xs font-semibold border ${mode === "light" ? "text-slate-700" : "text-slate-100"}`}
-                        style={{ borderColor: "var(--border)" }}
-                      >
-                        {c.label ?? c.key}
-                      </th>
-                    )
-                  )}
+              <thead>
+                <tr className="bg-muted/60 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  {sampleCols.map((col) => (
+                    <th key={col.key} className="px-3 py-2">
+                      {col.label ?? col.key}
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
-                {sample.map((r, i) => (
+                {sample.map((row, idx) => (
                   <tr
-                    key={i}
-                    className={
-                      mode === "light"
-                        ? "odd:bg-slate-50"
-                        : "odd:bg-slate-800/60"
-                    }
+                    key={idx}
+                    className={idx % 2 === 0 ? "bg-background" : "bg-muted/40"}
                   >
-                    {sampleCols.map(
-                      (c: {
-                        key: string;
-                        label?: string;
-                        align?: "left" | "center" | "right";
-                      }) => (
-                        <td
-                          key={c.key}
-                          className={`px-3 py-2 text-sm border ${mode === "light" ? "text-slate-700" : "text-slate-200"}`}
-                          style={{ borderColor: "var(--border)" }}
-                        >
-                          {renderCellValue(
-                            (r as Record<string, unknown>)[c.key],
-                            mode
-                          )}
-                        </td>
-                      )
-                    )}
+                    {sampleCols.map((col) => (
+                      <td
+                        key={col.key}
+                        className="border border-border/60 px-3 py-2 text-sm"
+                      >
+                        {renderCellValue(
+                          (row as Record<string, unknown>)[col.key]
+                        )}
+                      </td>
+                    ))}
                   </tr>
                 ))}
               </tbody>
             </table>
-          ) : (
-            <div
-              className={`px-3 py-2 text-sm ${mode === "light" ? "text-slate-500" : "text-slate-400"}`}
-            >
-              No sample rows
-            </div>
-          )}
+          </div>
         </div>
-      </div>
-
-      {note && (
-        <p
-          className={`mt-3 text-sm ${mode === "light" ? "text-slate-600" : "text-slate-300"}`}
-        >
-          <span
-            className={
-              mode === "light"
-                ? "font-semibold text-slate-800"
-                : "font-semibold text-slate-100"
-            }
-          >
-            Note:
-          </span>{" "}
-          {note}
-        </p>
-      )}
+      ) : null}
     </div>
   );
 };

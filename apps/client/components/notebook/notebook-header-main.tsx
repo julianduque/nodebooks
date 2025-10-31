@@ -1,6 +1,6 @@
 import type { KeyboardEvent, RefObject } from "react";
 
-import { Button } from "@/components/ui/button";
+import { Button } from "@nodebooks/client-ui/components/ui";
 import { Pencil } from "lucide-react";
 
 export interface NotebookHeaderMainProps {

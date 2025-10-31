@@ -10,18 +10,27 @@ import {
 import Image from "next/image";
 
 import AppShell from "@/components/app-shell";
-import { cn } from "@/components/lib/utils";
+import { cn } from "@nodebooks/client-ui/lib/utils";
 import { useTheme, type ThemeMode } from "@/components/theme-context";
-import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Separator } from "@/components/ui/separator";
-import { Switch } from "@/components/ui/switch";
-import LoadingOverlay from "@/components/ui/loading-overlay";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import ConfirmDialog from "@/components/ui/confirm";
+import {
+  AlertCallout,
+  Card,
+  CardContent,
+  Button,
+  Separator,
+  Switch,
+  LoadingOverlay,
+  Tabs,
+  TabsList,
+  TabsTrigger,
+  TabsContent,
+  ConfirmDialog,
+} from "@nodebooks/client-ui/components/ui";
+import { User, Cpu, Bot, Puzzle, Users } from "lucide-react";
 import { useCurrentUser } from "@/components/notebook/hooks/use-current-user";
 import type { SafeWorkspaceUser } from "@/components/notebook/types";
 import { gravatarUrlForEmail } from "@/lib/avatar";
+import PluginManager from "@/components/settings/plugin-manager";
 
 import { clientConfig } from "@nodebooks/config/client";
 const API_BASE_URL = clientConfig().apiBaseUrl;
@@ -42,7 +51,6 @@ interface SettingsPayload {
   theme: ThemeMode;
   kernelTimeoutMs: number;
   aiEnabled: boolean;
-  terminalCellsEnabled: boolean;
   ai: AiSettingsPayload;
 }
 
@@ -51,10 +59,9 @@ type SavingSection =
   | "kernel"
   | "ai"
   | "aiEnabled"
-  | "terminalCells"
   | "password"
   | null;
-type SettingsTab = "profile" | "runtime" | "ai" | "users";
+type SettingsTab = "profile" | "runtime" | "ai" | "plugins" | "users";
 type FeedbackState = {
   type: "success" | "error";
   message: string;
@@ -65,6 +72,7 @@ const TAB_LABELS: Record<SettingsTab, string> = {
   profile: "Profile",
   runtime: "Runtime",
   ai: "AI",
+  plugins: "Plugins",
   users: "Users",
 };
 
@@ -133,15 +141,10 @@ const parseSettings = (value: unknown): SettingsPayload | null => {
   const ai = parseAiSettings(record.ai);
   const aiEnabled =
     typeof record.aiEnabled === "boolean" ? record.aiEnabled : false;
-  const terminalCellsEnabled =
-    typeof record.terminalCellsEnabled === "boolean"
-      ? record.terminalCellsEnabled
-      : false;
   return {
     theme: record.theme,
     kernelTimeoutMs: record.kernelTimeoutMs,
     aiEnabled,
-    terminalCellsEnabled,
     ai,
   };
 };
@@ -249,9 +252,7 @@ const AiEnabledSection = ({
         <span
           className={cn(
             "text-xs font-medium",
-            enabled
-              ? "text-emerald-600 dark:text-emerald-400"
-              : "text-muted-foreground"
+            enabled ? "text-primary" : "text-muted-foreground"
           )}
         >
           {enabled ? "Enabled" : "Disabled"}
@@ -261,55 +262,6 @@ const AiEnabledSection = ({
           onCheckedChange={onToggle}
           disabled={saving}
           srLabel="AI assistant"
-        />
-      </div>
-    </div>
-  );
-};
-
-const TerminalCellsSection = ({
-  enabled,
-  onToggle,
-  saving,
-}: {
-  enabled: boolean;
-  onToggle: (value: boolean) => void;
-  saving: boolean;
-}) => {
-  return (
-    <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-      <div className="space-y-1">
-        <h3 className="text-sm font-semibold text-foreground">
-          Terminal cells
-        </h3>
-        <p className="text-sm text-muted-foreground">
-          {enabled
-            ? "Notebook authors can add Terminal and Command cells."
-            : "Keep disabled to hide Terminal and Command cells from notebooks."}
-        </p>
-        {enabled ? (
-          <p className="text-xs font-semibold text-amber-600 dark:text-amber-400">
-            Warning: Terminal sessions are not sandboxed and run as the
-            NodeBooks host user.
-          </p>
-        ) : null}
-      </div>
-      <div className="flex items-center gap-3">
-        <span
-          className={cn(
-            "text-xs font-medium",
-            enabled
-              ? "text-emerald-600 dark:text-emerald-400"
-              : "text-muted-foreground"
-          )}
-        >
-          {enabled ? "Enabled" : "Disabled"}
-        </span>
-        <Switch
-          checked={enabled}
-          onCheckedChange={onToggle}
-          disabled={saving}
-          srLabel="Terminal cells"
         />
       </div>
     </div>
@@ -365,7 +317,7 @@ const AiSection = ({
           onChange={(event) =>
             onProviderChange(event.target.value as AiProvider)
           }
-          className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm font-medium text-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-ring sm:w-64"
+          className="w-full appearance-none rounded-md border border-input bg-background px-3 py-2 text-sm font-medium text-foreground shadow-sm transition focus-visible:outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/70 focus-visible:ring-offset-0 disabled:cursor-not-allowed disabled:opacity-50 sm:w-64"
           aria-label="AI provider"
         >
           <option value="openai">OpenAI</option>
@@ -551,7 +503,6 @@ const SettingsPage = () => {
   const [themeValue, setThemeValue] = useState<ThemeMode>(theme);
   const [kernelTimeout, setKernelTimeout] = useState("10000");
   const [aiEnabled, setAiEnabled] = useState(true);
-  const [terminalCellsEnabled, setTerminalCellsEnabled] = useState(false);
   const [aiProvider, setAiProvider] = useState<AiProvider>("openai");
   const [openaiModel, setOpenaiModel] = useState("");
   const [openaiApiKey, setOpenaiApiKey] = useState("");
@@ -579,7 +530,7 @@ const SettingsPage = () => {
   const availableTabs = useMemo(() => {
     const tabs: SettingsTab[] = ["profile"];
     if (isAdmin) {
-      tabs.push("runtime", "ai", "users");
+      tabs.push("runtime", "ai", "plugins", "users");
     }
     return tabs;
   }, [isAdmin]);
@@ -631,7 +582,6 @@ const SettingsPage = () => {
       setThemeValue(parsed.theme);
       setKernelTimeout(String(parsed.kernelTimeoutMs));
       setAiEnabled(parsed.aiEnabled);
-      setTerminalCellsEnabled(parsed.terminalCellsEnabled);
       setAiProvider(parsed.ai.provider);
       setOpenaiModel(parsed.ai.openai.model ?? "");
       setOpenaiKeyConfigured(parsed.ai.openai.apiKeyConfigured);
@@ -713,7 +663,6 @@ const SettingsPage = () => {
       setThemeValue(data.theme);
       setKernelTimeout(String(data.kernelTimeoutMs));
       setAiEnabled(data.aiEnabled);
-      setTerminalCellsEnabled(data.terminalCellsEnabled);
       setAiProvider(data.ai.provider);
       setOpenaiModel(data.ai.openai.model ?? "");
       setOpenaiKeyConfigured(data.ai.openai.apiKeyConfigured);
@@ -811,55 +760,6 @@ const SettingsPage = () => {
     resetFeedback,
     savingSection,
   ]);
-
-  const handleTerminalCellsToggle = useCallback(
-    async (next: boolean) => {
-      if (savingSection === "terminalCells" || next === terminalCellsEnabled) {
-        return;
-      }
-      setSavingSection("terminalCells");
-      resetFeedback();
-      try {
-        const response = await fetch(`${API_BASE_URL}/settings`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ terminalCellsEnabled: next }),
-        });
-        if (!response.ok) {
-          throw new Error(`Request failed with status ${response.status}`);
-        }
-        const payload = await response.json();
-        const parsed = parseSettings(payload?.data);
-        if (!parsed) {
-          throw new Error("Received malformed settings payload");
-        }
-        applyResponse(parsed);
-        pushFeedback(
-          "runtime",
-          "success",
-          next
-            ? "Terminal cells enabled. Sessions run as the NodeBooks host user."
-            : "Terminal cells disabled."
-        );
-      } catch (err) {
-        console.error(err);
-        pushFeedback(
-          "runtime",
-          "error",
-          "Unable to update terminal cell availability."
-        );
-      } finally {
-        setSavingSection(null);
-      }
-    },
-    [
-      applyResponse,
-      pushFeedback,
-      resetFeedback,
-      savingSection,
-      terminalCellsEnabled,
-    ]
-  );
 
   const handleAiSave = useCallback(async () => {
     if (savingSection === "ai") {
@@ -1130,17 +1030,13 @@ const SettingsPage = () => {
       return null;
     }
     return (
-      <div
-        className={cn(
-          "rounded-md border px-3 py-2 text-sm",
-          feedback.type === "success"
-            ? "border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-500/60 dark:bg-emerald-950/40 dark:text-emerald-200"
-            : "border-rose-300 bg-rose-50 text-rose-700 dark:border-rose-500/60 dark:bg-rose-950/40 dark:text-rose-200"
-        )}
-        role="status"
-      >
-        {feedback.message}
-      </div>
+      <AlertCallout
+        level={feedback.type === "success" ? "success" : "error"}
+        text={feedback.message}
+        onClose={resetFeedback}
+        dismissLabel="Dismiss feedback"
+        className="w-full"
+      />
     );
   };
 
@@ -1150,35 +1046,38 @@ const SettingsPage = () => {
     content = <LoadingOverlay label="Loading settings…" />;
   } else if (error) {
     content = (
-      <Card className="mt-8 max-w-xl border-amber-300 bg-amber-50/80 dark:border-amber-500/60 dark:bg-amber-500/10">
-        <CardContent className="space-y-4 px-6 py-6">
-          <p className="text-sm text-amber-800 dark:text-amber-200">{error}</p>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => {
-              void refresh();
-            }}
-          >
-            Try again
-          </Button>
-        </CardContent>
-      </Card>
+      <div className="mt-8 max-w-xl space-y-4">
+        <AlertCallout level="warn" text={error} />
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => {
+            void refresh();
+          }}
+        >
+          Try again
+        </Button>
+      </div>
     );
   } else {
     content = (
       <Tabs
         value={activeTab}
         onValueChange={(value) => setActiveTab(value as SettingsTab)}
-        className="mt-8 w-full max-w-2xl"
+        className="mt-8 w-full max-w-5xl"
       >
-        <TabsList className="flex w-full flex-wrap gap-2 bg-muted/40 p-1">
+        <TabsList className="w-full overflow-x-auto">
           {availableTabs.map((tab) => (
             <TabsTrigger
               key={tab}
               value={tab}
-              className="px-3 py-1.5 text-sm capitalize"
+              className="flex-1 min-w-[140px] gap-1 px-3 py-1.5 text-sm capitalize"
             >
+              {tab === "profile" && <User className="h-4 w-4" />}
+              {tab === "runtime" && <Cpu className="h-4 w-4" />}
+              {tab === "ai" && <Bot className="h-4 w-4" />}
+              {tab === "plugins" && <Puzzle className="h-4 w-4" />}
+              {tab === "users" && <Users className="h-4 w-4" />}
               {TAB_LABELS[tab]}
             </TabsTrigger>
           ))}
@@ -1213,14 +1112,6 @@ const SettingsPage = () => {
             <Card className="mt-4">
               <CardContent className="space-y-6 px-6 py-6">
                 <FeedbackBanner scope="runtime" />
-                <TerminalCellsSection
-                  enabled={terminalCellsEnabled}
-                  onToggle={(next) => {
-                    void handleTerminalCellsToggle(next);
-                  }}
-                  saving={savingSection === "terminalCells" || loading}
-                />
-                <Separator />
                 <KernelSection
                   value={kernelTimeout}
                   onChange={setKernelTimeout}
@@ -1268,6 +1159,15 @@ const SettingsPage = () => {
                     Enable the AI assistant to configure provider credentials.
                   </p>
                 )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+        ) : null}
+        {availableTabs.includes("plugins") ? (
+          <TabsContent value="plugins" className="focus-visible:outline-none">
+            <Card className="mt-4">
+              <CardContent className="px-6 py-6">
+                <PluginManager isAdmin={isAdmin} />
               </CardContent>
             </Card>
           </TabsContent>

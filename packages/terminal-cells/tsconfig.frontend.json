@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.json",
+  "include": ["src/frontend.ts", "src/frontend/**/*"],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "src/backend",
+    "src/backend.ts",
+    "src/index.ts"
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "runtime",
+    "outDir": "dist",
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "target": "es2022",
+    "skipLibCheck": true
+  },
+  "include": ["runtime/**/*.ts", "runtime/**/*.js", "runtime/**/*.d.ts"],
+  "exclude": ["dist", "node_modules"]
+}
