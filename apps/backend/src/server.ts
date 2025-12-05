@@ -57,20 +57,6 @@ declare module "fastify" {
   interface FastifyRequest {
     user?: SafeUser;
     authSession?: AuthSession;
-    cookies: Record<string, string | undefined>;
-  }
-
-  interface FastifyReply {
-    cookies: Record<string, string | undefined>;
-    setCookie(
-      name: string,
-      value: string,
-      options?: import("@fastify/cookie").CookieSerializeOptions
-    ): this;
-    clearCookie(
-      name: string,
-      options?: import("@fastify/cookie").CookieSerializeOptions
-    ): this;
   }
 }
 

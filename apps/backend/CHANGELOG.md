@@ -1,5 +1,11 @@
 # @nodebooks/server
 
+## 0.5.1
+
+### Patch Changes
+
+- Fixed type declarations
+
 ## 0.5.0
 
 ### Minor Changes
