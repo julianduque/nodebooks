@@ -116,11 +116,6 @@ export async function loadPlugins(
       // Register plugin in the global registry
       await backendPluginRegistry.register(plugin);
 
-      // Initialize plugin if needed
-      if (plugin.init) {
-        await plugin.init();
-      }
-
       // Register backend routes for each cell type
       for (const cellDef of plugin.cells) {
         if (!cellDef.backend) {
