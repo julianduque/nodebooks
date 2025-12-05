@@ -1,5 +1,17 @@
 # @nodebooks/cli
 
+## 0.4.0
+
+### Minor Changes
+
+- New plugin architecture, each cell is its own plugin
+
+### Patch Changes
+
+- Updated dependencies
+  - @nodebooks/server@0.5.0
+  - @nodebooks/config@0.4.0
+
 ## 0.3.2
 
 ### Patch Changes

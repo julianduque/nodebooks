@@ -1,5 +1,11 @@
 # @nodebooks/notebook-schema
 
+## 0.4.0
+
+### Minor Changes
+
+- New plugin architecture, each cell is its own plugin
+
 ## 0.3.0
 
 ### Minor Changes

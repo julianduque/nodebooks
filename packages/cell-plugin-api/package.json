@@ -1,6 +1,6 @@
 {
   "name": "@nodebooks/cell-plugin-api",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Plugin API specification for NodeBooks cell plugins",
   "author": "Julián Duque <julianduquej@gmail.com>",
   "license": "MIT",

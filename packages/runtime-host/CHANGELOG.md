@@ -1,5 +1,18 @@
 # @nodebooks/runtime-host
 
+## 0.4.0
+
+### Minor Changes
+
+- New plugin architecture, each cell is its own plugin
+
+### Patch Changes
+
+- Updated dependencies
+  - @nodebooks/notebook-schema@0.4.0
+  - @nodebooks/runtime-node-worker@0.4.0
+  - @nodebooks/runtime-protocol@0.4.0
+
 ## 0.3.0
 
 ### Minor Changes

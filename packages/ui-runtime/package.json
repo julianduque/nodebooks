@@ -1,6 +1,6 @@
 {
   "name": "@nodebooks/ui-runtime",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Lightweight UI helper bundle for NodeBooks sandboxed notebooks.",
   "author": "Julián Duque <julianduquej@gmail.com>",
   "license": "MIT",

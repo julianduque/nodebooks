@@ -1,6 +1,6 @@
 {
   "name": "@nodebooks/runtime-host",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Host process utilities that coordinate the NodeBooks execution runtimes.",
   "author": "Julián Duque <julianduquej@gmail.com>",
   "license": "MIT",

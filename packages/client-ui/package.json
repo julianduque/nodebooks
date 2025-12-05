@@ -1,6 +1,6 @@
 {
   "name": "@nodebooks/client-ui",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Shared UI components and utilities for NodeBooks client applications and plugins",
   "author": "Julián Duque <julianduquej@gmail.com>",
   "license": "MIT",
