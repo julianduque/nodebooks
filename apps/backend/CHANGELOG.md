@@ -1,5 +1,11 @@
 # @nodebooks/server
 
+## 0.5.4
+
+### Patch Changes
+
+- Fix plugin runtime dependencies
+
 ## 0.5.3
 
 ### Patch Changes

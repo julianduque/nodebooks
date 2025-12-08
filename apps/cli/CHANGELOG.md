@@ -1,5 +1,13 @@
 # @nodebooks/cli
 
+## 0.4.4
+
+### Patch Changes
+
+- Fix plugin runtime dependencies
+- Updated dependencies
+  - @nodebooks/server@0.5.4
+
 ## 0.4.3
 
 ### Patch Changes
