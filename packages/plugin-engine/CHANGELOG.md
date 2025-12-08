@@ -1,5 +1,13 @@
 # @nodebooks/plugin-engine
 
+## 0.2.2
+
+### Patch Changes
+
+- Fix TypeScript project type
+- Updated dependencies
+  - @nodebooks/cell-plugin-api@0.2.2
+
 ## 0.2.1
 
 ### Patch Changes

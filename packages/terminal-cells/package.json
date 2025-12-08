@@ -1,6 +1,6 @@
 {
   "name": "@nodebooks/terminal-cells",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Terminal and Command cell plugins for NodeBooks",
   "author": "Julián Duque <julianduquej@gmail.com>",
   "license": "MIT",

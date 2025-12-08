@@ -1,5 +1,11 @@
 # @nodebooks/cli
 
+## 0.4.3
+
+### Patch Changes
+
+- @nodebooks/server@0.5.3
+
 ## 0.4.2
 
 ### Patch Changes

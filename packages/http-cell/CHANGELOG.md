@@ -1,5 +1,12 @@
 # @nodebooks/http-cell
 
+## 0.2.2
+
+### Patch Changes
+
+- Updated dependencies
+  - @nodebooks/cell-plugin-api@0.2.2
+
 ## 0.2.1
 
 ### Patch Changes

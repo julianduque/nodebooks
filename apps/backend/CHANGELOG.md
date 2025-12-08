@@ -1,5 +1,18 @@
 # @nodebooks/server
 
+## 0.5.3
+
+### Patch Changes
+
+- Updated dependencies
+  - @nodebooks/cell-plugin-api@0.2.2
+  - @nodebooks/plugin-engine@0.2.2
+  - @nodebooks/ai-cell@0.2.2
+  - @nodebooks/http-cell@0.2.2
+  - @nodebooks/plot-cell@0.2.2
+  - @nodebooks/sql-cell@0.2.2
+  - @nodebooks/terminal-cells@0.2.2
+
 ## 0.5.2
 
 ### Patch Changes
