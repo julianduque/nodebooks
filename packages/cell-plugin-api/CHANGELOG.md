@@ -1,5 +1,11 @@
 # @nodebooks/cell-plugin-api
 
+## 0.2.1
+
+### Patch Changes
+
+- Add missing dist files
+
 ## 0.2.0
 
 ### Minor Changes
